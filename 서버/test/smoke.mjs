@@ -201,7 +201,7 @@ const ASR_OK = {
   ok(sc?.status === "execute" && sc?.next_step === "brief", "transcript② → execute, next_step=brief", `${sc?.status}/${sc?.next_step}`);
   const m = sc?.metrics ?? {};
   ok(m.utterance_count === 4 && m.speech_s === 34.577 && m.silence_ratio === 0.963 && m.audio_bytes === 5600000, "transcript② → metrics(발화 수·발화 길이·무음 비율)", JSON.stringify(m));
-  ok(m.dropped_hallucination === 2 && m.dropped_hallucination_s === 59.96 && sc?.warnings?.some((w) => /환청 규칙/.test(w) && /The End/.test(w)), "transcript② → 환청 규칙(≥25s·≤3단어) 제거 + 경고, 긴 정상 발화는 유지", JSON.stringify(sc?.warnings?.find((w) => /환청/.test(w))));
+  ok(m.dropped_hallucination === 2 && m.dropped_hallucination_s === 59.96 && sc?.warnings?.some((w) => /환청 규칙/.test(w) && /The End/.test(w)), "transcript② → 환청 규칙(≥26s·≤3단어) 제거 + 경고, 긴 정상 발화는 유지", JSON.stringify(sc?.warnings?.find((w) => /환청/.test(w))));
   ok(m.dropped_after_end === 1 && sc?.warnings?.some((w) => /이후에 시작하는 발화 1건을 제거/.test(w)) && sc?.write_files?.[0]?.content?.warnings?.length >= 1, "transcript② → 영상 길이 이후 시작 발화 제거 + 경고(transcript.json 에도 기록)", JSON.stringify(sc?.warnings?.[0]));
   const wf = sc?.write_files?.[0];
   ok(wf?.path === "C:/youstudio_work/sample/transcript/transcript.json" && wf?.content?.utterances?.length === 4 && wf.content.utterances[0].text === "Hello.", "transcript② → write_files transcript.json(빈 발화 제거)", JSON.stringify(wf?.content?.utterances));
