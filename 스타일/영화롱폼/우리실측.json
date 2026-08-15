@@ -12,16 +12,16 @@
     "자당초": {
       "value": 0.122,
       "unit": "s/자(공백 1칸 정규화)",
-      "measure": "ElevenLabs eleven_v3 보이스 하와이 · 19블록 676자 → 실측 82.72s (pcm 바이트 ÷ 48000)",
-      "n": 19,
+      "measure": "ElevenLabs eleven_v3 보이스 하와이 · 26블록 915자 → 실측 111.68s (pcm 바이트 ÷ 48000)",
+      "n": 26,
       "date": "2026-08-16",
       "src": "Full Time (2023) voice/voice.json"
     },
     "블록당초": {
-      "value": 4.354,
+      "value": 4.295,
       "unit": "s/블록",
       "measure": "같은 실측",
-      "n": 19,
+      "n": 26,
       "date": "2026-08-16",
       "src": "voice/voice.json"
     }
