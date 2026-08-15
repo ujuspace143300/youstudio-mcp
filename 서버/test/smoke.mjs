@@ -16,6 +16,8 @@
  *      ② 결과: 발화 정리 → write_files transcript.json · metrics · next_step=brief · 발화 0건 hard_fail
  *   7) tools/call brief — ① 지시: judge job(EvoLink, inputs 파일 치환, auth env 만) ② 결과: 사건 검사·정렬·
  *      write_files brief.json · metrics(사건 수·평균·커버리지) · 0건 hard_fail · 범위 밖 반려
+ *   8) tools/call select — ① 지시: do[](프레임·클립) + judge 3콜(Google, @inline_file/@file_uri, auth env 만)
+ *      ② 결과: 우선순위 채움 → 시간순·비겹침·크레딧 이전 · 역할 · metrics(최대 미선택 스트레치) · 게이트 · write_files 2개
  */
 const URL_ = process.env.MCP_URL ?? "http://localhost:8787";
 const PROTOCOL = "2025-11-25"; // 2025 세대(stateless) 로 붙는다 — 서버가 legacy 폴백으로 받는다
@@ -122,9 +124,9 @@ console.log(`서버: ${URL_}`);
 
 // 6) 미구현 단계
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "select", preset: "영화롱폼" } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼" } });
   const sc = res.structuredContent;
-  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "select → not_implemented 스텁", sc?.message);
+  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "script → not_implemented 스텁", sc?.message);
 }
 
 // 7) tools/call probe (정상 — Full Time 실측과 같은 모양의 ffprobe JSON)
@@ -283,6 +285,85 @@ const BRIEF_OK = {
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "brief", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY } } });
   const sc = res.structuredContent;
   ok(res.isError === true && sc?.status === "error" && /transcript_path/.test(sc?.message ?? ""), "brief(carry 없음) → 반려 + 고치는 법", sc?.message);
+}
+
+// 19) tools/call select ① 지시 (payload.visual 없음)
+const FACTS = {
+  credits_start_s: 854.3,
+  ending_visual_only: { start_s: 780.0, end_s: 854.3, note: "대사 없는 시각적 결말" },
+  silent_visual_stretches: [{ start_s: 316.4, end_s: 376.4, note: "혼자 서 있음" }, { start_s: 469.6, end_s: 609.6, note: "몽타주" }],
+};
+const BRIEF_DOC = { events: [
+  { n: 1, start: 0, end: 34.8, summary: "친구들과 황당한 대화", importance: 2, spoiler: false },
+  { n: 2, start: 76.4, end: 95.5, summary: "낯선 남자 등장, 50달러", importance: 4, spoiler: false },
+  { n: 3, start: 110.5, end: 134.8, summary: "네모 칸에 서 있어 달라", importance: 5, spoiler: false },
+  { n: 4, start: 376.4, end: 408.4, summary: "소매치기 도움 거절", importance: 4, spoiler: false },
+  { n: 5, start: 720.7, end: 759.8, summary: "2,000달러·은퇴 선언", importance: 5, spoiler: true },
+  { n: 6, start: 870.7, end: 924.2, summary: "엔딩곡", importance: 1, spoiler: true },
+] };
+const UTT = [[1, 3], [80, 82], [115, 118], [120, 125], [380, 385], [400, 402], [725, 730], [740, 745], [880, 890]];
+const CARRY_S = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/youstudio_work/sample/transcript/transcript.json", brief_path: "C:/youstudio_work/sample/brief/brief.json", brief: BRIEF_DOC, facts: FACTS, utterance_spans: UTT };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "select", preset: "영화롱폼", payload: CARRY_S } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "select", "select① → execute, next_step=select(다시 부름)", `${sc?.status}/${sc?.next_step}`);
+  const fr = sc?.do?.find((d) => d.name === "frames_silent_0");
+  ok(fr?.argv?.[0] === "ffmpeg" && fr.argv.includes("fps=1/5,scale=640:-2") && sc?.do?.filter((d) => d.name.startsWith("clip_ending_")).length === 5, "select① → do[] 무음 구간 프레임(5s 간격) + 결말 클립 5개(15s)", `${fr?.argv?.join(" ").slice(0, 80)} … clips=${sc?.do?.filter((d) => d.name.startsWith("clip_ending_")).length}`);
+  const js = sc?.jobs?.find((j) => j.name === "judge_silent_0"), je = sc?.jobs?.find((j) => j.name === "judge_ending");
+  ok(sc?.jobs_kind === "judge" && sc?.jobs?.length === 3 && js?.provider === "google" && /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.5-flash:generateContent/.test(js?.request?.url ?? ""), "select① → judge job 3개(무음 2 + 결말 1), Google 순정 gemini-3.5-flash", js?.request?.url);
+  ok(js?.auth?.env === "GEMINI_API_KEY" && /x-goog-api-key/.test(js?.auth?.header ?? "") && !/AQ\./.test(JSON.stringify(sc)), "select① → auth GEMINI_API_KEY(x-goog-api-key), 응답에 키 값 없음", JSON.stringify(js?.auth?.env));
+  const parts0 = js?.request?.body?.contents?.[0]?.parts ?? [], partsE = je?.request?.body?.contents?.[0]?.parts ?? [];
+  const nInline = parts0.filter((p) => p["@inline_file"]).length, nUri = partsE.filter((p) => p["@file_uri"]).length;
+  ok(nInline === 12 && js?.media?.count === 12 && /\[t=316\.4s\]/.test(JSON.stringify(parts0)) && nUri === 5 && je?.media?.kind === "@file_uri", "select① → 프레임 12장(ffmpeg fps=1/5 실제 장수) @inline_file(+시각 표시) / 클립 5개 @file_uri", `inline=${nInline} uri=${nUri}`);
+  ok(js?.request?.body?.generationConfig?.responseSchema?.properties?.scenes && je?.request?.body?.generationConfig?.responseSchema?.properties?.beats, "select① → responseSchema(scenes / beats)", "");
+  ok(sc?.measure?.some((m) => m.as === "visual.silent.0" && m.unit === "gemini_json_text") && sc?.measure?.some((m) => m.as === "visual.ending") && sc?.carry?.includes("facts") && sc?.carry?.includes("brief"), "select① → measure visual.* / carry facts·brief", JSON.stringify(sc?.measure?.map((m) => m.as)));
+  ok(sc?.plan?.target_s === 510 && sc?.plan?.budget_s === 586.5 && sc?.plan?.usable_end_s === 854.3, "select① → 목표 510s · 예산 586.5s · 크레딧 이후 제외", JSON.stringify(sc?.plan));
+}
+
+// 20) tools/call select ② 결과 (정상)
+const VISUAL = {
+  silent: [
+    { scenes: [{ start: 316.4, end: 346, what: "마이클이 고개를 숙이고 서 있다", people: "마이클", visual_facts: "", importance: 1 }, { start: 346, end: 376.4, what: "광장 와이드, 그대로 서 있음", people: "마이클", visual_facts: "", importance: 1 }] },
+    { scenes: [{ start: 469.6, end: 520, what: "정장으로 출근길을 달린다", people: "마이클", visual_facts: "정장", importance: 3 }, { start: 520, end: 609.6, what: "밤 아파트 창·다시 광장", people: "마이클", visual_facts: "밤", importance: 3 }] },
+  ],
+  ending: { ending_summary: "노인이 된 마이클이 광장을 떠나 스케이트를 타다 넘어진다.", beats: [
+    { start: 780, end: 800, what: "노인 마이클이 광장에 서 있다", emotion: "쓸쓸함", importance: 3, is_ending_beat: false },
+    { start: 800, end: 836, what: "벤치의 여성에게 다가가 무언가 건넨다", emotion: "따뜻함", importance: 4, is_ending_beat: false },
+    { start: 836, end: 843.8, what: "스케이트를 타다 넘어져 쓰러진다, 블랙", emotion: "충격", importance: 5, is_ending_beat: true },
+    { start: 843.8, end: 854.3, what: "스케이트 타는 뒷모습", emotion: "여운", importance: 2, is_ending_beat: false },
+  ] },
+};
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "select", preset: "영화롱폼", payload: { ...CARRY_S, visual: VISUAL } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "script", "select② → execute, next_step=script", `${sc?.status}/${sc?.next_step} ${sc?.message ?? ""}`);
+  const segs = sc?.write_files?.find((w) => /selection\.json$/.test(w.path))?.content?.segments ?? [];
+  const sorted = segs.every((s, i) => i === 0 || s.in >= segs[i - 1].out);
+  ok(segs.length > 0 && sorted && segs.every((s) => s.out <= 854.3), "select② → 구간 시간순·비겹침·크레딧 이전", JSON.stringify(segs.map((s) => [s.in, s.out, s.role])));
+  const ending = segs.filter((s) => s.kind === "ending");
+  ok(ending.length >= 1 && ending.some((s) => s.in <= 836 && s.out >= 843.8), "select② → 결말 비트(낙상→블랙) 포함(후보 우선)", JSON.stringify(ending.map((s) => [s.in, s.out])));
+  const roles = Object.fromEntries(segs.map((s) => [s.src.join(","), s.role]));
+  ok(roles["brief#3"] === "원본대사" && roles["brief#1"] === "나레이션덮기" && segs.some((s) => s.role === "시각몽타주"), "select② → 역할(≥4 원본대사 / ≤3 나레이션덮기 / 무음 시각몽타주)", JSON.stringify(roles));
+  const m = sc?.metrics ?? {};
+  ok(m.count === segs.length && m.total_s <= 586.5 && typeof m.max_unselected_stretch?.len === "number" && m.max_unselected_stretch.end <= 854.3 && typeof m.blocks_per_min_proxy === "number", "select② → metrics(구간 수·총 길이≤예산·최대 미선택 스트레치·분당 블록 대용치)", JSON.stringify(m));
+  ok(segs.every((s) => s.out - s.in >= 20 - 0.01), "select② → 창 최소 20s 충족", JSON.stringify(segs.map((s) => s.len_s)));
+  const g16 = sc?.gates?.find((g) => /G16/.test(g.id));
+  ok(g16?.hard === true && g16?.pass === true && sc?.gates?.some((g) => /G25/.test(g.id) && g.hard === false), "select② → 게이트 G-반복(G16) hard 통과 · G-밀도 soft", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
+  ok(sc?.write_files?.length === 2 && sc?.carry?.includes("selection_path"), "select② → write_files visual.json+selection.json / carry selection_path", sc?.selection_path);
+}
+
+// 21) select ② 무음 판정 부족 → hard_fail
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "select", preset: "영화롱폼", payload: { ...CARRY_S, visual: { silent: [VISUAL.silent[0]], ending: VISUAL.ending } } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /무음 구간 판정 결과가 부족/.test(sc?.message ?? ""), "select②(무음 판정 부족) → hard_fail + 수리 지침", (sc?.message ?? "").slice(0, 80));
+}
+
+// 22) select (brief 누락) → 반려
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "select", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /payload\.brief/.test(sc?.message ?? ""), "select(brief 없음) → 반려 + 고치는 법", (sc?.message ?? "").slice(0, 80));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

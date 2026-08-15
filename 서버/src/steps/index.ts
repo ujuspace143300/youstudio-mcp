@@ -8,6 +8,7 @@ import { start } from "./start.js";
 import { probe } from "./probe.js";
 import { transcript } from "./transcript.js";
 import { brief } from "./brief.js";
+import { select } from "./select.js";
 import { stub } from "./_stub.js";
 import type { StepHandler } from "./types.js";
 
@@ -17,6 +18,7 @@ const IMPLEMENTED: Partial<Record<Step, StepHandler>> = {
   probe,
   transcript,
   brief,
+  select,
 };
 
 export const HANDLERS: Record<Step, StepHandler> = Object.fromEntries(

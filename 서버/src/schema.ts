@@ -100,6 +100,13 @@ export interface JudgeJob {
   };
   /** 파일 내용을 바디의 placeholder 자리에 문자열로 넣는다 (payload 에 본문을 싣지 않기 위함) */
   inputs: { placeholder: string; path: string; note?: string }[];
+  /**
+   * 미디어 표식 파트 — body.contents[].parts[] 안에 아래 모양이 있으면 runner 가 실제 파트로 바꾼다.
+   *   {"@inline_file": {path, mime}} → {inline_data: {mime_type, data: <base64>}}          (프레임 jpg 등 작은 파일)
+   *   {"@file_uri":    {path, mime}} → Files API 업로드 → {file_data: {mime_type, file_uri}} (영상 클립. Google 순정 전용, state ACTIVE 까지 대기)
+   * 이 칸은 안내용 — 어떤 표식을 몇 개 썼는지. 판단은 파트 자체가 한다.
+   */
+  media?: { kind: "@inline_file" | "@file_uri"; count: number; note?: string };
   /** 키 위치. env 이름만 — 서버는 키를 보관하지 않는다 */
   auth: { env: string; header: string; note: string };
   /** 응답 본문(JSON)을 이 파일에 그대로 저장 */

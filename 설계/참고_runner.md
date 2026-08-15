@@ -132,4 +132,6 @@ step = "start"                       # 소재(source)는 start 에서 한 번만
 
 **우리 실측 (2026-08-15, youstudio brief 단계)**: EvoLink v1beta 는 `generationConfig.responseSchema`(structured output) 도 수용한다 — 첫 호출에서 모델이 키 이름을 흉내 내(`summary`→`text`/`address`) 검사에 걸렸고, responseSchema 를 건 두 번째 호출은 23건 전부 스키마대로 왔다. gemini-3.5-flash · 입력 12k 토큰 · 출력 2k · 11.7초.
 
+**우리 실측 2 (2026-08-15, youstudio select 준비)**: EvoLink v1beta 는 `inline_data` 로 **이미지(jpg)와 영상(mp4, 소리 포함)** 도 받는다 — 15s·0.45MB 클립을 base64 로 넣자 usage 에 AUDIO 374 · VIDEO 990 토큰이 찍히고 "넘어질 때 쿵 하는 소리"까지 답했다. 즉 Files API 는 **인라인 상한(요청 ≈20MB)을 넘는 큰 클립**에만 필요하다. 같은 날 Google 순정 키는 429 "prepayment credits are depleted"(선불 크레딧 0)로 실패.
+
 우리 서버에 가져올 것: 주소·헤더 규약, judge 바디 모양(temp 0.3~0.4 · thinkingBudget 0 · JSON 강제 · maxOutputTokens 명시), 잘림 감지, 키는 env 위치만 지시. 안 가져올 것: 자동 폴백·강등(우리는 규격.json 에 backend 를 고정하고 실패는 반려로 사람에게 올린다).
