@@ -31,7 +31,9 @@
     "음성.제공자": "2026-08-16 결정: ElevenLabs eleven_v3, 사용자 본인 계정 키. API /v1/models 로 확인 — model_id `eleven_v3`(Eleven v3), 한국어 지원, TTS 가능, 요청당 5,000자. Typecast 는 숏폼 스타일용 후보로 보류(외부서비스.md)",
     "음성.출력형식": "pcm(16bit 모노 원시)로 받아 runner 가 wav 로 감싼다 — mp3 인코더 패딩 없이 길이를 정확히 잰다(measure-never-predict). 길이 = 바이트 ÷ (샘플레이트×2). 2026-08-16 실측: pcm_44100 은 Pro 티어 전용(403 output_format_not_allowed), creator 티어에서는 pcm_24000 이 통과 → 24000. 나레이션 음성엔 충분(대역 12kHz)",
     "음성.voice_settings": "eleven_v3 는 stability 를 0.0/0.5/1.0(Creative/Natural/Robust) 중 하나만 받는다 → 0.5. 나머지는 기본값. 검증 필요",
-    "음성.보이스_ID": "2026-08-16 사용자 확정 — voice/samples 3종(Kyle·하와이·Jennie) 청취. 하와이(cloned, 계정 자산). 샘플 실측 0.112~0.121 s/자"
+    "음성.보이스_ID": "2026-08-16 사용자 확정 — voice/samples 3종(Kyle·하와이·Jennie) 청취. 하와이(cloned, 계정 자산). 샘플 실측 0.112~0.121 s/자",
+    "자막.폰트": "가족 배정 1층(ROLE_FONT nar=본명조·dlg=광화문) 그대로. 이 PC 확인(2026-08-16): Source Han Serif K 설치됨, Sandoll Gwanghwamun·Nemony·GyeokdongMyeongjo 등 1,817 패밀리가 산돌구름으로 노출됨. 크기 대역은 정답지 「자막」(G34) 이관 예정",
+    "자막.폰트_제공방식": "산돌구름은 원래 파일 다운로드가 아니라 클라우드 주입 방식이 정상이다. 프리미어에서 이름으로 불러오는 것은 볼케이노 실사용에서 이미 검증됐다(사용자 증언, 2026-08-16). 남은 확인은 하나 — ffmpeg 자막 굽기(2차 목표 render)에서 주입 폰트를 쓸 수 있는지는 그 단계에서 확인한다"
   },
   "전사": {
     "제공자": "groq",
@@ -253,7 +255,31 @@
       "bridge"
     ]
   },
-  "자막": {},
+  "자막": {
+    "_안내": "subtitle 설정값. 폰트는 산돌구름 클라우드 주입 폰트를 이름으로 지정한다. 나머지(줄 자수·간격 등)는 subtitle 갈림 결정 뒤 채운다",
+    "폰트": {
+      "나레": {
+        "표시명": "본명조",
+        "패밀리": "Source Han Serif K",
+        "PS명": "SourceHanSerifK-Bold",
+        "출처": "설치 폰트(Adobe/Google 무료). 가족 ROLE_FONT nar"
+      },
+      "대사": {
+        "표시명": "광화문",
+        "패밀리": "Sandoll Gwanghwamun",
+        "PS명": "SDGwanghwamun",
+        "출처": "산돌구름 클라우드 주입. 가족 ROLE_FONT dlg"
+      },
+      "강조": {
+        "표시명": "네모니2정자",
+        "패밀리": "Sandoll Nemony 01 Basic",
+        "PS명": "SDNemony2dBasicBd",
+        "출처": "산돌구름 클라우드 주입. 가족 TONE_FONT reveal — 후속 판에서 사용",
+        "상태": "보류"
+      }
+    },
+    "폰트_제공방식": "산돌구름 클라우드 주입 (파일 없음, 서비스가 켜져 있을 때 OS 에 이름으로 노출)"
+  },
   "조립": {},
   "음성": {
     "제공자": "elevenlabs",
