@@ -24,6 +24,7 @@ interface TranscribeSpec {
   오디오추출: { 샘플레이트_hz: number; 채널: number; 코덱: string; 비트레이트: string; 확장자: string };
   파일상한_mb: number;
   분할전사: string;
+  환청규칙: { 최소길이_s: number; 최대단어: number };
 }
 const T = (spec as unknown as { 전사: TranscribeSpec })["전사"];
 
@@ -158,10 +159,20 @@ export const transcript: StepHandler = {
     // 규칙 (단계상세.md 2. transcript): 발화 시작이 원본 길이 이후면 제거하고 경고 기록.
     //   근거: Full Time whisper 끝부분 환청 실측 ("Thank you." 925.9→955.9s, 2026-08-15)
     // 원본 길이를 넘는 끝 타임코드는 길이에 맞춰 자른다.
+    // 규칙 ⓐ 환청 (규격.json 전사.환청규칙): 길이 ≥ 최소길이_s 이면서 단어 ≤ 최대단어 → 제거+경고.
+    //   근거: Full Time 실측 — 무음 구간에서 정확히 30.0s "Thank you."/"The End"/"I'm sorry." 10개 (단계상세.md 2. transcript)
     let clamped = 0;
     const droppedAfterEnd: { start: number; end: number; text: string }[] = [];
+    const droppedHallucination: { start: number; end: number; text: string }[] = [];
+    const H = T.환청규칙;
     const utterances = raw.segments
       .filter((s) => typeof s.start === "number" && typeof s.end === "number" && (s.text ?? "").trim().length > 0 && s.end > s.start)
+      .filter((s) => {
+        const dur = (s.end as number) - (s.start as number);
+        const words = (s.text ?? "").trim().split(/\s+/).filter(Boolean).length;
+        if (dur >= H.최소길이_s && words <= H.최대단어) { droppedHallucination.push({ start: s.start as number, end: s.end as number, text: (s.text ?? "").trim() }); return false; }
+        return true;
+      })
       .filter((s) => {
         if ((s.start as number) >= durationS) { droppedAfterEnd.push({ start: s.start as number, end: s.end as number, text: (s.text ?? "").trim() }); return false; }
         return true;
@@ -187,6 +198,10 @@ export const transcript: StepHandler = {
     const silenceRatio = durationS > 0 ? r3(Math.max(0, 1 - speechS / durationS)) : null;
     const lastEnd = utterances[utterances.length - 1].end;
     const warnings: string[] = [];
+    if (droppedHallucination.length > 0) {
+      const dropS = r3(droppedHallucination.reduce((a, d) => a + (d.end - d.start), 0));
+      warnings.push(`환청 규칙(길이 ≥${H.최소길이_s}s · 단어 ≤${H.최대단어})으로 세그먼트 ${droppedHallucination.length}건(${dropS}s)을 제거했다: ${droppedHallucination.map((d) => `${r3(d.start)}→${r3(d.end)}s "${d.text.slice(0, 20)}"`).join(", ")}`);
+    }
     if (droppedAfterEnd.length > 0) {
       warnings.push(`원본 길이(${durationS}s) 이후에 시작하는 발화 ${droppedAfterEnd.length}건을 제거했다 (whisper 끝부분 환청 규칙): ${droppedAfterEnd.map((d) => `${d.start}→${d.end}s "${d.text.slice(0, 20)}"`).join(", ")}`);
     }
@@ -229,6 +244,8 @@ export const transcript: StepHandler = {
         utterance_count: utterances.length,
         speech_s: speechS,
         silence_ratio: silenceRatio,
+        dropped_hallucination: droppedHallucination.length,
+        dropped_hallucination_s: r3(droppedHallucination.reduce((a, d) => a + (d.end - d.start), 0)),
         dropped_after_end: droppedAfterEnd.length,
         clamped_end: clamped,
         audio_bytes: readBytes(payload.audio_bytes),

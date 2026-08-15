@@ -37,7 +37,7 @@ npm test               # = node test/smoke.mjs
 # 포트를 바꿨으면: MCP_URL=http://localhost:8788 npm test
 ```
 
-검사 항목: `/health` · `initialize`(서버 이름·지시문) · `tools/list`(도구 1개, step enum 10개) · `setup`(argv 2개·spec·폴더 목록) · `start`(ffprobe argv·out 경로·measure/carry) · `start` 반려(고치는 법 포함) · 미구현 스텁 · `probe` 정상(metrics·carry·jobs 없음·ASR 대기 지시) · `probe` 오디오 없음(hard_fail+수리 지침) · `probe` payload 없음(반려) · `transcript`① 지시(do[]·transcribe job·auth 에 키 값 없음·상한 안내) · `transcript`② 결과(metrics·write_files·클램프·carry) · 발화 0건 hard_fail · carry 없음 반려 · `brief`① 지시(judge job·inputs 치환·responseSchema·auth 에 키 값 없음) · `brief`② 결과(정렬·클램프·metrics·write_files) · 0건 hard_fail · 범위 밖 반려 · carry 없음 반려. 55항목 전부 `✓` 면 "전부 통과".
+검사 항목: `/health` · `initialize`(서버 이름·지시문) · `tools/list`(도구 1개, step enum 10개) · `setup`(argv 2개·spec·폴더 목록) · `start`(ffprobe argv·out 경로·measure/carry) · `start` 반려(고치는 법 포함) · 미구현 스텁 · `probe` 정상(metrics·carry·jobs 없음·ASR 대기 지시) · `probe` 오디오 없음(hard_fail+수리 지침) · `probe` payload 없음(반려) · `transcript`① 지시(do[]·transcribe job·auth 에 키 값 없음·상한 안내) · `transcript`② 결과(metrics·write_files·클램프·carry) · 발화 0건 hard_fail · carry 없음 반려 · `brief`① 지시(judge job·inputs 치환·responseSchema·auth 에 키 값 없음) · `brief`② 결과(정렬·클램프·metrics·write_files) · 0건 hard_fail · 범위 밖 반려 · carry 없음 반려. 56항목 전부 `✓` 면 "전부 통과".
 
 타입 검사만: `npm run typecheck`
 
