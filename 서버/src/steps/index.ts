@@ -6,6 +6,7 @@ import { STEP_ORDER, type Step } from "../schema.js";
 import { setup } from "./setup.js";
 import { start } from "./start.js";
 import { probe } from "./probe.js";
+import { transcript } from "./transcript.js";
 import { stub } from "./_stub.js";
 import type { StepHandler } from "./types.js";
 
@@ -13,6 +14,7 @@ const IMPLEMENTED: Partial<Record<Step, StepHandler>> = {
   setup,
   start,
   probe,
+  transcript,
 };
 
 export const HANDLERS: Record<Step, StepHandler> = Object.fromEntries(

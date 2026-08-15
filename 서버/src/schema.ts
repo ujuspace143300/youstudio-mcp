@@ -66,6 +66,35 @@ export interface ArgvJob {
   note?: string;
 }
 
+/** 외부 전사 호출 한 건. 키 값은 절대 담지 않는다 — auth 는 "어디서 읽어라"만 */
+export interface TranscribeJob {
+  name: string;
+  provider: "groq";
+  model: string;
+  /** HTTP 요청 명세. runner 는 이대로 보낸다 */
+  request: {
+    method: "POST";
+    url: string;
+    /** multipart/form-data 필드. 값이 "@<경로>" 면 파일 업로드 */
+    multipart: Record<string, string>;
+  };
+  /** 키 위치. env 이름만 — 서버는 키를 보관하지 않는다 */
+  auth: { env: string; header: string; note: string };
+  /** 응답 본문(JSON)을 이 파일에 그대로 저장 */
+  out: string;
+  note?: string;
+}
+
+export type Job = ArgvJob | TranscribeJob;
+
+/** 서버가 내용을 정하고 runner 가 파일로 쓴다 (볼케이노 write_files) */
+export interface WriteFile {
+  path: string;
+  /** 문자열이면 그대로, 객체면 JSON(들여쓰기 2)으로 쓴다 */
+  content: string | Record<string, unknown>;
+  note?: string;
+}
+
 export interface MeasureRule {
   /** payload 의 어느 칸에 넣을지 */
   as: string;
@@ -88,9 +117,13 @@ export interface StepResponse {
   instructions: string[];
   /** status=need_input 일 때 무엇이 왜 필요한지 */
   need_input: { keys: string[]; why: string } | null;
+  /** jobs 앞에 실행하는 준비용 로컬 명령(argv). 볼케이노 do[] 와 이름은 같지만 순서는 앞 — 우리 argv 는 전사·판정의 입력을 만든다 (설계/단계상세.md 「응답 칸」) */
+  do?: ArgvJob[];
   /** 기계 일감 묶음. 종류는 jobs_kind 가 선언한다 (모양으로 추측하지 않는다) */
-  jobs: ArgvJob[];
+  jobs: Job[];
   jobs_kind: JobsKind | null;
+  /** 서버가 정한 내용을 runner 가 파일로 쓴다. jobs 뒤, measure 앞 */
+  write_files?: WriteFile[];
   /** runner 에게 주는 측정 규칙 — 무엇을 재서 payload 어느 칸에 넣을지 (볼케이노 문법) */
   measure: MeasureRule[];
   /**

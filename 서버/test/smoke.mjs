@@ -12,6 +12,8 @@
  *   4) tools/call start — ffprobe argv 가 조립돼 오고 next_step=probe
  *   5) tools/call probe — 정상 JSON 이면 metrics·carry 가 오고 next_step=transcript
  *      오디오 없는 JSON 이면 hard_fail(status error) + 수리 지침 · payload 없으면 반려
+ *   6) tools/call transcript — ① 지시: do[](ffmpeg 추출·크기) + transcribe job(Groq, auth 는 env 이름만)
+ *      ② 결과: 발화 정리 → write_files transcript.json · metrics · next_step=brief · 발화 0건 hard_fail
  */
 const URL_ = process.env.MCP_URL ?? "http://localhost:8787";
 const PROTOCOL = "2025-11-25"; // 2025 세대(stateless) 로 붙는다 — 서버가 legacy 폴백으로 받는다
@@ -158,6 +160,60 @@ const CARRY = { workdir: "C:/youstudio_work/sample", source: { kind: "local_vide
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "probe", preset: "영화롱폼", payload: { ...CARRY } } });
   const sc = res.structuredContent;
   ok(res.isError === true && sc?.status === "error" && /probe\.json/.test(sc?.message ?? ""), "probe(probe 없음) → 반려 + 고치는 법", sc?.message);
+}
+
+// 10) tools/call transcript ① 지시 (payload.asr 없음)
+const PROBE_SUMMARY = { duration_s: 929.077, width: 1920, height: 1080, fps: 23.976, audio: true, audio_tracks: 1 };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "transcript", "transcript① → execute, next_step=transcript(다시 부름)", `${sc?.status}/${sc?.next_step}`);
+  const ex = sc?.do?.find((d) => d.name === "extract_audio");
+  ok(ex?.argv?.[0] === "ffmpeg" && ex.argv.includes("16000") && ex.argv.includes("-ac") && ex.argv.at(-1) === "C:/youstudio_work/sample/transcript/audio.mp3", "transcript① → do[] ffmpeg 오디오 추출(16kHz 모노 mp3)", ex?.argv?.join(" "));
+  ok(sc?.do?.some((d) => d.name === "audio_size" && d.argv[0] === "ffprobe"), "transcript① → do[] audio_size(ffprobe)", "");
+  const j = sc?.jobs?.[0];
+  ok(sc?.jobs_kind === "transcribe" && j?.provider === "groq" && j?.model === "whisper-large-v3-turbo" && j?.request?.multipart?.response_format === "verbose_json" && j?.request?.multipart?.language === "en", "transcript① → transcribe job(Groq whisper-large-v3-turbo, verbose_json, lang)", JSON.stringify(j?.request?.multipart));
+  ok(j?.auth?.env === "GROQ_API_KEY" && !/gsk_/.test(JSON.stringify(sc)), "transcript① → auth 는 env 이름만, 응답에 키 값 없음", JSON.stringify(j?.auth));
+  ok(sc?.measure?.some((m) => m.as === "asr" && m.from === "job:groq_asr") && sc?.carry?.includes("probe_summary"), "transcript① → measure asr / carry", JSON.stringify(sc?.measure));
+  ok(sc?.instructions?.some((l) => /25MB/.test(l) && /분할 전사는 미정/.test(l)), "transcript① → 지시문에 파일 상한·분할 전사 미정", "");
+}
+
+// 11) tools/call transcript ② 결과 (정상)
+const ASR_OK = {
+  language: "English", duration: 929.08, text: "hello world",
+  segments: [
+    { id: 0, start: 1.0, end: 3.5, text: " Hello.", no_speech_prob: 0.01 },
+    { id: 1, start: 4.0, end: 4.0, text: " (empty span)", no_speech_prob: 0.5 },
+    { id: 2, start: 10.25, end: 12.75, text: "  ", no_speech_prob: 0.9 },
+    { id: 3, start: 900.0, end: 905.0, text: " Bye.", no_speech_prob: 0.02 },
+    { id: 4, start: 928.0, end: 955.0, text: " Thank you.", no_speech_prob: 0.02 },
+  ],
+};
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY, asr: ASR_OK, audio_bytes: { format: { size: "5600000", duration: "929.08" } } } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "brief", "transcript② → execute, next_step=brief", `${sc?.status}/${sc?.next_step}`);
+  const m = sc?.metrics ?? {};
+  ok(m.utterance_count === 3 && m.speech_s === 8.577 && m.silence_ratio === 0.991 && m.audio_bytes === 5600000, "transcript② → metrics(발화 수·발화 길이·무음 비율)", JSON.stringify(m));
+  const wf = sc?.write_files?.[0];
+  ok(wf?.path === "C:/youstudio_work/sample/transcript/transcript.json" && wf?.content?.utterances?.length === 3 && wf.content.utterances[0].text === "Hello.", "transcript② → write_files transcript.json(빈 발화 제거)", JSON.stringify(wf?.content?.utterances));
+  ok(wf?.content?.utterances?.[2]?.end === 929.077 && sc?.warnings?.some((w) => /잘랐다/.test(w)), "transcript② → 원본 길이 넘는 끝 타임코드 클램프 + 경고", JSON.stringify(sc?.warnings));
+  ok(!sc?.warnings?.some((w) => /감지 언어/.test(w)), "transcript② → 언어 이름(English) vs 코드(en) 오경보 없음", JSON.stringify(sc?.warnings));
+  ok(sc?.carry?.includes("transcript_path") && sc?.transcript_path === wf?.path, "transcript② → carry transcript_path", sc?.transcript_path);
+}
+
+// 12) tools/call transcript ② 발화 0건 → hard_fail
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY, asr: { language: "en", segments: [] } } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /hard_fail/.test(sc?.message ?? "") && /source\.lang/.test(sc?.message ?? ""), "transcript②(발화 0건) → hard_fail + 수리 지침", (sc?.message ?? "").slice(0, 60));
+}
+
+// 13) tools/call transcript (carry 누락 → 반려)
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload: { workdir: "C:/x" } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /probe_summary/.test(sc?.message ?? ""), "transcript(carry 없음) → 반려 + 고치는 법", sc?.message);
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");
