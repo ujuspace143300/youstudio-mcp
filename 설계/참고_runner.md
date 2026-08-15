@@ -113,3 +113,23 @@ step = "start"                       # 소재(source)는 start 에서 한 번만
   4. 전사 제공자 사다리(4종 응답 파서 + 멀티파트/폴링/로컬 CLI).
 - 빨리 끝나는 것: 이미지 생성·검색 (우리 소재는 영화 원본이라 아예 필요 없을 수 있음), TTS 호출(단순 POST).
 - **핵심 시사점**: runner 는 채널을 모르므로, 우리 서버가 같은 응답 문법을 쓰면 **이 runner 를 거의 그대로 재사용**할 수 있다. 처음부터 만들 것은 서버(단계 상태 기계 + 규격 + 게이트)이지 runner 가 아니다. → `설계/단계와게이트.md` 로 이어진다.
+
+## EvoLink 호출 규약
+
+> 출처: `볼케이노 MCP/쇼폭_영화롱폼/longformmovie_이관/pipeline/engines/script_engine/gemini_client.py` (1,083줄, 2026-08-15 읽음. 읽기만 했다). 이 파일이 텍스트 판정(grounding·writer·judge)의 유일한 HTTP 클라이언트다. 우리 `judge` jobs_kind 의 근거.
+
+| 항목 | 규약 (코드 실측값 그대로) |
+| :---- | :---- |
+| **주소** | Google-Native v1beta 경로. `POST https://api.evolink.ai/v1beta/models/{model}:generateContent`. Google 순정은 `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` (`API_BASES`) |
+| **인증 헤더** | EvoLink `Authorization: Bearer <키>` · Google `x-goog-api-key: <키>` (`AUTH_HEADERS`). 키는 **헤더로만** — URL·로그·오류 본문에 안 넣는다(`_redact` 로 마스킹). 키 변수명 `CUSTOM_EVOLINK_KEY` / `CUSTOM_GOOGLE_GEMINI_KEY`, 로드 순서 환경변수 → `LFM_ENV_FILE` → 리포 `.env.local` |
+| **모델 이름 규칙** | 두 프로바이더의 `GET /models` 교집합이 같아 번역표는 **항등**(`MODEL_ALIASES` 비어 있음). 기본 `gemini-3.5-flash`. `VERIFIED_MODELS` 목록(evolink: gemini-3.5-flash / -lite / 3.6-flash / 3.1-pro-preview / 3.1-flash-lite(-preview) / 3-pro-preview / 3-flash-preview / 2.5-pro / 2.5-flash / 2.5-flash-lite) 밖이면 **차단하지 않고 1회 경고**(404 가능성 알림). EvoLink 에 `gemini-3.5-pro` 없음(404 model_not_found 실측) |
+| **백엔드 전환** | `full.llm_backend = "evolink" \| "google" \| "auto"` (기본 auto). 우선순위 환경변수 `SCRIPT_ENGINE_LLM_BACKEND` > cfg `full.llm_backend` > cfg `llm_backend`. **auto = EvoLink 키 있으면 evolink, 없으면 google**(`resolve_backend`). 그라운딩만 따로 `llm_backend_grounding` 로 분리 가능(예: 검색은 google, 작가·심사는 evolink) |
+| **폴백** | 비스트리밍이라 4xx/5xx = 수신 0바이트 = 과금 미시작 → 반대 프로바이더로 **1회만** 폴백(방향 무관). 400/401/403/404 는 영구 오류라 재시도 없이 즉시 폴백. 429/5xx 는 `Retry-After` 우선, 없으면 1.6^n 백오프로 최대 4회 재시도. 401/402/403/404/429 는 **프로바이더 단위 강등**(600초 쿨다운 — 남은 호출 전량 반대편) |
+| **바디 보정 (EvoLink)** | ① 검색툴 키 `googleSearch`(camelCase) 만 수용 — `google_search`(snake) 는 400. Google 은 snake. ② `systemInstruction` / `role:"system"` 미지원 → 첫 user 파트에 접어 넣는다. ③ `thinkingConfig.thinkingBudget=0` · `responseMimeType:"application/json"` 은 둘 다 수용(실측) |
+| **judge 호출 모양** | `{"contents":[{"role":"user","parts":[{"text":prompt}]}],"generationConfig":{"temperature":0.4,"thinkingConfig":{"thinkingBudget":0},"maxOutputTokens":8192,"responseMimeType":"application/json"}}`. story_brief 는 temp 0.3. `maxOutputTokens` 를 안 걸면 JSON 이 중간에서 잘려 온 사고 있음(2026-08-14) — 반드시 건다. 응답은 `candidates[0].content.parts[].text` 를 이어 붙임. `finishReason` 이 MAX_TOKENS/LENGTH 면 **잘림 = 오류**로 크게 낸다(조용히 통과 금지) |
+| **요율 미등록 = fail-closed** | `PRICES` 에 `(provider, model)` 요율이 없으면 `cost()` 가 `usd=None` + "요율 미등록" 메모를 돌려준다 — **0 이나 근사치로 채우지 않는다**("틀린 원가는 없는 원가보다 나쁘다"). 등록된 건 evolink/google × gemini-3.5-flash 뿐(evolink 는 정가 -10%). 토큰은 `usageMetadata` 에서 입력(캐시 제외)·출력(+thoughts)·검색 쿼리 수를 따로 센다 |
+| **Files API** | Google 순정 전용. **EvoLink 에는 files 엔드포인트가 없다** — 영상 판정(`upload_file`→`vision_video`)은 provider 를 google 로 고정하고 순정 키를 쓴다. 우리 select 단계가 구글 순정 키가 필요한 이유 |
+
+**우리 실측 (2026-08-15, youstudio brief 단계)**: EvoLink v1beta 는 `generationConfig.responseSchema`(structured output) 도 수용한다 — 첫 호출에서 모델이 키 이름을 흉내 내(`summary`→`text`/`address`) 검사에 걸렸고, responseSchema 를 건 두 번째 호출은 23건 전부 스키마대로 왔다. gemini-3.5-flash · 입력 12k 토큰 · 출력 2k · 11.7초.
+
+우리 서버에 가져올 것: 주소·헤더 규약, judge 바디 모양(temp 0.3~0.4 · thinkingBudget 0 · JSON 강제 · maxOutputTokens 명시), 잘림 감지, 키는 env 위치만 지시. 안 가져올 것: 자동 폴백·강등(우리는 규격.json 에 backend 를 고정하고 실패는 반려로 사람에게 올린다).

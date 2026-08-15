@@ -14,6 +14,8 @@
  *      오디오 없는 JSON 이면 hard_fail(status error) + 수리 지침 · payload 없으면 반려
  *   6) tools/call transcript — ① 지시: do[](ffmpeg 추출·크기) + transcribe job(Groq, auth 는 env 이름만)
  *      ② 결과: 발화 정리 → write_files transcript.json · metrics · next_step=brief · 발화 0건 hard_fail
+ *   7) tools/call brief — ① 지시: judge job(EvoLink, inputs 파일 치환, auth env 만) ② 결과: 사건 검사·정렬·
+ *      write_files brief.json · metrics(사건 수·평균·커버리지) · 0건 hard_fail · 범위 밖 반려
  */
 const URL_ = process.env.MCP_URL ?? "http://localhost:8787";
 const PROTOCOL = "2025-11-25"; // 2025 세대(stateless) 로 붙는다 — 서버가 legacy 폴백으로 받는다
@@ -187,6 +189,7 @@ const ASR_OK = {
     { id: 2, start: 10.25, end: 12.75, text: "  ", no_speech_prob: 0.9 },
     { id: 3, start: 900.0, end: 905.0, text: " Bye.", no_speech_prob: 0.02 },
     { id: 4, start: 928.0, end: 955.0, text: " Thank you.", no_speech_prob: 0.02 },
+    { id: 5, start: 940.0, end: 960.0, text: " Thanks for watching.", no_speech_prob: 0.02 },
   ],
 };
 {
@@ -195,6 +198,7 @@ const ASR_OK = {
   ok(sc?.status === "execute" && sc?.next_step === "brief", "transcript② → execute, next_step=brief", `${sc?.status}/${sc?.next_step}`);
   const m = sc?.metrics ?? {};
   ok(m.utterance_count === 3 && m.speech_s === 8.577 && m.silence_ratio === 0.991 && m.audio_bytes === 5600000, "transcript② → metrics(발화 수·발화 길이·무음 비율)", JSON.stringify(m));
+  ok(m.dropped_after_end === 1 && sc?.warnings?.some((w) => /이후에 시작하는 발화 1건을 제거/.test(w)) && sc?.write_files?.[0]?.content?.warnings?.length >= 1, "transcript② → 영상 길이 이후 시작 발화 제거 + 경고(transcript.json 에도 기록)", JSON.stringify(sc?.warnings?.[0]));
   const wf = sc?.write_files?.[0];
   ok(wf?.path === "C:/youstudio_work/sample/transcript/transcript.json" && wf?.content?.utterances?.length === 3 && wf.content.utterances[0].text === "Hello.", "transcript② → write_files transcript.json(빈 발화 제거)", JSON.stringify(wf?.content?.utterances));
   ok(wf?.content?.utterances?.[2]?.end === 929.077 && sc?.warnings?.some((w) => /잘랐다/.test(w)), "transcript② → 원본 길이 넘는 끝 타임코드 클램프 + 경고", JSON.stringify(sc?.warnings));
@@ -214,6 +218,67 @@ const ASR_OK = {
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload: { workdir: "C:/x" } } });
   const sc = res.structuredContent;
   ok(res.isError === true && sc?.status === "error" && /probe_summary/.test(sc?.message ?? ""), "transcript(carry 없음) → 반려 + 고치는 법", sc?.message);
+}
+
+// 14) tools/call brief ① 지시 (payload.brief 없음)
+const CARRY_T = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/youstudio_work/sample/transcript/transcript.json" };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "brief", preset: "영화롱폼", payload: CARRY_T } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "brief", "brief① → execute, next_step=brief(다시 부름)", `${sc?.status}/${sc?.next_step}`);
+  const j = sc?.jobs?.[0];
+  ok(sc?.jobs_kind === "judge" && j?.provider === "evolink" && j?.model === "gemini-3.5-flash" && j?.request?.url === "https://api.evolink.ai/v1beta/models/gemini-3.5-flash:generateContent", "brief① → judge job(EvoLink gemini-3.5-flash, v1beta URL)", j?.request?.url);
+  const gc = j?.request?.body?.generationConfig;
+  ok(gc?.responseMimeType === "application/json" && gc?.thinkingConfig?.thinkingBudget === 0 && gc?.maxOutputTokens === 8192, "brief① → 바디 generationConfig(JSON 강제·thinkingBudget 0·maxOutputTokens)", JSON.stringify({ ...gc, responseSchema: "…" }));
+  ok(gc?.responseSchema?.properties?.events?.items?.required?.includes("summary"), "brief① → responseSchema 로 키 고정(summary·start·end·importance)", JSON.stringify(gc?.responseSchema?.properties?.events?.items?.required));
+  const txt = j?.request?.body?.contents?.[0]?.parts?.[0]?.text ?? "";
+  ok(/\{\{TRANSCRIPT_JSON\}\}/.test(txt) && j?.inputs?.[0]?.placeholder === "{{TRANSCRIPT_JSON}}" && j?.inputs?.[0]?.path === CARRY_T.transcript_path, "brief① → 전사는 inputs 파일 치환(본문 미동봉)", JSON.stringify(j?.inputs));
+  ok(/929\.077/.test(txt) && /23개 내외/.test(txt) && /한국어/.test(txt), "brief① → 프롬프트에 원본 길이·사건 수 목표(929s/40s→23)·한국어 요약", "");
+  ok(j?.auth?.env === "EVOLINK_API_KEY" && !/sk-/.test(JSON.stringify(sc)), "brief① → auth 는 env 이름만, 응답에 키 값 없음", JSON.stringify(j?.auth));
+  ok(sc?.measure?.[0]?.as === "brief" && sc?.measure?.[0]?.unit === "gemini_json_text" && j?.out === "C:/youstudio_work/sample/brief/brief_raw.json", "brief① → measure gemini_json_text / out brief_raw.json", JSON.stringify(sc?.measure));
+}
+
+// 15) tools/call brief ② 결과 (정상 — 정렬·클램프·커버리지)
+const BRIEF_OK = {
+  logline: "두 친구가 돈 때문에 이상한 알바를 고민한다",
+  events: [
+    { n: 2, start: 100, end: 300.5, summary: "둘째 사건", importance: 4, spoiler: false },
+    { n: 1, start: 0, end: 100, summary: "첫째 사건", importance: 2, spoiler: false },
+    { n: 3, start: 600, end: 929.6, summary: "마지막 사건", importance: 5, spoiler: true },
+  ],
+};
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "brief", preset: "영화롱폼", payload: { ...CARRY_T, brief: BRIEF_OK } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "select", "brief② → execute, next_step=select", `${sc?.status}/${sc?.next_step}`);
+  const m = sc?.metrics ?? {};
+  ok(m.event_count === 3 && m.avg_event_len_s === 209.859 && m.coverage === 0.678 && m.max_gap_s === 299.5, "brief② → metrics(사건 수·평균 길이·커버리지·빈틈)", JSON.stringify(m));
+  const wf = sc?.write_files?.[0];
+  const ev = wf?.content?.events ?? [];
+  ok(wf?.path === "C:/youstudio_work/sample/brief/brief.json" && ev.length === 3 && ev[0].n === 1 && ev[0].start === 0 && ev[2].end === 929.077, "brief② → write_files brief.json(시간순 재번호·끝 클램프)", JSON.stringify(ev.map((e) => [e.n, e.start, e.end])));
+  ok(sc?.carry?.includes("brief_path") && sc?.brief_path === wf?.path && sc?.warnings?.some((w) => /커버리지/.test(w)), "brief② → carry brief_path + 커버리지 경고", JSON.stringify(sc?.warnings));
+}
+
+// 16) tools/call brief ② 사건 0건 → hard_fail
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "brief", preset: "영화롱폼", payload: { ...CARRY_T, brief: { logline: "", events: [] } } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /hard_fail/.test(sc?.message ?? "") && /brief_raw\.json/.test(sc?.message ?? ""), "brief②(사건 0건) → hard_fail + 수리 지침", (sc?.message ?? "").slice(0, 60));
+}
+
+// 17) tools/call brief ② 타임코드 범위 밖 → 반려
+{
+  const badBrief = { logline: "x", events: [{ n: 1, start: 0, end: 50, summary: "a", importance: 3 }, { n: 2, start: 900, end: 1200, summary: "b", importance: 9 }] };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "brief", preset: "영화롱폼", payload: { ...CARRY_T, brief: badBrief } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /end 1200 > 원본 길이/.test(sc?.message ?? "") && /importance 9/.test(sc?.message ?? "") && /한 번 더 보내라/.test(sc?.message ?? ""), "brief②(범위 밖) → 반려 + 수리 지침(어느 사건이 왜)", (sc?.message ?? "").slice(0, 120));
+}
+
+// 18) tools/call brief (carry 누락 → 반려)
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "brief", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /transcript_path/.test(sc?.message ?? ""), "brief(carry 없음) → 반려 + 고치는 법", sc?.message);
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

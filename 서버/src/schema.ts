@@ -85,7 +85,29 @@ export interface TranscribeJob {
   note?: string;
 }
 
-export type Job = ArgvJob | TranscribeJob;
+/** 외부 모델 판정 한 건 (jobs_kind:"judge"). 프롬프트·바디는 서버가 조립하고, 큰 입력(전사 등)은 inputs 로 파일 치환만 지시한다 */
+export interface JudgeJob {
+  name: string;
+  provider: "evolink" | "google";
+  model: string;
+  /** HTTP 요청 명세. runner 는 inputs 치환 뒤 이대로 보낸다 */
+  request: {
+    method: "POST";
+    url: string;
+    headers: Record<string, string>;
+    /** JSON 바디. 문자열 안의 placeholder 를 inputs 로 치환한다 */
+    body: Record<string, unknown>;
+  };
+  /** 파일 내용을 바디의 placeholder 자리에 문자열로 넣는다 (payload 에 본문을 싣지 않기 위함) */
+  inputs: { placeholder: string; path: string; note?: string }[];
+  /** 키 위치. env 이름만 — 서버는 키를 보관하지 않는다 */
+  auth: { env: string; header: string; note: string };
+  /** 응답 본문(JSON)을 이 파일에 그대로 저장 */
+  out: string;
+  note?: string;
+}
+
+export type Job = ArgvJob | TranscribeJob | JudgeJob;
 
 /** 서버가 내용을 정하고 runner 가 파일로 쓴다 (볼케이노 write_files) */
 export interface WriteFile {
@@ -100,8 +122,12 @@ export interface MeasureRule {
   as: string;
   /** 어디서 재는지 — `job:<name>` */
   from: string;
-  /** 어떻게 읽는지 */
-  unit: "json_stdout" | "stdout" | "stdout_first_line" | "seconds";
+  /**
+   * 어떻게 읽는지.
+   * gemini_json_text = 응답의 candidates[0].content.parts[].text 를 이어 붙여 JSON.parse 한 것.
+   *   finishReason 이 STOP 이 아니면(MAX_TOKENS 등) 잘린 것 — 여기서 멈추고 오류로 보고한다 (참고_runner.md 「EvoLink 호출 규약」)
+   */
+  unit: "json_stdout" | "stdout" | "stdout_first_line" | "seconds" | "gemini_json_text";
 }
 
 export interface StepResponse {

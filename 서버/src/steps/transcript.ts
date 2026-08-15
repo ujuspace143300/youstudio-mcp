@@ -155,10 +155,17 @@ export const transcript: StepHandler = {
         `response_format 이 ${T.응답형식} 인지 확인하고, ${rawPath} 의 JSON 전체를 payload.asr 에 실어 다시 부르라. 응답이 {error:…} 면 그 메시지를 사람에게 보여주고 멈춘다 (키·한도·파일 크기 문제일 수 있다).`,
       );
     }
-    // 원본 길이를 넘는 타임코드는 길이에 맞춰 자른다 (whisper 는 파일 끝에서 end 를 넘겨 찍기도 한다)
+    // 규칙 (단계상세.md 2. transcript): 발화 시작이 원본 길이 이후면 제거하고 경고 기록.
+    //   근거: Full Time whisper 끝부분 환청 실측 ("Thank you." 925.9→955.9s, 2026-08-15)
+    // 원본 길이를 넘는 끝 타임코드는 길이에 맞춰 자른다.
     let clamped = 0;
+    const droppedAfterEnd: { start: number; end: number; text: string }[] = [];
     const utterances = raw.segments
-      .filter((s) => typeof s.start === "number" && typeof s.end === "number" && (s.text ?? "").trim().length > 0 && s.end > s.start && s.start < durationS)
+      .filter((s) => typeof s.start === "number" && typeof s.end === "number" && (s.text ?? "").trim().length > 0 && s.end > s.start)
+      .filter((s) => {
+        if ((s.start as number) >= durationS) { droppedAfterEnd.push({ start: s.start as number, end: s.end as number, text: (s.text ?? "").trim() }); return false; }
+        return true;
+      })
       .map((s, i) => {
         let end = s.end as number;
         if (end > durationS) { end = durationS; clamped++; }
@@ -180,6 +187,9 @@ export const transcript: StepHandler = {
     const silenceRatio = durationS > 0 ? r3(Math.max(0, 1 - speechS / durationS)) : null;
     const lastEnd = utterances[utterances.length - 1].end;
     const warnings: string[] = [];
+    if (droppedAfterEnd.length > 0) {
+      warnings.push(`원본 길이(${durationS}s) 이후에 시작하는 발화 ${droppedAfterEnd.length}건을 제거했다 (whisper 끝부분 환청 규칙): ${droppedAfterEnd.map((d) => `${d.start}→${d.end}s "${d.text.slice(0, 20)}"`).join(", ")}`);
+    }
     if (clamped > 0) warnings.push(`원본 길이(${durationS}s)를 넘는 발화 ${clamped}건의 끝을 길이에 맞춰 잘랐다 (whisper 끝부분 특성. 마지막 발화 본문이 "Thank you." 류면 환청일 수 있다 — 사람이 확인).`);
     if (durationS > 0 && lastEnd < durationS * 0.5) {
       warnings.push(`마지막 발화 끝(${lastEnd}s)이 원본 길이의 절반 이하다 — 전사가 중간에 끊겼을 수 있다 (파일 상한·분할 전사 미정).`);
@@ -196,6 +206,7 @@ export const transcript: StepHandler = {
       duration_s: durationS,
       utterance_count: utterances.length,
       speech_s: speechS,
+      warnings,
       utterances,
     };
 
@@ -218,6 +229,8 @@ export const transcript: StepHandler = {
         utterance_count: utterances.length,
         speech_s: speechS,
         silence_ratio: silenceRatio,
+        dropped_after_end: droppedAfterEnd.length,
+        clamped_end: clamped,
         audio_bytes: readBytes(payload.audio_bytes),
       },
       carry: ["source", "workdir", "probe_summary", "transcript_path"],
