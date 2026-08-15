@@ -141,7 +141,7 @@ export const voice: StepHandler = {
       warnings,
       blocks: per,
     };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10); // 서버(UTC) 날짜 — 로컬과 하루 어긋날 수 있다. runner 가 기록할 때 로컬 날짜로 고쳐도 된다
     const recordToOurs = { tts: { 자당초: { value: spc, unit: "s/자(공백 1칸 정규화)", measure: `ElevenLabs ${V.모델} 보이스 ${V.보이스_이름 ?? V.보이스_ID} · ${per.length}블록 ${totalChars}자 → 실측 ${totalS}s (pcm 바이트 ÷ ${bytesPerSec})`, n: per.length, date: today, src: `${source.title ?? source.path} voice/voice.json` }, 블록당초: { value: r3(totalS / per.length), unit: "s/블록", measure: "같은 실측", n: per.length, date: today, src: "voice/voice.json" } } };
 
     return base("voice", preset, {
