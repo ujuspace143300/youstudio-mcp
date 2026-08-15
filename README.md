@@ -30,9 +30,9 @@
 | 5 | `script` | 구간을 잇는 나레이션 집필 (대화 안 `need_input`) + 기계 검사 | ✅ |
 | 6 | `voice` | TTS(ElevenLabs eleven_v3) · 실측 길이로 슬롯 확정 · 자당초 실측 → 우리실측 | ✅ |
 | 7 | `subtitle` | 컷 타임라인 · 대사 번역 · 자막 큐(글자별 실측) · 무음 컷 · 죽은 시간 게이트 | ✅ |
-| 8 | `export` | 프리미어 교환 XML + SRT + 나레이션 음원 | 예정 |
+| 8 | `export` | FCP XML v5 + SRT 3종 + 나레이션 믹스 + manifest · 1~7 게이트 전체 재검사 | ✅ |
 
-첫 시험 소재(단편 15.5분)로 `setup`~`subtitle` 을 실호출까지 통과했다 (마일스톤 `v0.1-select` → `v0.2-script` → `v0.3-voice` → `v0.4-subtitle`).
+첫 시험 소재(단편 15.5분)로 **`setup`~`export` 전 단계**를 실호출까지 통과했다 (마일스톤 `v0.1-select` → `v0.2-script` → `v0.3-voice` → `v0.4-subtitle` → `v0.5-export`). 다음은 프리미어 실제 임포트 검증과 2차 목표 `render`(완성 mp4).
 
 ## 실행·테스트
 

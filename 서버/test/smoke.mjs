@@ -126,7 +126,7 @@ console.log(`서버: ${URL_}`);
 {
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼" } });
   const sc = res.structuredContent;
-  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "export → not_implemented 스텁", sc?.message);
+  ok(res.isError === true && sc?.status === "error" && /timeline/.test(sc?.message ?? ""), "export(빈 payload) → 반려 + 고치는 법 (스텁 없음 — 10단계 전부 구현)", (sc?.message ?? "").slice(0, 80));
 }
 
 // 7) tools/call probe (정상 — Full Time 실측과 같은 모양의 ffprobe JSON)
@@ -519,6 +519,57 @@ const TR = [{ id: "d001", ko: "야 마이크 너네 삼촌 발 전문의지" }, 
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: { ...CARRY_SUB, translations: bad } } });
   const sc = res.structuredContent;
   ok(res.isError === true && /d001: 대사 \d+자 > 29자/.test(sc?.message ?? "") && /d002: 대사 자막에 마침표·쉼표 금지/.test(sc?.message ?? "") && /번역 누락 1줄: d013/.test(sc?.message ?? ""), "subtitle②(초과·구두점·누락) → 반려 + 어느 줄이 왜", (sc?.message ?? "").slice(0, 160));
+}
+
+// 33) tools/call export ① — 나레 믹스 do[] + measure
+const TL_FIX = {
+  total_s: 30, picture: [
+    { k: 0, kind: "segment", role: "원본대사", src_in: 75.9, src_out: 95.9, t0: 0, t1: 20, audio: "keep", seg: 2 },
+    { k: 1, kind: "bridge", role: "브리지", src_in: 30, src_out: 35, t0: 20, t1: 25, audio: "duck", bridge: 0 },
+    { k: 2, kind: "segment", role: "시각몽타주", src_in: 780, src_out: 785, t0: 25, t1: 30, audio: "hold", seg: 3 },
+  ],
+  narration: [{ n: 1, t0: 1, t1: 5, wav: "C:/youstudio_work/sample/voice/b01.wav", text: "계단 앞에서.. 청년이 있죠" }, { n: 2, t0: 20.4, t1: 24.4, wav: "C:/youstudio_work/sample/voice/b02.wav", text: "친구들의 놀림은.. 듯했습니다" }],
+  cues: [
+    { lane: "nar", t0: 0, t1: 3, text: "계단 앞에서..", ref: "n1" }, { lane: "nar", t0: 3, t1: 5, text: "청년이 있죠", ref: "n1" },
+    { lane: "dlg", t0: 2.2, t1: 6, text: "저요?", ref: "d001" }, { lane: "dlg", t0: 6.5, t1: 12, text: "잠깐 뭐 좀 도와줄 수 있어요?", ref: "d002" }, { lane: "dlg", t0: 12.5, t1: 20, text: "50달러 줄게요", ref: "d003" },
+    { lane: "nar", t0: 20, t1: 22.5, text: "친구들의 놀림은..", ref: "n2" }, { lane: "nar", t0: 22.5, t1: 25, text: "듯했습니다", ref: "n2" },
+  ],
+};
+const VOICE_FIX = { blocks: [{ n: 1, bytes: 192000, dur_s: 4, wav: "C:/youstudio_work/sample/voice/b01.wav" }, { n: 2, bytes: 192000, dur_s: 4, wav: "C:/youstudio_work/sample/voice/b02.wav" }], metrics: { total_s: 8, sec_per_char_measured: 0.12 } };
+const CARRY_EX = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x", brief_path: "x", selection_path: "x", script_path: "x", voice_path: "x", timeline_path: "C:/youstudio_work/sample/subtitle/timeline.json", timeline: TL_FIX, voice: VOICE_FIX, script: { metrics: { dialogue_s: 8 } }, brief: { events: [{ n: 1, start: 0, end: 30 }] }, transcript_metrics: { utterance_count: 195 } };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: CARRY_EX } });
+  const sc = res.structuredContent;
+  const mix = sc?.do?.find((d) => d.name === "narration_mix");
+  ok(sc?.status === "execute" && sc?.next_step === "export" && mix?.argv?.[0] === "ffmpeg" && /adelay=1000\|1000/.test(mix.argv.join(" ")) && /amix=inputs=2/.test(mix.argv.join(" ")) && /apad=whole_dur=30/.test(mix.argv.join(" ")), "export① → 나레 믹스 ffmpeg(adelay 실측 t0 · amix · apad 총장)", mix?.argv?.slice(-3).join(" "));
+  ok(sc?.measure?.[0]?.as === "mix_probe" && sc?.do?.some((d) => d.name === "mix_probe"), "export① → mix_probe measure", "");
+}
+// 34) export ② — XML · SRT · manifest · 게이트 전체 재검사 → done
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: { format: { duration: "30.000000", size: "1440044" } } } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "done" && sc?.next_step === null, "export② → status=done, next_step=null", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 80)}`);
+  const xml = sc?.write_files?.find((w) => /\.xml$/.test(w.path))?.content ?? "";
+  ok(/<xmeml version="5">/.test(xml) && /<timebase>24<\/timebase><ntsc>TRUE<\/ntsc>/.test(xml) && /<width>1920<\/width><height>1080<\/height>/.test(xml), "export② → FCP XML v5 · 24 ntsc(23.976) · 1920x1080", xml.slice(0, 80).replace(/\n/g, " "));
+  const count = (re) => (xml.match(re) ?? []).length;
+  ok(count(/<clipitem id="v1-/g) === 3 && count(/<clipitem id="a1-/g) === 3 && count(/<clipitem id="a2-/g) === 2 && count(/<generatoritem id="v2-/g) === 3 && count(/<generatoritem id="v3-/g) === 4, "export② → 트랙 요소 수 = 타임라인 실측(V1 3·A1 3·A2 2·V2 3·V3 4)", `${count(/<clipitem id="v1-/g)}/${count(/<clipitem id="a1-/g)}/${count(/<clipitem id="a2-/g)}/${count(/<generatoritem id="v2-/g)}/${count(/<generatoritem id="v3-/g)}`);
+  ok(/<in>1820<\/in>/.test(xml) && /<start>480<\/start>/.test(xml) && /Audio Levels/.test(xml) && /<value>0\.25<\/value>/.test(xml), "export② → 원본 in 프레임(75.9s→1820) · 타임라인 프레임(20s→480) · 덕킹 컷 Audio Levels 0.25", "");
+  ok(/<value>Sandoll Gwanghwamun<\/value>/.test(xml) && /<value>Source Han Serif K<\/value>/.test(xml) && /file:\/\/localhost\/C:\/movies\/sample\.mp4/.test(xml), "export② → 폰트 이름(대사 광화문·나레 본명조) · pathurl", "");
+  const man = sc?.write_files?.find((w) => /manifest\.json$/.test(w.path))?.content;
+  ok(man?.counts?.cuts === 3 && man?.counts?.cues === 7 && man?.fonts?.나레?.패밀리 === "Source Han Serif K" && Array.isArray(man?.gates) && man.gates.every((g) => g.pass !== false) && man?.sequence?.total_s === 30, "export② → manifest(재료·총 길이·게이트 전부 통과·폰트)", JSON.stringify(man?.gates?.map((g) => [g.step, g.pass])));
+  ok(sc?.write_files?.length === 5 && sc?.write_files?.some((w) => /subtitle_dlg\.srt$/.test(w.path)), "export② → write_files 5개(XML·SRT 3종·manifest)", JSON.stringify(sc?.write_files?.map((w) => w.path.split("/").pop())));
+}
+// 35) export ② 믹스 길이 불일치 → hard_fail
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: { format: { duration: "12.0" } } } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /믹스 길이 12s 가 타임라인 총장 30s/.test(sc?.message ?? ""), "export②(믹스 길이 불일치) → hard_fail + 수리 지침", (sc?.message ?? "").slice(0, 100));
+}
+// 36) export ② 최종 재검사 불통 (죽은 시간 — 큐 없음)
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, timeline: { ...TL_FIX, cues: [] }, mix_probe: { format: { duration: "30.0" } } } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /최종 재검사 불통/.test(sc?.message ?? "") && /G-죽은시간/.test(sc?.message ?? ""), "export②(재검사 불통) → 어느 단계 게이트인지 + 돌아가라", (sc?.message ?? "").slice(0, 120));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

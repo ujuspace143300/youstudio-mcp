@@ -461,9 +461,9 @@ export const subtitle: StepHandler = {
       instructions: [
         `① write_files 4개를 그대로 쓴다 — ${join(subDir, "timeline.json")} · subtitle.srt(합본, 대사 줄 접두 "– ") · subtitle_nar.srt · subtitle_dlg.srt.`,
         "② metrics 와 gates 를 사람에게 보여준다. 죽은 구간 상위·나레-대사 겹침 초도.",
-        "③ carry 의 값을 payload 에 그대로 실어 next_step 을 부른다. export 는 아직 스텁이다.",
+        "③ carry 의 값을 payload 에 그대로 실어 next_step 을 부른다. export 는 payload.timeline(방금 쓴 timeline.json 내용) · voice(voice.json) · script(script.json) · brief(brief.json) · transcript_metrics(transcript.json 의 metrics 요약: utterance_count) 를 더 받는다 — 최종 재검사에 쓴다.",
       ],
-      then_call_with: ["step: 'export'", "payload: { workdir, source, probe_summary, transcript_path, brief_path, selection_path, script_path, voice_path, timeline_path }"],
+      then_call_with: ["step: 'export'", "payload: { …carry, timeline: <timeline.json>, voice: <voice.json>, script: <script.json>, brief: <brief.json>, transcript_metrics: { utterance_count } }"],
       jobs_kind: null, jobs: [], measure: [],
       write_files: [
         { path: join(subDir, "timeline.json"), content: timelineDoc, note: "컷 타임라인 + 나레 배치 + 큐. export 의 입력" },

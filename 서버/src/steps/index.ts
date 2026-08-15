@@ -12,6 +12,7 @@ import { select } from "./select.js";
 import { script } from "./script.js";
 import { voice } from "./voice.js";
 import { subtitle } from "./subtitle.js";
+import { exportStep } from "./export.js";
 import { stub } from "./_stub.js";
 import type { StepHandler } from "./types.js";
 
@@ -25,6 +26,7 @@ const IMPLEMENTED: Partial<Record<Step, StepHandler>> = {
   script,
   voice,
   subtitle,
+  export: exportStep,
 };
 
 export const HANDLERS: Record<Step, StepHandler> = Object.fromEntries(

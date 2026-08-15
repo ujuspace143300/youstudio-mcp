@@ -16,7 +16,7 @@ Cloudflare Workers 에 올릴 MCP 서버. 도구는 `youstudio_video` 하나다.
 | `script` | 구현 | `need_input` 패턴. ① 서버가 멈추고 **나레이션.md 전문**(텍스트 import) + 규격 「나레이션」 + 정답지 「대본」 + 재료(구간·브리지·시각 사실·장면·결말·사건)를 내려보냄 → 클로드가 블록(위치·본문·의도) 집필 ② 기계 검사(금지 표현·평서체·레지스터·`..`/마침표/쉼표/`..?`·`..!` 위치당 1·문장 상한·**나레 시간점유 G27 hard(자수 추정)**, 나머지 soft) → 불통이면 어느 블록이 왜 + 수리 지침 → 통과 시 script/script.json + metrics → `next_step: voice` |
 | `voice` | 구현 | 두 번 부른다. ① `jobs_kind:"synthesize"` — 블록마다 ElevenLabs eleven_v3 호출(pcm_44100), `auth:{env:"ELEVENLABS_API_KEY"}`, `post[]` pcm→wav, measure `bytes` (보이스 미정이면 반려) ② 길이=바이트÷(44100×2) → 실패 hard_fail · voice.json · metrics(총 길이·블록별·실측 자당초 vs 추정·시간점유 실측·여유) · `record_to_ours`(우리실측.json tts) → `next_step: subtitle` |
 | `subtitle` | 구현 | 두 번 부른다. ① 컷 타임라인(구간 순서 · over 틈/균등 · before/after 겹침·연장 · 브리지 컷 앵커) → 대사 줄을 모아 `need_input`(번역, 상한 초과 시 judge) ② 큐(나레는 글자별 시각으로, 대사는 꼬리 포함) · 무음 자동 컷 · 게이트(G-자막 자수·겹침, G-죽은시간 홀드 제외) → timeline.json + srt 3종 → `next_step: export`. 불통이면 diagnostics(죽은 구간·컷 대응) |
-| `export` | 스텁 | `status: "not_implemented"` — 설계/단계상세.md 의 명세대로 만든다 |
+| `export` | 구현 | 두 번 부른다. ① `do[]` 나레 믹스다운(블록 wav → 실측 t0 amix) + ffprobe ② 길이 검증 → **FCP XML v5**(V1 원본 컷·V2 대사·V3 나레 자막·A1 원본 소리(덕킹)·A2 나레) · SRT 3종 · manifest.json · **1~7 게이트 전체 재검사** → `status: done` |
 
 step 순서: `setup → start → probe → transcript → brief → select → script → voice → subtitle → export`
 
@@ -41,7 +41,7 @@ npm test               # = node test/smoke.mjs
 # 포트를 바꿨으면: MCP_URL=http://localhost:8788 npm test
 ```
 
-검사 항목: `/health` · `initialize`(서버 이름·지시문) · `tools/list`(도구 1개, step enum 10개) · `setup`(argv 2개·spec·폴더 목록) · `start`(ffprobe argv·out 경로·measure/carry) · `start` 반려(고치는 법 포함) · 미구현 스텁 · `probe` 정상(metrics·carry·jobs 없음·ASR 대기 지시) · `probe` 오디오 없음(hard_fail+수리 지침) · `probe` payload 없음(반려) · `transcript`① 지시(do[]·transcribe job·auth 에 키 값 없음·상한 안내) · `transcript`② 결과(metrics·write_files·클램프·carry) · 발화 0건 hard_fail · carry 없음 반려 · `brief`① 지시(judge job·inputs 치환·responseSchema·auth 에 키 값 없음) · `brief`② 결과(정렬·클램프·metrics·write_files) · 0건 hard_fail · 범위 밖 반려 · carry 없음 반려. 108항목 전부 `✓` 면 "전부 통과" (select·script·voice·subtitle ①② · 불통 반려 포함).
+검사 항목: `/health` · `initialize`(서버 이름·지시문) · `tools/list`(도구 1개, step enum 10개) · `setup`(argv 2개·spec·폴더 목록) · `start`(ffprobe argv·out 경로·measure/carry) · `start` 반려(고치는 법 포함) · 미구현 스텁 · `probe` 정상(metrics·carry·jobs 없음·ASR 대기 지시) · `probe` 오디오 없음(hard_fail+수리 지침) · `probe` payload 없음(반려) · `transcript`① 지시(do[]·transcribe job·auth 에 키 값 없음·상한 안내) · `transcript`② 결과(metrics·write_files·클램프·carry) · 발화 0건 hard_fail · carry 없음 반려 · `brief`① 지시(judge job·inputs 치환·responseSchema·auth 에 키 값 없음) · `brief`② 결과(정렬·클램프·metrics·write_files) · 0건 hard_fail · 범위 밖 반려 · carry 없음 반려. 119항목 전부 `✓` 면 "전부 통과" (전 단계 ①② · 불통 반려 포함).
 
 타입 검사만: `npm run typecheck`
 
@@ -99,6 +99,7 @@ message        화면에 찍을 한 줄
 │       ├── script.ts   need_input(나레이션.md 전문+재료) → 블록 기계 검사·시간점유 게이트 → script.json (규격 「나레이션」·정답지 「대본」)
 │       ├── voice.ts    ElevenLabs with-timestamps 합성 지시(pcm) → 실측 길이·글자별 시각·자당초 → voice.json (규격 「음성」)
 │       ├── subtitle.ts 컷 타임라인 + 번역(need_input) → 큐·무음 컷·게이트 → timeline.json + srt (규격 「자막」「조립」·정답지 「자막」)
+│       ├── export.ts   나레 믹스 → FCP XML v5 + SRT + manifest, 1~7 게이트 재검사 (규격 「조립.내보내기」·참고_export.md)
 │   ├── text-modules.d.ts  *.md 텍스트 import 타입 (wrangler rules Text)
 │       └── _stub.ts    미구현 자리표
 └── test/smoke.mjs      살아 있는지 + 말이 통하는지 검사
@@ -115,6 +116,16 @@ message        화면에 찍을 한 줄
 - EvoLink(텍스트·영상 판정): 로컬 사용자 환경변수 `EVOLINK_API_KEY`.
 - Groq: 로컬 사용자 환경변수 `GROQ_API_KEY`. (윈도우: `[Environment]::SetEnvironmentVariable('GROQ_API_KEY','<키>','User')` — 새 터미널부터 보인다)
 - 키를 파일에 쓰게 되면 `.gitignore` 에 걸린 위치(`.env`, `.dev.vars`, `*_key`)만 쓴다. 저장소에 절대 넣지 않는다.
+
+## 프리미어에서 열기 (비개발자용)
+
+1. 산돌구름 앱이 켜져 있는지 확인한다(트레이 아이콘). 꺼져 있으면 폰트가 다른 서체로 나온다.
+2. 프리미어 프로 실행 → 새 프로젝트(아무 이름).
+3. 파일 > 가져오기(Import) → `youstudio_work/<영화>/render/<영화>.xml` 선택 → 열기. 프로젝트 패널에 시퀀스 하나("<제목> 리캡")가 생긴다.
+4. 그 시퀀스를 더블클릭해서 연다. V1 원본 컷 · V2 대사 자막 · V3 나레 자막 · A1 원본 소리 · A2 나레이션이 이미 놓여 있다.
+5. 재생. 자막 글자는 프로그램 모니터에서 더블클릭해 바로 고칠 수 있다.
+6. 이상하면: 폰트가 다르게 보이면 자막 클립 선택 → Effect Controls > Text 에서 폰트 이름을 직접 고른다(나레 Source Han Serif K, 대사 Sandoll Gwanghwamun). 자막이 위아래 반대면 자막 클립 전체 선택 → Motion > Position 의 세로값 부호를 반전. 나레가 안 들리면 A2 트랙 음소거를 확인. 원본 소리가 나레와 부딪히면 A1 의 해당 컷 볼륨을 내린다(덕킹 값은 XML 에 넣어 뒀지만 프리미어 버전에 따라 안 읽을 수 있다).
+7. 자막을 SRT 로 쓰고 싶으면 `render/subtitle.srt`(합본) 또는 `_nar` / `_dlg` 를 파일 > 가져오기 → 캡션 트랙으로.
 
 ## 배포 (아직 안 함)
 
