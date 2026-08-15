@@ -297,6 +297,7 @@ const BRIEF_DOC = { events: [
   { n: 1, start: 0, end: 34.8, summary: "친구들과 황당한 대화", importance: 2, spoiler: false },
   { n: 2, start: 76.4, end: 95.5, summary: "낯선 남자 등장, 50달러", importance: 4, spoiler: false },
   { n: 3, start: 110.5, end: 134.8, summary: "네모 칸에 서 있어 달라", importance: 5, spoiler: false },
+  { n: 7, start: 95.5, end: 108.0, summary: "짧은 ★4 — 앞 구간에 흡수돼야 함", importance: 4, spoiler: false },
   { n: 4, start: 376.4, end: 408.4, summary: "소매치기 도움 거절", importance: 4, spoiler: false },
   { n: 5, start: 720.7, end: 759.8, summary: "2,000달러·은퇴 선언", importance: 5, spoiler: true },
   { n: 6, start: 870.7, end: 924.2, summary: "엔딩곡", importance: 1, spoiler: true },
@@ -341,14 +342,18 @@ const VISUAL = {
   const sorted = segs.every((s, i) => i === 0 || s.in >= segs[i - 1].out);
   ok(segs.length > 0 && sorted && segs.every((s) => s.out <= 854.3), "select② → 구간 시간순·비겹침·크레딧 이전", JSON.stringify(segs.map((s) => [s.in, s.out, s.role])));
   const ending = segs.filter((s) => s.kind === "ending");
-  ok(ending.length >= 1 && ending.some((s) => s.in <= 836 && s.out >= 843.8), "select② → 결말 비트(낙상→블랙) 포함(후보 우선)", JSON.stringify(ending.map((s) => [s.in, s.out])));
+  ok(ending.length === 1 && ending[0].in === 780 && ending[0].out === 854.3 && /통째/.test(ending[0].src.join(",")), "select② → 결말 통째(780~854.3, END 비트 포함) 한 구간", JSON.stringify(ending.map((s) => [s.in, s.out, s.src])));
+  const absorbed = segs.find((s) => s.src.includes("brief#7"));
+  ok(absorbed && absorbed.src.includes("brief#2") && absorbed.out >= 108 && (sc?.metrics?.absorbed_candidates ?? 0) >= 1, "select② → 창 최소보다 짧은 ★4 후보를 인접 구간에 흡수", JSON.stringify(absorbed && [absorbed.in, absorbed.out, absorbed.src]));
+  const br = sc?.write_files?.find((w) => /selection\.json$/.test(w.path))?.content?.narration_bridges ?? [];
+  ok(br.length >= 1 && br.every((b) => b.len_s >= 20 && b.end <= 854.3) && br.some((b) => b.start === 134.8 && b.end === 316.4), "select② → 나레이션 브리지 후보(≥20s 미선택 구간, 크레딧 제외)", JSON.stringify(br.map((b) => [b.start, b.end, b.events.map((e) => e.n)])));
   const roles = Object.fromEntries(segs.map((s) => [s.src.join(","), s.role]));
   ok(roles["brief#3"] === "원본대사" && roles["brief#1"] === "나레이션덮기" && segs.some((s) => s.role === "시각몽타주"), "select② → 역할(≥4 원본대사 / ≤3 나레이션덮기 / 무음 시각몽타주)", JSON.stringify(roles));
   const m = sc?.metrics ?? {};
   ok(m.count === segs.length && m.total_s <= 586.5 && typeof m.max_unselected_stretch?.len === "number" && m.max_unselected_stretch.end <= 854.3 && typeof m.blocks_per_min_proxy === "number", "select② → metrics(구간 수·총 길이≤예산·최대 미선택 스트레치·분당 블록 대용치)", JSON.stringify(m));
   ok(segs.every((s) => s.out - s.in >= 20 - 0.01), "select② → 창 최소 20s 충족", JSON.stringify(segs.map((s) => s.len_s)));
   const g16 = sc?.gates?.find((g) => /G16/.test(g.id));
-  ok(g16?.hard === true && g16?.pass === true && sc?.gates?.some((g) => /G25/.test(g.id) && g.hard === false), "select② → 게이트 G-반복(G16) hard 통과 · G-밀도 soft", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
+  ok(g16?.hard === true && g16?.pass === true && sc?.gates?.some((g) => /G25/.test(g.id) && g.hard === false) && !sc?.gates?.some((g) => /G13|G63/.test(g.id)), "select② → 게이트 G-반복(G16) hard 통과 · G-밀도 soft · G13/G63 은 select 게이트 아님", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
   ok(sc?.write_files?.length === 2 && sc?.carry?.includes("selection_path"), "select② → write_files visual.json+selection.json / carry selection_path", sc?.selection_path);
 }
 

@@ -25,6 +25,9 @@ interface SelectSpec {
   시각판정: { 경계용_프레임_간격_s: number; 정서결말용_클립길이_s: number; 프레임_가로_px: number; 클립_가로_px: number };
   역할규칙: { 원본대사_최소중요도: number; 나레이션덮기_최대중요도: number; 무음장면_역할: string };
   결말포함: boolean;
+  흡수규칙: { 흡수_최소중요도: number };
+  결말_통째: boolean;
+  브리지_최소_s: number;
 }
 interface ProviderSpec { 엔드포인트: string; 키_환경변수: string; 인증헤더: string; 파일업로드: string | null }
 interface VideoJudgeSpec {
@@ -283,10 +286,17 @@ export const select: StepHandler = {
       const beats = (visual.ending.beats ?? []).filter((b) => typeof b.start === "number" && typeof b.end === "number" && b.end > b.start)
         .map((b) => ({ ...b, start: r1(clamp(b.start, ending.start_s, usableEnd)), end: r1(clamp(b.end, ending.start_s, usableEnd)), importance: Number.isInteger(b.importance) ? clamp(b.importance, 1, 5) : 3 }))
         .filter((b) => b.end > b.start);
+      const endIn = ending.start_s, endOut = Math.min(ending.end_s, usableEnd);
       if (beats.length === 0) {
         warnings.push("결말 클립 판정이 비트 0건이다 — 결말 구간 전체를 후보(중요도 5)로 둔다.");
-        cands.push({ in: ending.start_s, out: Math.min(ending.end_s, usableEnd), importance: 5, kind: "ending", src: "visual:ending#1", why: ending.note ?? "시각적 결말" });
+        cands.push({ in: endIn, out: endOut, importance: 5, kind: "ending", src: "visual:ending(통째)", why: ending.note ?? "시각적 결말" });
+      } else if (S.결말_통째 && endOut - endIn <= S.구간창_s.max) {
+        // 규격 구간선택.결말_통째 — 비트가 클립 경계에서 조각나지 않도록 결말은 한 후보로 (비트는 visual.json 에 남는다)
+        const imp = Math.max(...beats.map((b) => b.importance));
+        const why = (visual.ending.ending_summary ?? "").trim() || beats.map((b) => b.what).join(" / ");
+        cands.push({ in: endIn, out: endOut, importance: imp, kind: "ending", src: "visual:ending(통째)", why });
       } else {
+        if (S.결말_통째) warnings.push(`결말 구간 ${r1(endOut - endIn)}s 가 창 최대 ${S.구간창_s.max}s 를 넘어 통째로 못 잡는다 — 비트 단위로 되돌린다.`);
         beats.forEach((b, i) => cands.push({ in: b.start, out: b.end, importance: b.importance, kind: "ending", src: `visual:ending#${i + 1}`, why: b.what }));
       }
     }
@@ -302,10 +312,39 @@ export const select: StepHandler = {
     const roleOf = (c: Candidate) => c.kind === "dialogue"
       ? (c.importance >= S.역할규칙.원본대사_최소중요도 ? "원본대사" : "나레이션덮기")
       : S.역할규칙.무음장면_역할;
+    const absorbMin = S.흡수규칙.흡수_최소중요도;
+    let absorbed = 0;
+    /** 규격 구간선택.흡수규칙 — 창 최소보다 짧은 ★≥N 후보는 인접(겹치거나 병합 간격 안) 선택 구간을 늘려 흡수한다 */
+    const tryAbsorb = (c: Candidate): boolean => {
+      const gap = S.인접병합_간격_s;
+      const host = chosen.find((s) => s.out >= c.in - gap && s.in <= c.out + gap);
+      if (!host) return false;
+      let nin = Math.min(host.in, c.in), nout = Math.max(host.out, c.out);
+      for (const o of chosen) { if (o === host) continue; if (o.out <= host.in && o.out > nin) nin = o.out; if (o.in >= host.out && o.in < nout) nout = o.in; }
+      nin = Math.max(0, nin); nout = Math.min(usableEnd, nout);
+      const extra = (nout - nin) - (host.out - host.in);
+      if (extra > 0) {
+        const remain = budget - total;
+        if (remain <= 0) return false;
+        if (extra > remain) { // 예산만큼만 — 뒤쪽부터 줄인다
+          let over = extra - remain;
+          const cutTail = Math.min(over, nout - host.out); nout -= cutTail; over -= cutTail;
+          if (over > 0) nin += Math.min(over, host.in - nin);
+        }
+        total += (nout - nin) - (host.out - host.in);
+      }
+      host.in = r1(nin); host.out = r1(nout);
+      host.src.push(c.src); host.why = `${host.why} / ${c.why}`; host.importance = Math.max(host.importance, c.importance);
+      absorbed++;
+      return true;
+    };
     for (const c of cands) {
       let a = c.in, b = c.out;
-      // 창: 짧으면 늘리고 길면 자른다
-      if (b - a < W.min) { const need = W.min - (b - a); a = Math.max(0, a - need / 2); b = Math.min(usableEnd, a + W.min); a = Math.max(0, b - W.min); }
+      // 창: 짧으면 — ★≥흡수 기준이면 먼저 인접 구간에 흡수를 시도, 아니면 늘린다. 길면 자른다
+      if (b - a < W.min) {
+        if (c.importance >= absorbMin && tryAbsorb(c)) continue;
+        const need = W.min - (b - a); a = Math.max(0, a - need / 2); b = Math.min(usableEnd, a + W.min); a = Math.max(0, b - W.min);
+      }
       if (b - a > W.max) b = a + W.max;
       // 이미 고른 것과 겹치면 겹치지 않는 가장 큰 조각만
       const pieces: [number, number][] = [[a, b]];
@@ -318,10 +357,10 @@ export const select: StepHandler = {
           if (s.out < pb) pieces.push([s.out, pb]);
         }
       }
-      if (pieces.length === 0) continue;
+      if (pieces.length === 0) { if (c.importance >= absorbMin) tryAbsorb(c); continue; }
       pieces.sort((x, y) => (y[1] - y[0]) - (x[1] - x[0]));
       let [pa, pb] = pieces[0];
-      if (pb - pa < W.min) continue;
+      if (pb - pa < W.min) { if (c.importance >= absorbMin) tryAbsorb(c); continue; }
       const remain = budget - total;
       if (remain < W.min) break;
       if (pb - pa > remain) pb = pa + remain;
@@ -358,6 +397,18 @@ export const select: StepHandler = {
     let cursor = 0;
     for (const s of merged) { if (s.in - cursor > gapBest.len) gapBest = { start: r1(cursor), end: r1(s.in), len: r1(s.in - cursor) }; cursor = Math.max(cursor, s.out); }
     if (usableEnd - cursor > gapBest.len) gapBest = { start: r1(cursor), end: r1(usableEnd), len: r1(usableEnd - cursor) };
+    // 나레이션 브리지 후보 — 선택되지 않은 원본 구간 ≥ 규격 브리지_최소_s (크레딧 제외)
+    const bridges: { start: number; end: number; len_s: number; events: { n: number; summary: string; importance: number }[]; note: string }[] = [];
+    {
+      let cur = 0;
+      const gaps: [number, number][] = [];
+      for (const s of merged) { if (s.in - cur >= S.브리지_최소_s) gaps.push([cur, s.in]); cur = Math.max(cur, s.out); }
+      if (usableEnd - cur >= S.브리지_최소_s) gaps.push([cur, usableEnd]);
+      for (const [ga, gb] of gaps) {
+        const evs = briefDoc.events.filter((e) => e.start < gb - 0.1 && e.end > ga + 0.1).map((e) => ({ n: e.n, summary: e.summary, importance: e.importance }));
+        bridges.push({ start: r1(ga), end: r1(gb), len_s: r1(gb - ga), events: evs, note: "나레이션 브리지 후보 — 선택되지 않은 구간. script 가 앞뒤를 잇는 나레로 덮는다" });
+      }
+    }
     // 반복(겹침) 비율 — 병합 뒤라 0 이어야 정상
     let overlapS = 0;
     for (let i = 1; i < merged.length; i++) overlapS += Math.max(0, merged[i - 1].out - merged[i].in);
@@ -375,10 +426,7 @@ export const select: StepHandler = {
     const g16 = A["G-반복"].컷_반복_비율_max;
     const g16pass = overlapRatio <= (g16.value ?? 0.05);
     gates.push({ id: "G-반복(G16 컷 반복)", pass: g16pass, hard: true, detail: `겹침 ${overlapRatio} ≤ ${g16.value} (${g16.출처})`, fix: g16pass ? undefined : `선택 구간끼리 겹친다. 규격.json 구간선택.인접병합_간격_s 를 늘려 붙이거나 구간창_s.max 를 줄여라.` });
-    const g13 = A["G-반복"].소스_점프_비율_max;
-    gates.push({ id: "G-반복(G13 소스 점프, soft)", pass: jump05Ratio <= (g13.value ?? 0.75), hard: false, detail: `인접 구간 원본 간격 >0.5s 비율 ${jump05Ratio} (≤${g13.value}, ${g13.적용})` });
-    const g63 = A["G-반복"].인접_60s초과_점프_비율;
-    gates.push({ id: "G-반복(G63 60s 초과 점프, soft)", pass: jump60Ratio >= (g63.min ?? 0) && jump60Ratio <= (g63.max ?? 1), hard: false, detail: `인접 구간 원본 간격 >60s 비율 ${jump60Ratio} (대역 ${g63.min}~${g63.max}, ${g63.출처})` });
+    // G13 소스 점프·G63 60s 초과 점프는 select 게이트에서 뺐다 — 최종 컷 단위 측정, 이후 단계(render 예정) 대상 (정답지.json 구간선택.G-반복 적용 표시). 지표로만 남긴다.
     const g25 = A["G-밀도"].분당_블록수_환산;
     gates.push({ id: "G-밀도(G25 분당 블록 대용치, soft)", pass: blocksPerMin === null ? null : blocksPerMin >= (g25.min ?? 0) && blocksPerMin <= (g25.max ?? 999), hard: false, detail: blocksPerMin === null ? "utterance_spans 없음 — 미판정" : `선택 구간 안 발화 ${uttIn}건 / ${r1(totalS / 60)}분 = ${blocksPerMin}/분 (대역 ${g25.min}~${g25.max}, ${g25.적용})` });
     const lenPass = totalS >= target * 0.8;
@@ -391,9 +439,10 @@ export const select: StepHandler = {
       source: source.path, title, duration_s: durationS, usable_end_s: usableEnd, credits_start_s: creditsStart,
       target_s: target, budget_s: budget,
       role_rule: S.역할규칙, window_s: S.구간창_s,
-      metrics: { count, total_s: totalS, avg_len_s: avg, ratio_vs_source: ratio, blocks_per_min_proxy: blocksPerMin, max_unselected_stretch: gapBest, by_role: byRole, overlap_ratio: overlapRatio, jump_gt_0_5s_ratio: jump05Ratio, jump_gt_60s_ratio: jump60Ratio },
+      metrics: { count, total_s: totalS, avg_len_s: avg, ratio_vs_source: ratio, blocks_per_min_proxy: blocksPerMin, max_unselected_stretch: gapBest, bridge_count: bridges.length, absorbed_candidates: absorbed, by_role: byRole, overlap_ratio: overlapRatio, jump_gt_0_5s_ratio: jump05Ratio, jump_gt_60s_ratio: jump60Ratio },
       gates,
       warnings,
+      narration_bridges: bridges,
       segments: merged.map((s, i) => ({ i: i + 1, in: s.in, out: s.out, len_s: r1(s.out - s.in), role: s.role, importance: s.importance, kind: s.kind, src: s.src, why: s.why })),
     };
 
