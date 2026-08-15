@@ -235,12 +235,17 @@ export const exportStep: StepHandler = {
       fonts: fontsUsed,
       gates,
       metrics: { total_s: totalS, source_ratio: r3(totalS / ps.duration_s), narration_s: r3(narTotal), dialogue_s: dlgS, nar_share: share, dead_ratio: deadRatio, reuse_ratio: reuseRatio, mix_duration_s: r3(mixDur), sec_per_char: voice.metrics?.sec_per_char_measured ?? null },
-      notes: ["타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다 (XML 폰트 이름은 규격 자막.폰트.xml명)", separateDuck ? "연장·브리지 컷의 원본 소리는 A3 트랙에 따로 두었다 — 나레와 겹치면 A3 볼륨을 내리거나 음소거" : "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "세로 위치(center vert)는 규격 자막.위치_center.세로부호 로 맞춘다 (사용자 프리미어 −1)"],
+      notes: ["타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다 (XML 폰트 이름은 규격 자막.폰트.xml명 = PS 명, 2026-08-16 확정)", separateDuck ? "연장·브리지 컷의 원본 소리는 A3 트랙에 따로 두었다 — 나레와 겹치면 A3 볼륨을 내리거나 음소거" : "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "자막 위치: 프리미어 2026 은 XML 의 center 를 텍스트 제너레이터에 적용하지 않는다(실측) — 임포트 뒤 프리미어_후속 대로 트랙별 한 번 지정"],
+      프리미어_후속: [
+        { 트랙: "V3 나레 자막", 방법: "V3 클립 전부 선택 → Essential Graphics(기본 그래픽) 편집 → 정렬 및 변형", 위치_px: { x: W / 2 + (SUB.위치_center.나레 as { horiz: number }).horiz, y: H / 2 + (SUB.위치_center.나레 as { vert: number }).vert * (typeof SUB.위치_center["세로부호"] === "number" ? (SUB.위치_center["세로부호"] as number) : 1) }, 정렬: "가운데", 폰트: `${SUB.폰트.나레.패밀리} (${SUB.폰트.나레.xml명 ?? SUB.폰트.나레.PS명})`, 크기_px: SUB.크기_px.나레 },
+        { 트랙: "V2 대사 자막", 방법: "V2 클립 전부 선택 → Essential Graphics(기본 그래픽) 편집 → 정렬 및 변형", 위치_px: { x: W / 2 + (SUB.위치_center.대사 as { horiz: number }).horiz, y: H / 2 + (SUB.위치_center.대사 as { vert: number }).vert * (typeof SUB.위치_center["세로부호"] === "number" ? (SUB.위치_center["세로부호"] as number) : 1) }, 정렬: "가운데", 폰트: `${SUB.폰트.대사.패밀리} (${SUB.폰트.대사.xml명 ?? SUB.폰트.대사.PS명})`, 크기_px: SUB.크기_px.대사 },
+        ...(separateDuck ? [{ 트랙: "A3 덕킹 컷 소리", 방법: "나레와 부딪히면 A3 트랙 볼륨을 내리거나 음소거", 위치_px: null, 정렬: null, 폰트: null, 크기_px: null }] : []),
+      ],
     };
     return base("export", preset, {
       status: "done", next_step: null,
       message: `내보내기 완료: ${seqName} — 컷 ${pics.length} · 나레 ${nars.length} · 자막 ${allCues.length} · 총 ${totalS}s. 게이트 ${gates.length}개 전부 통과. render/ 에 XML·SRT 3종·나레이션 믹스·manifest.`,
-      instructions: [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: 파일 > 가져오기로 XML 을 열면 시퀀스 하나가 생긴다 (자세한 순서는 manifest.notes + 서버 README)."],
+      instructions: [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: 파일 > 가져오기로 XML 을 열면 시퀀스 하나가 생긴다. 자막 위치는 XML 로 전달되지 않으므로 manifest.프리미어_후속 의 값으로 V3·V2 를 트랙별 한 번씩 지정한다 (순서는 서버 README)."],
       then_call_with: [], jobs_kind: null, jobs: [], measure: [],
       write_files: [
         { path: join(renderDir, `${slug}.xml`), content: xml, note: "FCP XML v5 — 프리미어 파일 > 가져오기" },
