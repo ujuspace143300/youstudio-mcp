@@ -114,7 +114,20 @@ export interface JudgeJob {
   note?: string;
 }
 
-export type Job = ArgvJob | TranscribeJob | JudgeJob;
+/** TTS 합성 한 건 (jobs_kind:"synthesize"). 키 값은 절대 담지 않는다 */
+export interface SynthesizeJob {
+  name: string;
+  provider: "elevenlabs";
+  model: string;
+  voice_id: string;
+  request: { method: "POST"; url: string; headers: Record<string, string>; body: Record<string, unknown> };
+  auth: { env: string; header: string; note: string };
+  /** 응답 본문(바이너리)을 이 파일에 그대로 저장 */
+  out: string;
+  note?: string;
+}
+
+export type Job = ArgvJob | TranscribeJob | JudgeJob | SynthesizeJob;
 
 /** 서버가 내용을 정하고 runner 가 파일로 쓴다 (볼케이노 write_files) */
 export interface WriteFile {
@@ -131,10 +144,11 @@ export interface MeasureRule {
   from: string;
   /**
    * 어떻게 읽는지.
+   * bytes = 응답 본문의 바이트 수 (숫자). 바이너리 응답(TTS pcm)의 길이 계산용
    * gemini_json_text = 응답의 candidates[0].content.parts[].text 를 이어 붙여 JSON.parse 한 것.
    *   finishReason 이 STOP 이 아니면(MAX_TOKENS 등) 잘린 것 — 여기서 멈추고 오류로 보고한다 (참고_runner.md 「EvoLink 호출 규약」)
    */
-  unit: "json_stdout" | "stdout" | "stdout_first_line" | "seconds" | "gemini_json_text";
+  unit: "json_stdout" | "stdout" | "stdout_first_line" | "seconds" | "gemini_json_text" | "bytes";
 }
 
 export interface StepResponse {
@@ -155,6 +169,8 @@ export interface StepResponse {
   /** 기계 일감 묶음. 종류는 jobs_kind 가 선언한다 (모양으로 추측하지 않는다) */
   jobs: Job[];
   jobs_kind: JobsKind | null;
+  /** jobs 뒤에 실행하는 로컬 명령(argv) — 예: 받은 pcm 을 wav 로 감싸기. do → jobs → post → write_files → measure 순 */
+  post?: ArgvJob[];
   /** 서버가 정한 내용을 runner 가 파일로 쓴다. jobs 뒤, measure 앞 */
   write_files?: WriteFile[];
   /** runner 에게 주는 측정 규칙 — 무엇을 재서 payload 어느 칸에 넣을지 (볼케이노 문법) */

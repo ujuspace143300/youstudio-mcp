@@ -124,9 +124,9 @@ console.log(`서버: ${URL_}`);
 
 // 6) 미구현 단계
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼" } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼" } });
   const sc = res.structuredContent;
-  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "voice → not_implemented 스텁", sc?.message);
+  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "subtitle → not_implemented 스텁", sc?.message);
 }
 
 // 7) tools/call probe (정상 — Full Time 실측과 같은 모양의 ffprobe JSON)
@@ -428,6 +428,44 @@ const CARRY_SC = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼", payload: { ...CARRY_SC, script: heavy } } });
   const sc = res.structuredContent;
   ok(res.isError === true && /나레 시간점유/.test(sc?.message ?? "") && /나레 과다/.test(sc?.message ?? "") && /자\)를 덜어내라/.test(sc?.message ?? ""), "script②(나레 시간점유 과다) → 반려 + 수리 지침(몇 초·몇 자를 어떻게)", (sc?.message ?? "").slice(0, 160));
+}
+
+// 27) tools/call voice ① — 보이스 미정이면 반려(수리 지침), 정해졌으면 synthesize jobs
+const SCRIPT_DOC = { blocks: [
+  { n: 1, pos: { kind: "over", seg: 1 }, text: "계단 앞에서 발가락 얘기로 낄낄대던.. 보드 든 청년이 있죠", chars: 33, est_s: 8.25 },
+  { n: 2, pos: { kind: "bridge", bridge: 0 }, text: "친구들의 놀림은 그날도 이어졌고.. 늘 그런 하루일 듯했습니다", chars: 34, est_s: 8.5 },
+], metrics: { dialogue_s: 40, total_chars: 67, nar_est_s: 16.75, nar_share_est: 0.295 } };
+const CARRY_V = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/youstudio_work/sample/transcript/transcript.json", brief_path: "C:/youstudio_work/sample/brief/brief.json", selection_path: "C:/youstudio_work/sample/clips/selection.json", script_path: "C:/youstudio_work/sample/script/script.json", script: SCRIPT_DOC };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: CARRY_V } });
+  const sc = res.structuredContent;
+  if (sc?.status === "error") {
+    ok(/보이스_ID/.test(sc?.message ?? "") && /voice\/samples/.test(sc?.message ?? "") && /보이스_후보|Kyle/.test(sc?.message ?? ""), "voice①(보이스 미정) → 반려 + 샘플·후보 안내", (sc?.message ?? "").slice(0, 100));
+  } else {
+    const j = sc?.jobs?.[0];
+    ok(sc?.status === "execute" && sc?.jobs_kind === "synthesize" && sc?.jobs?.length === 2 && j?.provider === "elevenlabs" && j?.model === "eleven_v3" && /api\.elevenlabs\.io\/v1\/text-to-speech\/.+\?output_format=pcm_44100/.test(j?.request?.url ?? ""), "voice①(보이스 있음) → synthesize job 블록수만큼(eleven_v3, pcm_44100)", j?.request?.url);
+    ok(j?.auth?.env === "ELEVENLABS_API_KEY" && /xi-api-key/.test(j?.auth?.header ?? "") && !/sk_1bf/.test(JSON.stringify(sc)), "voice① → auth env 만, 키 값 없음", JSON.stringify(j?.auth?.env));
+    ok(sc?.post?.length === 2 && sc.post[0].argv[0] === "ffmpeg" && sc.post[0].argv.includes("s16le") && sc?.measure?.[0]?.unit === "bytes" && sc?.measure?.[0]?.as === "voice_bytes.b01", "voice① → post[] pcm→wav · measure bytes", JSON.stringify(sc?.measure?.[0]));
+  }
+}
+
+// 28) voice ② 통과 — 바이트 → 실측 길이·자당초·시간점유 재계산·여유
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_bytes: { b01: 44100 * 2 * 5.28, b02: 44100 * 2 * 5.5 } } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "subtitle", "voice② → execute, next_step=subtitle", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 80)}`);
+  const m = sc?.metrics ?? {};
+  ok(m.block_count === 2 && m.total_s === 10.78 && m.sec_per_char_measured === 0.161 && m.sec_per_char_est === 0.25 && typeof m.nar_share_measured === "number" && typeof m.headroom_chars === "number", "voice② → metrics(총 길이·실측 자당초 vs 추정·시간점유 실측·여유 자수)", JSON.stringify(m));
+  const wf = sc?.write_files?.[0];
+  ok(wf?.path === "C:/youstudio_work/sample/voice/voice.json" && wf?.content?.blocks?.[0]?.dur_s === 5.28 && /b01\.wav$/.test(wf.content.blocks[0].wav), "voice② → write_files voice.json(블록별 실측 길이·wav 경로)", "");
+  ok(sc?.record_to_ours?.tts?.자당초?.value === 0.161 && sc?.record_to_ours?.tts?.자당초?.n === 2 && sc?.instructions?.some((l) => /우리실측\.json/.test(l)), "voice② → record_to_ours(우리실측.json tts.자당초) + 기록 지시", JSON.stringify(sc?.record_to_ours?.tts?.자당초?.value));
+}
+
+// 29) voice ② 합성 실패 → hard_fail
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_bytes: { b01: 44100 * 2 * 5, b02: 0 } } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /hard_fail: 합성 실패 1건/.test(sc?.message ?? "") && /블록 2/.test(sc?.message ?? "") && /401|quota|voice_not_fine_tuned/.test(sc?.message ?? ""), "voice②(0바이트) → hard_fail + 수리 지침(원인별)", (sc?.message ?? "").slice(0, 120));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

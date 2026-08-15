@@ -27,7 +27,10 @@
     "나레이션.금지표현": "가족 BANNED_PHRASES 8종(7 문자열 + 틀 정규식 1). 기계 검사 hard. 참고_대본지침.md 3절",
     "나레이션.나레_레지스터_치환": "가족 NAR_REGISTER_SWAP — 정답지 나레 312큐에 「하지만」 0건. 화자 분리 규칙(hard)",
     "나레이션.시청자_수사의문_금지": "가족 지침서 9-18 — 시청자 향한 수사의문 금지(스포/노스포 공통). 아웃트로 질문형 금지도 같은 뿌리",
-    "나레이션.노스포_금칙": "가족 ending_mode 티저 금칙 3표 + 문맥 예외. 결말모드=no_spoiler 일 때만 적용"
+    "나레이션.노스포_금칙": "가족 ending_mode 티저 금칙 3표 + 문맥 예외. 결말모드=no_spoiler 일 때만 적용",
+    "음성.제공자": "2026-08-16 결정: ElevenLabs eleven_v3, 사용자 본인 계정 키. API /v1/models 로 확인 — model_id `eleven_v3`(Eleven v3), 한국어 지원, TTS 가능, 요청당 5,000자. Typecast 는 숏폼 스타일용 후보로 보류(외부서비스.md)",
+    "음성.출력형식": "pcm_44100(16bit 모노 원시)로 받아 runner 가 wav 로 감싼다 — mp3 인코더 패딩 없이 길이를 정확히 잰다(measure-never-predict). 길이 = 바이트 ÷ (44100×2)",
+    "음성.voice_settings": "eleven_v3 는 stability 를 0.0/0.5/1.0(Creative/Natural/Robust) 중 하나만 받는다 → 0.5. 나머지는 기본값. 검증 필요"
   },
   "전사": {
     "제공자": "groq",
@@ -250,5 +253,45 @@
     ]
   },
   "자막": {},
-  "조립": {}
+  "조립": {},
+  "음성": {
+    "제공자": "elevenlabs",
+    "모델": "eleven_v3",
+    "엔드포인트": "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+    "키_환경변수": "ELEVENLABS_API_KEY",
+    "보이스_ID": null,
+    "보이스_이름": null,
+    "_보이스_안내": "미정 — voice/samples 를 들어보고 고른다. 후보는 아래",
+    "보이스_후보": [
+      {
+        "id": "RU7aSi6lT4uQBXMLgDxK",
+        "이름": "Kyle",
+        "메모": "professional · ko · 남성 · informative. 샘플 실측 0.156~0.160 s/자"
+      },
+      {
+        "id": "gC8fPiuw9zZrwDixYjtp",
+        "이름": "하와이",
+        "메모": "cloned · ko · 남성 중년. 샘플 실측 0.112~0.121 s/자"
+      },
+      {
+        "id": "z6Kj0hecH20CdetSElRT",
+        "이름": "Jennie",
+        "메모": "professional · ko · 여성 · narrational"
+      },
+      {
+        "id": "zf9qW2CXiIqlheZmAQ66",
+        "이름": "유스_클로닝",
+        "메모": "professional · ko-seoul · 남성 (계정 클론) — 2026-08-16 현재 fine-tune 미완료(400 voice_not_fine_tuned)라 못 씀. 완료되면 1순위 후보"
+      }
+    ],
+    "출력형식": "pcm_44100",
+    "샘플레이트_hz": 44100,
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75,
+      "style": 0.0,
+      "use_speaker_boost": true
+    },
+    "요청_최대자수": 5000
+  }
 }
