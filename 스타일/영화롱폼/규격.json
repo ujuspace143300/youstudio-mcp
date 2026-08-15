@@ -42,7 +42,7 @@
     "영상": {
       "backend": "google",
       "상태": "미정 — select 구현 때. EvoLink 에 Files API 없음",
-      "키_환경변수": "GOOGLE_API_KEY"
+      "키_환경변수": "GEMINI_API_KEY"
     },
     "brief": {
       "사건_평균길이_목표_s": 40,
