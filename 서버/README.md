@@ -1,0 +1,102 @@
+# 서버/ — 영화 롱폼 리캡 MCP 서버 (뼈대)
+
+Cloudflare Workers 에 올릴 MCP 서버. 도구는 `youstudio_video` 하나다.
+**서버가 지시를 내리고, 클라이언트(runner/클로드)는 그대로 실행한다.** 규격·명령줄·판단은 전부 서버 쪽에 있다 (`HARNESS.md`, `설계/단계와게이트.md`).
+
+## 지금 되는 것
+
+| step | 상태 | 하는 일 |
+| :---- | :---- | :---- |
+| `setup` | 구현 | ffmpeg/ffprobe 설치 확인 명령 2개 지시 · 작업 폴더 이름 목록 · **`스타일/영화롱폼/규격.json` 을 응답에 실어 보냄** |
+| `start` | 구현 | `source`(영화 파일)와 `payload.workdir` 검사 → ffprobe 명령줄을 서버가 조립해 `jobs_kind:"argv"` 로 지시 → `next_step: probe` |
+| 나머지 8개 | 스텁 | `status: "not_implemented"` — 설계/단계와게이트.md 의 단계 목록이 채워지면 하나씩 만든다 |
+
+step 순서: `setup → start → probe → transcript → brief → select → script → voice → subtitle → export`
+
+## 실행법 (로컬)
+
+```bash
+cd 서버
+npm install            # 처음 한 번
+npx wrangler dev       # http://localhost:8787 에 뜬다. Ctrl+C 로 끈다
+```
+
+- `GET /health` → `{"ok":true}` 이면 살아 있는 것.
+- MCP 엔드포인트는 루트(`/`). Streamable HTTP. 2025 세대 클라이언트는 stateless 로, 2026-07-28 클라이언트는 per-request 로 붙는다(SDK 가 알아서 나눈다).
+
+## 테스트법
+
+`npx wrangler dev` 를 켜 둔 채 **다른 터미널**에서:
+
+```bash
+cd 서버
+npm test               # = node test/smoke.mjs
+# 포트를 바꿨으면: MCP_URL=http://localhost:8788 npm test
+```
+
+검사 항목: `/health` · `initialize`(서버 이름·지시문) · `tools/list`(도구 1개, step enum 10개) · `setup`(argv 2개·spec·폴더 목록) · `start`(ffprobe argv·out 경로·measure/carry) · `start` 반려(고치는 법 포함) · 미구현 스텁. 전부 `✓` 면 "전부 통과".
+
+타입 검사만: `npm run typecheck`
+
+## 클로드에 붙이기 (로컬)
+
+Claude Code 에서:
+```bash
+claude mcp add --transport http youstudio http://localhost:8787
+```
+붙은 뒤 "youstudio_video 를 step=setup 으로 불러줘" 라고 하면 첫 응답이 온다.
+
+## 응답 문법
+
+볼케이노 문법을 따른다 (`설계/참고_runner.md` 1-2). 모든 응답에 아래 칸이 있다:
+
+```
+status         execute | need_input | done | not_implemented | error
+step, preset
+next_step      다음에 부를 step. null 이면 끝
+then_call_with 다음 호출에 무엇을 실어야 하는지 (안내문)
+instructions   이 단계에서 그대로 따를 지시 (순서대로)
+need_input     사람이 채울 것 {keys, why} 또는 null
+jobs[]         기계 일감. jobs_kind 가 종류를 선언 (argv | transcribe | synthesize | judge | …)
+measure[]      무엇을 재서 payload 어느 칸에 넣을지 {as, from:"job:<name>", unit}
+carry[]        이 응답의 값 중 다음 payload 에 그대로 실을 키
+message        화면에 찍을 한 줄
+```
+그 외 칸(`spec`, `workdir_layout`, `source`, `workdir` …)은 단계별 데이터다.
+
+## 파일 지도
+
+```
+서버/
+├── package.json        이름·의존성·단축 명령(dev/test/typecheck)
+├── wrangler.jsonc      Workers 설정 (main=src/index.ts, nodejs_compat)
+├── tsconfig.json       TypeScript 검사 설정
+├── src/
+│   ├── index.ts        Worker 진입점 — 요청을 MCP 핸들러에 넘김. /health
+│   ├── server.ts       McpServer 생성 + youstudio_video 도구 등록 + 서버 지시문
+│   ├── schema.ts       입력(zod)·응답(타입) 모양. STEP_ORDER 가 상태 기계
+│   ├── response.ts     응답 봉투 도우미 (base / notImplemented / reject)
+│   └── steps/
+│       ├── types.ts    처리기 하나의 모양
+│       ├── index.ts    step 이름 → 처리기 등록표 (새 단계는 여기 한 줄)
+│       ├── setup.ts    준비 확인 (규격.json import)
+│       ├── start.ts    소재 접수 + ffprobe argv 조립
+│       └── _stub.ts    미구현 자리표
+└── test/smoke.mjs      살아 있는지 + 말이 통하는지 검사
+```
+
+## 규격이 서버에 실려 가는 방식
+
+`src/steps/setup.ts` 가 `../../../스타일/영화롱폼/규격.json` 을 **import** 한다. wrangler 가 번들할 때 JSON 이 코드 안에 박히므로 배포본에도 그대로 실려 간다. 규격을 고치면 다시 `wrangler dev`/`deploy` 해야 반영된다.
+
+## 배포 (아직 안 함)
+
+```bash
+npx wrangler login
+npx wrangler deploy
+```
+배포 전에 할 일: 인증(Bearer 토큰) 붙이기, Host/Origin 검증 켜기(SDK 의 `hostHeaderValidationResponse`/`originValidationResponse`). 지금 뼈대는 로컬 전용이라 둘 다 없다.
+
+## 기술 스택
+
+TypeScript · `@modelcontextprotocol/server` 2.0.0 · `zod` · `wrangler` 4 · Node 20+

@@ -1,0 +1,9 @@
+{
+  // Cloudflare Workers 설정. 로컬은 `npx wrangler dev`, 배포는 `npx wrangler deploy`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "youstudio-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true }
+}
