@@ -13,7 +13,8 @@ Cloudflare Workers 에 올릴 MCP 서버. 도구는 `youstudio_video` 하나다.
 | `transcript` | 구현 | 두 번 부른다. ① `do[]` 로 오디오 추출(ffmpeg 16kHz 모노 mp3) + `jobs_kind:"transcribe"` 로 Groq whisper-large-v3-turbo 호출 지시 — 키는 `auth:{env:"GROQ_API_KEY"}` 위치만(서버 무보관) ② `payload.asr` 검사 → 발화 0건 hard_fail · `write_files` 로 transcript.json · `metrics`(발화 수·발화 길이·무음 비율) → `next_step: brief` |
 | `brief` | 구현 | 두 번 부른다. ① `jobs_kind:"judge"` — EvoLink gemini-3.5-flash 에 보낼 프롬프트·바디(JSON 강제·responseSchema·thinkingBudget 0·maxOutputTokens)를 서버가 조립, 전사는 `inputs` 파일 치환(본문은 payload 에 안 실림), `auth:{env:"EVOLINK_API_KEY"}` ② `payload.brief` 검사 → 0건 hard_fail · 타임코드 범위 밖 반려 · `write_files` brief.json · `metrics`(사건 수·평균 길이·커버리지) → `next_step: select` |
 | `select` | 구현 | 두 번 부른다. ① `do[]` 로 무음 구간 프레임(5s)·결말 클립(15s) 추출 + `jobs_kind:"judge"`(규격 판정.영상 backend, `@inline_file`/`@file_uri` 표식 파트) 무음 구간마다 1콜 + 결말 1콜 ② 후보(brief 사건+시각 장면) → 우선순위 채움(결말 최우선→중요도) → 창 20~120s·병합 → 역할 → 게이트(G-반복 hard, 나머지 soft) → `metrics`(구간 수·총 길이·평균·비율·분당 블록 대용치·**최대 미선택 스트레치**) → `write_files` clips/visual.json + clips/selection.json → `next_step: script` |
-| 나머지 4개 | 스텁 | `status: "not_implemented"` — 설계/단계상세.md 의 명세대로 하나씩 만든다 |
+| `script` | 구현 | `need_input` 패턴. ① 서버가 멈추고 **나레이션.md 전문**(텍스트 import) + 규격 「나레이션」 + 정답지 「대본」 + 재료(구간·브리지·시각 사실·장면·결말·사건)를 내려보냄 → 클로드가 블록(위치·본문·의도) 집필 ② 기계 검사(금지 표현·평서체·레지스터·`..`/마침표/쉼표/`..?`·`..!` 위치당 1·문장 상한·**나레 시간점유 G27 hard(자수 추정)**, 나머지 soft) → 불통이면 어느 블록이 왜 + 수리 지침 → 통과 시 script/script.json + metrics → `next_step: voice` |
+| 나머지 3개 | 스텁 | `status: "not_implemented"` — 설계/단계상세.md 의 명세대로 하나씩 만든다 |
 
 step 순서: `setup → start → probe → transcript → brief → select → script → voice → subtitle → export`
 
@@ -38,7 +39,7 @@ npm test               # = node test/smoke.mjs
 # 포트를 바꿨으면: MCP_URL=http://localhost:8788 npm test
 ```
 
-검사 항목: `/health` · `initialize`(서버 이름·지시문) · `tools/list`(도구 1개, step enum 10개) · `setup`(argv 2개·spec·폴더 목록) · `start`(ffprobe argv·out 경로·measure/carry) · `start` 반려(고치는 법 포함) · 미구현 스텁 · `probe` 정상(metrics·carry·jobs 없음·ASR 대기 지시) · `probe` 오디오 없음(hard_fail+수리 지침) · `probe` payload 없음(반려) · `transcript`① 지시(do[]·transcribe job·auth 에 키 값 없음·상한 안내) · `transcript`② 결과(metrics·write_files·클램프·carry) · 발화 0건 hard_fail · carry 없음 반려 · `brief`① 지시(judge job·inputs 치환·responseSchema·auth 에 키 값 없음) · `brief`② 결과(정렬·클램프·metrics·write_files) · 0건 hard_fail · 범위 밖 반려 · carry 없음 반려. 74항목 전부 `✓` 면 "전부 통과" (select ①②·판정 부족 hard_fail·brief 누락 반려 포함).
+검사 항목: `/health` · `initialize`(서버 이름·지시문) · `tools/list`(도구 1개, step enum 10개) · `setup`(argv 2개·spec·폴더 목록) · `start`(ffprobe argv·out 경로·measure/carry) · `start` 반려(고치는 법 포함) · 미구현 스텁 · `probe` 정상(metrics·carry·jobs 없음·ASR 대기 지시) · `probe` 오디오 없음(hard_fail+수리 지침) · `probe` payload 없음(반려) · `transcript`① 지시(do[]·transcribe job·auth 에 키 값 없음·상한 안내) · `transcript`② 결과(metrics·write_files·클램프·carry) · 발화 0건 hard_fail · carry 없음 반려 · `brief`① 지시(judge job·inputs 치환·responseSchema·auth 에 키 값 없음) · `brief`② 결과(정렬·클램프·metrics·write_files) · 0건 hard_fail · 범위 밖 반려 · carry 없음 반려. 87항목 전부 `✓` 면 "전부 통과" (select ①②·script ①②·불통 반려 포함).
 
 타입 검사만: `npm run typecheck`
 
@@ -92,6 +93,8 @@ message        화면에 찍을 한 줄
 │       ├── transcript.ts 오디오 추출 + Groq 전사 지시 → 결과 검사·transcript.json (규격.json 「전사」)
 │       ├── brief.ts    EvoLink judge 지시(프롬프트·responseSchema) → 사건 목록 검사·brief.json (규격.json 「판정」)
 │       ├── select.ts   시각 판정 지시(프레임·클립) → 우선순위 채움·역할·게이트 → selection.json (규격 「구간선택」·정답지 「구간선택」)
+│       ├── script.ts   need_input(나레이션.md 전문+재료) → 블록 기계 검사·시간점유 게이트 → script.json (규격 「나레이션」·정답지 「대본」)
+│   ├── text-modules.d.ts  *.md 텍스트 import 타입 (wrangler rules Text)
 │       └── _stub.ts    미구현 자리표
 └── test/smoke.mjs      살아 있는지 + 말이 통하는지 검사
 ```

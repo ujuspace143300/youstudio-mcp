@@ -124,9 +124,9 @@ console.log(`서버: ${URL_}`);
 
 // 6) 미구현 단계
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼" } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼" } });
   const sc = res.structuredContent;
-  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "script → not_implemented 스텁", sc?.message);
+  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "voice → not_implemented 스텁", sc?.message);
 }
 
 // 7) tools/call probe (정상 — Full Time 실측과 같은 모양의 ffprobe JSON)
@@ -369,6 +369,65 @@ const VISUAL = {
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "select", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY } } });
   const sc = res.structuredContent;
   ok(res.isError === true && sc?.status === "error" && /payload\.brief/.test(sc?.message ?? ""), "select(brief 없음) → 반려 + 고치는 법", (sc?.message ?? "").slice(0, 80));
+}
+
+// 23) tools/call script ① need_input (payload.script 없음)
+const SEL = { segments: [
+  { i: 1, in: 0, out: 26.3, len_s: 26.3, role: "나레이션덮기", importance: 2, kind: "dialogue", src: ["brief#1"], why: "친구들과 황당한 대화" },
+  { i: 2, in: 75.9, out: 135, len_s: 59.1, role: "원본대사", importance: 4, kind: "dialogue", src: ["brief#3"], why: "낯선 남자, 50달러 · 네모 칸" },
+  { i: 3, in: 780, out: 854.3, len_s: 74.3, role: "시각몽타주", importance: 5, kind: "ending", src: ["visual:ending(통째)"], why: "노인 마이클이 스케이트를 타다 넘어진다" },
+], narration_bridges: [ { start: 26.3, end: 75.9, len_s: 49.6, events: [{ n: 2, summary: "친구들의 놀림", importance: 2 }] } ] };
+const CARRY_SC = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/youstudio_work/sample/transcript/transcript.json", brief_path: "C:/youstudio_work/sample/brief/brief.json", selection_path: "C:/youstudio_work/sample/clips/selection.json", selection: SEL, visual: { silent: [], ending: { ending_summary: "넘어지지만 다시 일어선다", beats: [] } }, facts: { visual_facts: [{ t_s: 737.4, fact: "마이클이 노인이 되어 있음" }] }, brief: { logline: "네모 칸에 서 있는 일", events: [] }, utterance_spans: [[80, 90], [92, 100], [102, 110], [112, 120], [122, 130]] };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼", payload: CARRY_SC } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "need_input" && sc?.next_step === "script" && sc?.need_input?.keys?.includes("script"), "script① → status=need_input(script), 서버 멈춤", `${sc?.status}/${sc?.next_step}`);
+  ok(typeof sc?.guide === "string" && /지무비체를 그대로 채택/.test(sc.guide) && /## 4\. 블록 모양/.test(sc.guide), "script① → guide = 나레이션.md 전문(텍스트 import)", (sc?.guide ?? "").slice(0, 40));
+  ok(Array.isArray(sc?.rules?.금지표현) && sc.rules.금지표현.length === 7 && sc?.answer_bands?.["G-턴비_나레대사_시간비"]?.min === 0.55, "script① → rules(규격 나레이션)·answer_bands(정답지 대본) 동봉", "");
+  ok(sc?.material?.segments?.length === 3 && sc?.material?.bridges?.length === 1 && sc?.material?.visual_facts?.length === 1 && sc?.material?.ending?.summary, "script① → material(구간·브리지·시각 사실·결말)", "");
+  ok(sc?.carry?.includes("selection") && sc?.carry?.includes("utterance_spans") && sc?.jobs?.length === 0, "script① → carry 에 재료 포함, jobs 없음", JSON.stringify(sc?.carry));
+}
+
+// 24) script ② 불통 — 금지 표현·평서체·마침표·..?·레지스터·상한 초과
+{
+  const bad = { blocks: [
+    { pos: { kind: "over", seg: 1 }, text: "여러분은 알고 계셨나요 이 남자의 하루를", intent: "x" },
+    { pos: { kind: "over", seg: 1 }, text: "마이클은 친구들과 시답잖은 농담을 주고받는다", intent: "평서체" },
+    { pos: { kind: "bridge", bridge: 0 }, text: "하지만 친구들은 웃기만 했죠.", intent: "레지스터+마침표" },
+    { pos: { kind: "before", seg: 2 }, text: "이 남자는 누구일까요..?", intent: "..?" },
+    { pos: { kind: "over", seg: 3 }, text: "네모 칸에서 시작된 그의 하루는 어느새 평생이 되어 버렸고 머리는 하얗게 세어 버렸으며 광장은 그대로였습니다", intent: "40자 초과" },
+  ] };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼", payload: { ...CARRY_SC, script: bad } } });
+  const sc = res.structuredContent;
+  const m = sc?.message ?? "";
+  ok(res.isError === true && sc?.status === "error" && /블록 1: 금지 표현/.test(m) && /블록 2: 평서체/.test(m) && /블록 3: (쉼표|마침표|나레 레지스터)/.test(m) && /블록 4: `\.\.\?`/.test(m) && /블록 5: \d+자 > 문장 상한 40자/.test(m), "script②(불통) → 어느 블록이 왜인지 + 수리 지침", m.slice(0, 160));
+}
+
+// 25) script ② 통과 — 지무비체 블록 (G-턴비 대역 안)
+{
+  const good = { blocks: [
+    { pos: { kind: "over", seg: 1 }, text: "계단 앞에서 시답잖은 농담이나 주고받던.. 청년 하나가 있었습니다", intent: "훅 — 익명 인물" },
+    { pos: { kind: "bridge", bridge: 0 }, text: "친구들의 놀림은 이어졌고.. 그날도 그런 하루로 끝날 것 같았죠", intent: "이음" },
+    { pos: { kind: "before", seg: 2 }, text: "허나 그때.. 정장 차림의 남자가 다가옵니다", intent: "표지어" },
+    { pos: { kind: "over", seg: 3 }, text: "네모 칸에서 시작한 하루가.. 어느새 평생이 되어 있었죠", intent: "시각 사실 — 노화" },
+    { pos: { kind: "over", seg: 3 }, text: "그렇게 그는.. 처음으로 선 밖으로 나섰습니다..!", intent: "닫기" },
+  ] };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼", payload: { ...CARRY_SC, script: good } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "voice", "script②(통과) → execute, next_step=voice", `${sc?.status}/${sc?.next_step} ${sc?.message ?? ""}`);
+  const m = sc?.metrics ?? {};
+  ok(m.block_count === 5 && m.avg_chars > 0 && m.dialogue_s === 42 && typeof m.nar_share_est === "number" && typeof m.nar_dialogue_ratio_est === "number" && /추정/.test(m.note ?? ""), "script② → metrics(블록 수·평균 자수·나레 시간점유·나레:대사 추정 비율, 추정 표시)", JSON.stringify(m));
+  const wf = sc?.write_files?.[0];
+  ok(wf?.path === "C:/youstudio_work/sample/script/script.json" && wf?.content?.blocks?.length === 5 && wf.content.blocks[0].pieces === 2, "script② → write_files script.json(블록·조각 수)", wf?.path);
+  ok(sc?.gates?.some((g) => /나레 시간점유/.test(g.id) && g.hard === true && g.pass === true) && sc?.gates?.some((g) => /G-턴비/.test(g.id) && g.hard === false) && sc?.carry?.includes("script_path"), "script② → 나레 시간점유(G27) hard 통과 · G-턴비 soft · carry script_path", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
+}
+
+// 26) script ② G-턴비 불통 (나레 과다) → 수리 지침
+{
+  const heavy = { blocks: Array.from({ length: 12 }, (_, i) => ({ pos: { kind: "over", seg: 3 }, text: `노인이 된 마이클이 광장을 떠나.. 보드를 타다 넘어집니다 ${i}`, intent: "x" })) };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼", payload: { ...CARRY_SC, script: heavy } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /나레 시간점유/.test(sc?.message ?? "") && /나레 과다/.test(sc?.message ?? "") && /자\)를 덜어내라/.test(sc?.message ?? ""), "script②(나레 시간점유 과다) → 반려 + 수리 지침(몇 초·몇 자를 어떻게)", (sc?.message ?? "").slice(0, 160));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

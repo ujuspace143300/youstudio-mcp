@@ -5,5 +5,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // 스타일 문서(.md)를 텍스트로 import 한다 — script 단계가 나레이션.md 를 그대로 내려보낸다
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }]
 }
