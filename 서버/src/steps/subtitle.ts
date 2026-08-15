@@ -17,10 +17,13 @@ import type { StepHandler } from "./types.js";
 import type { JudgeJob } from "../schema.js";
 
 interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 큐_최소길이_s: number; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
-interface AsmSpec { over_배치: Record<string, string>; before_after: Record<string, string>; 브리지_컷: { 사용: boolean; 패딩_s: number; 앵커: string }; 죽은시간_홀드_제외_역할: string[]; 덕킹_역할: string[]; 죽은시간_컷: { 사용: boolean; 임계_s: number; 앞_남김_s: number; 뒤_남김_s: number; 대상_역할: string[] } }
+interface AsmSpec { over_배치: Record<string, string>; before_after: Record<string, string>; 브리지_컷: { 사용: boolean; 패딩_s: number; 앵커: string }; 죽은시간_홀드_제외_역할: string[]; 덕킹_역할: string[]; 죽은시간_컷: { 사용: boolean; 임계_s: number; 앞_남김_s: number; 뒤_남김_s: number; 대상_역할: string[]; 보호_소리_최소_s?: number } }
 interface JudgeTextSpec { backend: string; 모델: string; 엔드포인트: string; 키_환경변수: string; 온도: number; thinkingBudget: number; maxOutputTokens: number; responseMimeType: string }
 interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-자막_겹침_max": { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
 const SUB = (spec as unknown as { 자막: SubSpec })["자막"];
+const TRIG = (spec as unknown as { 전사: { 늘어난발화_규칙: { 트리거_단어당_s: number; 트리거_여유_s: number } } })["전사"]["늘어난발화_규칙"];
+/** 전사 발화가 '수상하게 긴가' (끝이 늘어난 whisper 세그먼트) — 이런 발화는 시각을 믿지 않고 실측 소리를 쓴다 */
+const suspiciousUtt = (u: { start: number; end: number; text: string }) => (u.end - u.start) > u.text.trim().split(/\s+/).filter(Boolean).length * TRIG.트리거_단어당_s + TRIG.트리거_여유_s;
 const ASM = (spec as unknown as { 조립: AsmSpec })["조립"];
 const JT = (spec as unknown as { 판정: { 텍스트: JudgeTextSpec } })["판정"]["텍스트"];
 const A = (answer as unknown as { 자막: SubAnswer })["자막"];
@@ -33,7 +36,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 interface Segment { i: number; in: number; out: number; len_s: number; role: string; kind: string; src: string[]; why: string }
 interface Bridge { start: number; end: number; len_s: number }
 interface Selection { segments?: Segment[]; narration_bridges?: Bridge[] }
-interface VBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; dur_s: number; wav: string; chars_t?: { c: string; s: number; e: number }[] | null }
+interface VBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; dur_s: number; wav: string; chars_t?: { c: string; s: number; e: number }[] | null; _prefer?: "head" | "tail" }
 interface Utt { start: number; end: number; text: string; i?: number }
 interface Scene { start: number; end: number; what: string }
 
@@ -95,12 +98,21 @@ export const subtitle: StepHandler = {
     const selection = payload.selection as Selection | undefined;
     const voice = payload.voice as { blocks?: VBlock[] } | undefined;
     const utts = (payload.transcript_utterances as Utt[] | undefined) ?? [];
+    const silences = ((payload.transcript_silences as [number, number][] | undefined) ?? []).filter((x) => Array.isArray(x) && x.length === 2);
+    /** 원본 [a,b] 안에서 '소리가 있는' 구간 = 무음 실측의 여집합. 실측이 없으면 발화만 믿는다 */
+    const soundIn = (a: number, b: number): [number, number][] => {
+      if (!silences.length) return [];
+      const out: [number, number][] = []; let cur = a;
+      for (const [sa, sb] of silences) { if (sb <= a || sa >= b) continue; if (sa > cur) out.push([cur, Math.min(sa, b)]); cur = Math.max(cur, sb); }
+      if (cur < b) out.push([cur, b]);
+      return out;
+    };
     const visual = (payload.visual ?? {}) as { silent?: { scenes?: Scene[] }[] };
     if (!workdir || !source?.path || typeof ps?.duration_s !== "number" || !selection?.segments || !voice?.blocks || utts.length === 0) {
       return reject(
         "subtitle", preset,
         "payload 에 carry 값(source·workdir·probe_summary) 또는 selection / voice / transcript_utterances 가 없다",
-        "voice 응답의 carry 값과 함께 payload.selection(clips/selection.json 내용) · payload.voice(voice/voice.json 내용) · payload.transcript_utterances(transcript.json 의 utterances 배열) · payload.visual(clips/visual.json 내용)을 실어 subtitle 를 다시 부르라.",
+        "voice 응답의 carry 값과 함께 payload.selection(clips/selection.json 내용) · payload.voice(voice/voice.json 내용) · payload.transcript_utterances(transcript.json 의 utterances 배열) · payload.transcript_silences(transcript.json 의 silences — 무음 실측) · payload.visual(clips/visual.json 내용)을 실어 subtitle 를 다시 부르라.",
       );
     }
     const segs = [...selection.segments].sort((a, b) => a.in - b.in);
@@ -117,7 +129,20 @@ export const subtitle: StepHandler = {
     const pics: Pic[] = [];
     const nars: Nar[] = [];
     let t = 0, k = 0;
-    const byPos = (kind: string, ref: number) => vblocks.filter((b) => b.pos.kind === kind && (kind === "bridge" ? b.pos.bridge === ref : b.pos.seg === ref));
+    // 전처리 — before/after 블록이 가리키는 구간의 이웃이 원본에서 붙어 있으면(≤0.2s) 그 이웃 구간의 over 로 돌린다:
+    //   화면을 늘려 같은 장면을 두 번 쓰지 않고, 이웃 구간의 대사 틈에 놓는다. (before → 앞 구간의 마지막 틈, after → 뒤 구간의 첫 틈)
+    const segIdx = new Map(segs.map((x, i) => [x.i, i]));
+    const rerouted: string[] = [];
+    const eff: VBlock[] = vblocks.map((b) => {
+      if ((b.pos.kind === "before" || b.pos.kind === "after") && typeof b.pos.seg === "number") {
+        const i = segIdx.get(b.pos.seg); if (i === undefined) return b;
+        const nb = b.pos.kind === "before" ? segs[i - 1] : segs[i + 1];
+        const me = segs[i];
+        if (nb && Math.abs(b.pos.kind === "before" ? nb.out - me.in : nb.in - me.out) < 0.2) { rerouted.push(`나레 ${b.n}: ${b.pos.kind} seg#${me.i} → 붙어 있는 구간 ${nb.i} 의 틈으로`); return { ...b, pos: { kind: "over", seg: nb.i }, _prefer: b.pos.kind === "before" ? "tail" : "head" } as VBlock; }
+      }
+      return b;
+    });
+    const byPos = (kind: string, ref: number) => eff.filter((b) => b.pos.kind === kind && (kind === "bridge" ? b.pos.bridge === ref : b.pos.seg === ref));
     const uttsIn = (a: number, b: number) => utts.filter((u) => u.start < b && u.end > a);
     /** 구간 s 안에서 나레 블록들을 배치 — 시각몽타주 균등 / 대사 역할은 발화 틈 */
     const placeOver = (s: Segment, pic: Pic, blocks: VBlock[]) => {
@@ -130,26 +155,42 @@ export const subtitle: StepHandler = {
         for (const b of blocks) { nars.push({ n: b.n, t0: r3(cur), t1: r3(cur + b.dur_s), wav: b.wav, text: b.text, anchor: `${anchorTag} 균등` }); cur += b.dur_s + gap; }
         return;
       }
-      // 발화 틈: [구간 시작~첫 발화], 발화 사이, [마지막 발화~구간 끝]
-      const us = uttsIn(s.in, s.out).map((u) => [Math.max(u.start, s.in), Math.min(u.end, s.out)] as [number, number]).sort((a, b) => a[0] - b[0]);
+      // 틈 = 소리가 없는 자리. 무음 실측이 있으면 **실측 소리**만 믿는다(전사 세그먼트는 끝이 늘어나 있을 수 있다 — 'Hey!' 21s).
+      //   실측이 없으면 발화 시각으로 대신한다.
+      // 점유 = 정상 길이 발화(전사 시각 신뢰) ∪ 실측 소리(전사에 안 잡힌 외침·수상하게 긴 발화의 실제 소리)
+      const occupied = [
+        ...uttsIn(s.in, s.out).filter((u) => !silences.length || !suspiciousUtt(u)).map((u) => [Math.max(u.start, s.in), Math.min(u.end, s.out)] as [number, number]),
+        ...soundIn(s.in, s.out),
+      ].sort((a, b) => a[0] - b[0]);
       const gaps: [number, number][] = [];
       let cur = s.in;
-      for (const [a, b] of us) { if (a - cur > 0.05) gaps.push([cur, a]); cur = Math.max(cur, b); }
+      for (const [a, b] of occupied) { if (a - cur > 0.05) gaps.push([cur, a]); cur = Math.max(cur, b); }
       if (s.out - cur > 0.05) gaps.push([cur, s.out]);
       // 이야기 순서대로 채운다 — 앞에서부터 남는 자리가 있는 틈에 놓고(한 틈에 여러 블록 가능), 없으면 가장 큰 틈에 겹쳐 놓는다(덕킹)
       const room = gaps.map(([a, b]) => ({ a, b, cur: a }));
       const GAPPAD = SUB.큐_사이_최소간격_s;
       let lastEnd = s.in;
-      for (const b of blocks) {
-        let g = room.find((r) => r.cur >= lastEnd - 1e-6 && r.b - r.cur >= b.dur_s + GAPPAD);
+      // 순서: 앞 구간에서 넘어온(before) 블록은 이 구간의 **마지막** 틈, 나머지는 이야기 순서대로 앞에서부터
+      const ordered = [...blocks.filter((b) => b._prefer !== "tail"), ...blocks.filter((b) => b._prefer === "tail")];
+      for (const b of ordered) {
+        let g: { a: number; b: number; cur: number } | undefined;
+        if (b._prefer === "tail") {
+          const cands = room.filter((r) => r.b - r.cur >= b.dur_s + GAPPAD); g = cands[cands.length - 1];
+          if (g) { const start = g.b - GAPPAD / 2 - b.dur_s; g.b = start - GAPPAD / 2; const t0 = pic.t0 + (start - s.in); nars.push({ n: b.n, t0: r3(t0), t1: r3(t0 + b.dur_s), wav: b.wav, text: b.text, anchor: `${anchorTag} 마지막 틈(before 에서 이동)` }); continue; }
+        }
+        if (!g) g = room.find((r) => r.cur >= lastEnd - 1e-6 && r.b - r.cur >= b.dur_s + GAPPAD);
         if (!g) g = room.find((r) => r.b - r.cur >= b.dur_s + GAPPAD);
         let start: number;
         if (g) { start = g.cur + GAPPAD / 2; g.cur = start + b.dur_s + GAPPAD / 2; }
         else {
-          const big = [...room].sort((x, y) => (y.b - y.a) - (x.b - x.a))[0];
-          start = Math.max(big ? big.a : s.in, lastEnd);
-          warnings.push(`블록 ${b.n} (${r2(b.dur_s)}s)이 구간 ${s.i} 의 남은 틈보다 길다 — 대사 위에 겹친다(덕킹).`);
-          if (big) big.cur = Math.max(big.cur, start + b.dur_s);
+          // 자리가 없다 — 소리와 가장 덜 겹치는 위치를 0.25s 격자로 찾는다 (실측 우선)
+          let best = Math.max(s.in, lastEnd), bestOv = Infinity;
+          for (let x = Math.max(s.in, lastEnd); x + b.dur_s <= s.out + 1e-6; x += 0.25) {
+            const ov = occupied.reduce((acc, [a, e]) => acc + Math.max(0, Math.min(e, x + b.dur_s) - Math.max(a, x)), 0);
+            if (ov < bestOv - 1e-6) { bestOv = ov; best = x; }
+          }
+          start = best;
+          warnings.push(`블록 ${b.n} (${r2(b.dur_s)}s)이 구간 ${s.i} 의 남은 틈보다 길다 — 소리와 ${r2(bestOv)}s 겹치는 자리에 놓았다(덕킹).`);
         }
         lastEnd = start + b.dur_s;
         const t0 = pic.t0 + (start - s.in);
@@ -179,39 +220,36 @@ export const subtitle: StepHandler = {
           t += o - a; lastEnd = o;
         }
       }
-      // before 블록
+      // 연장 창 고르기 — 인접 30s 안(선택 구간과 겹치지 않는 원본)에서 실측 소리가 가장 적은 창. 같으면 구간에 가까운 쪽
+      const soundLen = (a: number, b: number) => soundIn(a, b).reduce((acc, [x, y]) => acc + (y - x), 0);
+      const pickWindow = (dur: number, dir: "before" | "after", edge: number): number => {
+        const lo = dir === "before" ? Math.max(prev ? prev.out : 0, edge - 30) : edge;
+        const hi = dir === "before" ? edge : Math.min(next ? next.in : ps.duration_s!, edge + 30);
+        let best = dir === "before" ? Math.max(lo, edge - dur) : edge, bestS = Infinity;
+        if (dir === "before") { for (let x = edge - dur; x >= lo; x -= 0.5) { const sl = silences.length ? soundLen(x, x + dur) : 0; if (sl < bestS - 1e-6) { bestS = sl; best = x; } if (bestS === 0) break; } }
+        else { for (let x = edge; x + dur <= hi; x += 0.5) { const sl = silences.length ? soundLen(x, x + dur) : 0; if (sl < bestS - 1e-6) { bestS = sl; best = x; } if (bestS === 0) break; } }
+        return best;
+      };
+      // before 블록 (붙어 있는 이웃이 있으면 전처리에서 이미 over 로 돌렸다 → 여기 남은 것은 연장)
       const before = byPos("before", s.i);
-      const prevContiguousSilent = prev && Math.abs(prev.out - s.in) < 0.2 && !dialogueRoles.has(prev.role);
       for (const b of before) {
-        if (prevContiguousSilent) {
-          const prevPic = pics.filter((p) => p.kind === "segment" && p.seg === prev!.i).at(-1)!;
-          const t0 = Math.max(prevPic.t0, prevPic.t1 - b.dur_s);
-          nars.push({ n: b.n, t0: r3(t0), t1: r3(t0 + b.dur_s), wav: b.wav, text: b.text, anchor: `before seg#${s.i} → 앞 구간 ${prev!.i} 꼬리 겹침` });
-        } else {
-          const a = Math.max(0, s.in - b.dur_s);
-          pics.push({ k: k++, kind: "extend", role: "연장", src_in: r3(a), src_out: r3(s.in), t0: r3(t), t1: r3(t + (s.in - a)), audio: "duck", seg: s.i, why: `before 나레 ${b.n} 자리 — 원본 앞으로 연장` });
-          nars.push({ n: b.n, t0: r3(t), t1: r3(t + b.dur_s), wav: b.wav, text: b.text, anchor: `before seg#${s.i} 연장` });
-          t += s.in - a;
-        }
+        const a = pickWindow(b.dur_s, "before", s.in);
+        pics.push({ k: k++, kind: "extend", role: "연장", src_in: r3(a), src_out: r3(a + b.dur_s), t0: r3(t), t1: r3(t + b.dur_s), audio: "duck", seg: s.i, why: `before 나레 ${b.n} 자리 — 원본 앞 30s 안 소리 가장 적은 창` });
+        nars.push({ n: b.n, t0: r3(t), t1: r3(t + b.dur_s), wav: b.wav, text: b.text, anchor: `before seg#${s.i} 연장` });
+        t += b.dur_s;
       }
       // 구간 본체
       const pic: Pic = { k: k++, kind: "segment", role: s.role, src_in: s.in, src_out: s.out, t0: r3(t), t1: r3(t + (s.out - s.in)), audio: dialogueRoles.has(s.role) ? "keep" : "hold", seg: s.i };
       pics.push(pic);
       t += s.out - s.in;
       placeOver(s, pic, byPos("over", s.i));
-      // after 블록
+      // after 블록 (붙어 있는 이웃은 전처리에서 over 로 돌렸다 → 여기 남은 것은 연장)
       const after = byPos("after", s.i);
-      const nextContiguousSilent = next && Math.abs(next.in - s.out) < 0.2 && !dialogueRoles.has(next.role);
       for (const b of after) {
-        if (nextContiguousSilent) {
-          // 다음 구간 머리에 겹친다 — 다음 구간 pic 은 아직 없으니 예약: t 기준으로 배치 (다음 pic 은 t 에서 시작한다)
-          nars.push({ n: b.n, t0: r3(t), t1: r3(t + b.dur_s), wav: b.wav, text: b.text, anchor: `after seg#${s.i} → 다음 구간 ${next!.i} 머리 겹침` });
-        } else {
-          const o = Math.min(ps.duration_s, s.out + b.dur_s);
-          pics.push({ k: k++, kind: "extend", role: "연장", src_in: r3(s.out), src_out: r3(o), t0: r3(t), t1: r3(t + (o - s.out)), audio: "duck", seg: s.i, why: `after 나레 ${b.n} 자리 — 원본 뒤로 연장` });
-          nars.push({ n: b.n, t0: r3(t), t1: r3(t + b.dur_s), wav: b.wav, text: b.text, anchor: `after seg#${s.i} 연장` });
-          t += o - s.out;
-        }
+        const a = pickWindow(b.dur_s, "after", s.out);
+        pics.push({ k: k++, kind: "extend", role: "연장", src_in: r3(a), src_out: r3(a + b.dur_s), t0: r3(t), t1: r3(t + b.dur_s), audio: "duck", seg: s.i, why: `after 나레 ${b.n} 자리 — 원본 뒤 30s 안 소리 가장 적은 창` });
+        nars.push({ n: b.n, t0: r3(t), t1: r3(t + b.dur_s), wav: b.wav, text: b.text, anchor: `after seg#${s.i} 연장` });
+        t += b.dur_s;
       }
     }
     // ── 죽은 시간 컷 (규격 조립.죽은시간_컷): 대사 역할 구간 안에서 대사도 나레도 없는 임계 이상 구간을 잘라 당겨 붙인다 ──
@@ -225,9 +263,11 @@ export const subtitle: StepHandler = {
       for (const p of pics) {
         const p0 = p.t0, p1 = p.t1;
         if (p.kind !== "segment" || !target.has(p.role)) { newPics.push({ ...p, t0: r3(p.t0 - shift), t1: r3(p.t1 - shift) }); for (const n of nars) if (n.t0 >= p0 && n.t0 < p1) shiftedNars.set(n.n, shift); continue; }
-        // 이 구간의 소리 구간(타임라인 시각): 대사 + 이 구간 위 나레
+        // 이 구간의 소리 구간(타임라인 시각): 실측 소리(있으면 그것만 — 늘어난 전사 끝을 믿지 않는다) 또는 발화 + 이 구간 위 나레
         const sound: [number, number][] = [
-          ...uttsIn(p.src_in, p.src_out).map((u) => [p.t0 + (Math.max(u.start, p.src_in) - p.src_in), p.t0 + (Math.min(u.end, p.src_out) - p.src_in)] as [number, number]),
+          ...uttsIn(p.src_in, p.src_out).filter((u) => !silences.length || !suspiciousUtt(u)).map((u) => [p.t0 + (Math.max(u.start, p.src_in) - p.src_in), p.t0 + (Math.min(u.end, p.src_out) - p.src_in)] as [number, number]),
+          // 실측 소리는 지속 길이가 규격 보호_소리_최소_s 이상인 것만 컷을 막는다 (짧은 현장음 스웰은 잘라도 된다)
+          ...soundIn(p.src_in, p.src_out).filter(([a, b]) => b - a >= (TC.보호_소리_최소_s ?? 0)).map(([a, b]) => [p.t0 + (a - p.src_in), p.t0 + (b - p.src_in)] as [number, number]),
           ...nars.filter((n) => n.t1 > p0 && n.t0 < p1).map((n) => [Math.max(n.t0, p0), Math.min(n.t1, p1)] as [number, number]),
         ].sort((a, b) => a[0] - b[0]);
         // 잘라낼 무음 구간 (안쪽만 — 구간 머리·꼬리는 그대로)
@@ -254,6 +294,7 @@ export const subtitle: StepHandler = {
       t -= shift;
       trimmedS = r3(trimmedS);
     }
+    for (const r of rerouted) warnings.push(r);
     const totalT = r3(t);
     nars.sort((a, b) => a.t0 - b.t0);
     // 나레끼리 겹침 해소: 뒤 것을 밀어낸다 (앞뒤 겹침이 생기는 자리는 대개 겹침 규칙의 꼬리/머리)
@@ -299,9 +340,9 @@ export const subtitle: StepHandler = {
           ],
           then_call_with: ["step: 'subtitle'", "payload: { …carry, selection, voice, transcript_utterances, visual, translations: [{id, ko}] }"],
           jobs_kind: null, jobs: [], measure: [],
-          carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "voice_path", "selection", "voice", "transcript_utterances", "visual"],
+          carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "voice_path", "selection", "voice", "transcript_utterances", "transcript_silences", "visual"],
           source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, selection_path: payload.selection_path, script_path: payload.script_path, voice_path: payload.voice_path,
-          selection, voice, transcript_utterances: utts, visual,
+          selection, voice, transcript_utterances: utts, transcript_silences: silences, visual,
           style_guide: styleGuide,
           material: { title: source.title ?? null, lang: source.lang ?? null, dialogue_lines: dlgLines.map((d) => ({ id: d.id, seg: d.seg, t: `${d.src_start}→${d.src_end}`, en: d.en })), timeline_preview: timelinePreview },
         });
@@ -328,9 +369,9 @@ export const subtitle: StepHandler = {
         instructions: ["① jobs 의 judge 를 그대로 보낸다 (키는 auth 대로 환경변수에서).", "② measure 대로 응답 JSON 의 translations 배열을 payload.translations 에 넣고 carry 값과 함께 다시 부른다."],
         then_call_with: ["step: 'subtitle'", "payload: { …carry, translations: <응답.translations> }"],
         jobs_kind: "judge", jobs: [job], measure: [{ as: "translations_raw", from: "job:translate_dialogue", unit: "gemini_json_text" }],
-        carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "voice_path", "selection", "voice", "transcript_utterances", "visual"],
+        carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "voice_path", "selection", "voice", "transcript_utterances", "transcript_silences", "visual"],
         source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, selection_path: payload.selection_path, script_path: payload.script_path, voice_path: payload.voice_path,
-        selection, voice, transcript_utterances: utts, visual,
+        selection, voice, transcript_utterances: utts, transcript_silences: silences, visual,
       });
     }
 
@@ -417,13 +458,14 @@ export const subtitle: StepHandler = {
     const deadPass = deadRatio <= (A["G-죽은시간_max"].value ?? 0.1);
     gates.push({ id: "G-죽은시간(홀드 제외)", pass: deadPass, hard: true, detail: `죽은 ${deadS}s / (총 ${totalT}s − 홀드 ${holdS}s = ${denom}s) = ${deadRatio} (≤${A["G-죽은시간_max"].value}). 죽은 구간 상위: ${deadSpans.slice(0, 5).map((d) => `${d.t0}~${d.t1}(${d.len}s)`).join(", ")}`, fix: deadPass ? undefined : `죽은 구간 상위 ${Math.min(5, deadSpans.length)}개 위치를 보고 script 로 돌아가 그 자리에 원인·의미 나레를 쓰거나(나레이션.md 2절), 그 구간을 자르거나 당겨 붙여라(규격 조립). 대사 역할인데 대사가 없는 자리면 select 의 역할을 시각몽타주(홀드)로 바꾼다.` });
     const soft: string[] = [...warnings];
+    if (!silences.length) soft.push("무음 실측(transcript_silences)이 없어 틈·컷을 발화 시각만으로 계산했다 — 전사에 안 잡힌 소리 위에 나레가 얹힐 수 있다.");
     if (maxNoSub > A.무자막_최장_s.value) soft.push(`[soft] 무자막 최장 ${maxNoSub}s > ${A.무자막_최장_s.value}s (G64)`);
     if (cuesPerClip < A.클립당_자막.min || cuesPerClip > A.클립당_자막.max) soft.push(`[soft] 클립당 자막 ${cuesPerClip} (대역 ${A.클립당_자막.min}~${A.클립당_자막.max}, G12)`);
     // 나레-대사 겹침(다른 레인, 덕킹) 정보
     let narOverDlg = 0; for (const n of nars) for (const d of dlgLines) narOverDlg += Math.max(0, Math.min(n.t1, d.t1) - Math.max(n.t0, d.t0));
     narOverDlg = r3(narOverDlg);
 
-    const metrics = { total_s: totalT, cuts: pics.length, narrations: nars.length, cue_count: cues.length, cues_nar: cues.filter((c) => c.lane === "nar").length, cues_dlg: cues.filter((c) => c.lane === "dlg").length, cues_per_min: r3(cues.length / (totalT / 60)), max_line_chars: { nar: maxLineNar, dlg: maxLineDlg }, overlaps: overlapsLeft, dead_ratio: deadRatio, dead_s: deadS, hold_s: holdS, max_no_sub_s: maxNoSub, cues_per_clip: cuesPerClip, nar_over_dialogue_s: narOverDlg, added_time_s: r3(totalT - segs.reduce((a, s) => a + (s.out - s.in), 0)), trimmed_silence_s: trimmedS, trim_cuts: trimCuts, source_ratio: r3(totalT / ps.duration_s) };
+    const metrics = { total_s: totalT, cuts: pics.length, narrations: nars.length, cue_count: cues.length, cues_nar: cues.filter((c) => c.lane === "nar").length, cues_dlg: cues.filter((c) => c.lane === "dlg").length, cues_per_min: r3(cues.length / (totalT / 60)), max_line_chars: { nar: maxLineNar, dlg: maxLineDlg }, overlaps: overlapsLeft, dead_ratio: deadRatio, dead_s: deadS, hold_s: holdS, max_no_sub_s: maxNoSub, cues_per_clip: cuesPerClip, nar_over_dialogue_s: narOverDlg, added_time_s: r3(totalT - segs.reduce((a, s) => a + (s.out - s.in), 0)), trimmed_silence_s: trimmedS, trim_cuts: trimCuts, silence_measured: silences.length > 0, source_ratio: r3(totalT / ps.duration_s) };
     // 죽은 구간 → 어느 컷(원본 시각)인지 대응 + 역할별 합계 (수리 지침에 위치를 준다)
     const picAt = (x: number) => pics.find((p) => x >= p.t0 - 1e-6 && x < p.t1 + 1e-6);
     const deadDiag = deadSpans.slice(0, 12).map((d) => { const p = picAt(d.t0); return { ...d, picture: p ? { k: p.k, kind: p.kind, role: p.role, seg: p.seg ?? null, src: `${r2(p.src_in + (d.t0 - p.t0))}~${r2(Math.min(p.src_out, p.src_in + (d.t1 - p.t0)))}` } : null }; });

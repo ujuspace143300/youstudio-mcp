@@ -14,8 +14,8 @@ import { base, reject } from "../response.js";
 import type { StepHandler } from "./types.js";
 import type { ArgvJob } from "../schema.js";
 
-interface SubSpec { 폰트: Record<string, { 표시명: string; 패밀리: string; PS명: string }>; 크기_px: Record<string, number>; 위치_center: Record<string, { horiz: number; vert: number }>; 색: Record<string, { r: number; g: number; b: number }>; 나레_한줄_최대자수: number; 대사_한줄_최대자수: number }
-interface AsmSpec { 덕킹_레벨: number; 죽은시간_홀드_제외_역할: string[]; 내보내기: { 형식: string; 시퀀스_이름: string; 해상도: { width: number; height: number }; 타임베이스: number; ntsc: boolean; 트랙: Record<string, string> } }
+interface SubSpec { 폰트: Record<string, { 표시명: string; 패밀리: string; PS명: string; xml명?: string }>; 크기_px: Record<string, number>; 위치_center: Record<string, { horiz: number; vert: number } | number | string>; 색: Record<string, { r: number; g: number; b: number }>; 나레_한줄_최대자수: number; 대사_한줄_최대자수: number }
+interface AsmSpec { 덕킹_레벨: number; 덕킹_방식?: string; 죽은시간_홀드_제외_역할: string[]; 내보내기: { 형식: string; 시퀀스_이름: string; 해상도: { width: number; height: number }; 타임베이스: number; ntsc: boolean; 트랙: Record<string, string> } }
 const SUB = (spec as unknown as { 자막: SubSpec })["자막"];
 const ASM = (spec as unknown as { 조립: AsmSpec })["조립"];
 const AJ = (answer as unknown as { 자막: { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-자막_겹침_max": { value: number }; "G-죽은시간_max": { value: number } }; 대본: { 나레_시간점유: { min: number; max: number } }; 구간선택: { "G-반복": { 컷_반복_비율_max: { value: number } } } })["자막"];
@@ -111,12 +111,15 @@ export const exportStep: StepHandler = {
       const f = firstFile ? srcFile("src-file") : fileRef; firstFile = false;
       return `<clipitem id="v1-${i + 1}"><name>${esc(`${String(i + 1).padStart(2, "0")} ${p.role}${p.seg != null ? ` seg${p.seg}` : ""}`)}</name><duration>${e - s}</duration>${RATE}<start>${s}</start><end>${e}</end><in>${inF}</in><out>${outF}</out>${f}<sourcetrack><mediatype>video</mediatype><trackindex>1</trackindex></sourcetrack></clipitem>`;
     }).join("\n        ");
-    // A1 원본 소리 (덕킹 컷은 Audio Levels)
-    const a1 = pics.map((p, i) => {
+    // A1 원본 소리 — 살릴 컷만. 덕킹 컷의 원본 소리는 A3 별도 트랙(규격 조립.덕킹_방식=별도트랙) — 프리미어 필터 의존을 끊는다
+    const separateDuck = (ASM.덕킹_방식 ?? "별도트랙") === "별도트랙";
+    const audioClip = (p: Pic, i: number, tag: string, withFilter: boolean) => {
       const s = F(p.t0), e = F(p.t1), inF = F(p.src_in), outF = inF + (e - s);
-      const duck = p.audio === "duck" ? `<filter><effect><name>Audio Levels</name><effectid>audiolevels</effectid><effectcategory>audiolevels</effectcategory><effecttype>audiolevels</effecttype><mediatype>audio</mediatype><parameter><parameterid>level</parameterid><name>Level</name><value>${ASM.덕킹_레벨}</value></parameter></effect></filter>` : "";
-      return `<clipitem id="a1-${i + 1}"><name>${esc(`${String(i + 1).padStart(2, "0")} ${p.role} 소리${p.audio === "duck" ? " (덕킹)" : ""}`)}</name><duration>${e - s}</duration>${RATE}<start>${s}</start><end>${e}</end><in>${inF}</in><out>${outF}</out>${fileRef}<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>${duck}</clipitem>`;
-    }).join("\n        ");
+      const duck = withFilter ? `<filter><effect><name>Audio Levels</name><effectid>audiolevels</effectid><effectcategory>audiolevels</effectcategory><effecttype>audiolevels</effecttype><mediatype>audio</mediatype><parameter><parameterid>level</parameterid><name>Level</name><value>${ASM.덕킹_레벨}</value></parameter></effect></filter>` : "";
+      return `<clipitem id="${tag}-${i + 1}"><name>${esc(`${String(i + 1).padStart(2, "0")} ${p.role} 소리${p.audio === "duck" ? " (덕킹)" : ""}`)}</name><duration>${e - s}</duration>${RATE}<start>${s}</start><end>${e}</end><in>${inF}</in><out>${outF}</out>${fileRef}<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>${duck}</clipitem>`;
+    };
+    const a1 = pics.map((p, i) => (separateDuck && p.audio === "duck") ? "" : audioClip(p, i, "a1", !separateDuck && p.audio === "duck")).filter(Boolean).join("\n        ");
+    const a3 = separateDuck ? pics.map((p, i) => p.audio === "duck" ? audioClip(p, i, "a3", true) : "").filter(Boolean).join("\n        ") : "";
     // A2 나레 블록
     const vmap = new Map(voice.blocks.map((b) => [b.n, b]));
     const a2 = nars.map((n, i) => {
@@ -127,9 +130,11 @@ export const exportStep: StepHandler = {
     // V2 대사 · V3 나레 자막 (Text 제너레이터)
     const gen = (c: Cue, id: string) => {
       const kind = c.lane === "nar" ? "나레" : "대사";
-      const font = SUB.폰트[kind]; const size = SUB.크기_px[kind]; const pos = SUB.위치_center[kind]; const col = SUB.색[kind];
+      const font = SUB.폰트[kind]; const size = SUB.크기_px[kind]; const pos = SUB.위치_center[kind] as { horiz: number; vert: number }; const col = SUB.색[kind];
+      const vsign = typeof SUB.위치_center["세로부호"] === "number" ? (SUB.위치_center["세로부호"] as number) : 1;
+      const fontName = font.xml명 ?? font.패밀리;
       const s = F(c.t0), e = Math.max(s + 1, F(c.t1));
-      return `<generatoritem id="${id}"><name>${esc(c.text.slice(0, 24))}</name><duration>${e - s}</duration>${RATE}<start>${s}</start><end>${e}</end><in>0</in><out>${e - s}</out><effect><name>Text</name><effectid>Text</effectid><effectcategory>Text</effectcategory><effecttype>generator</effecttype><mediatype>video</mediatype><parameter><parameterid>str</parameterid><name>Text</name><value>${esc(c.text)}</value></parameter><parameter><parameterid>font</parameterid><name>Font</name><value>${esc(font.패밀리)}</value></parameter><parameter><parameterid>fontsize</parameterid><name>Size</name><value>${size}</value></parameter><parameter><parameterid>alignment</parameterid><name>Alignment</name><value>center</value></parameter><parameter><parameterid>fillcolor</parameterid><name>Color</name><value><alpha>255</alpha><red>${col.r}</red><green>${col.g}</green><blue>${col.b}</blue></value></parameter></effect><filter><effect><name>Basic Motion</name><effectid>basic</effectid><effectcategory>motion</effectcategory><effecttype>motion</effecttype><mediatype>video</mediatype><parameter><parameterid>scale</parameterid><name>Scale</name><value>100.0000</value></parameter><parameter><parameterid>center</parameterid><name>Center</name><value><horiz>${pos.horiz}</horiz><vert>${pos.vert}</vert></value></parameter></effect></filter></generatoritem>`;
+      return `<generatoritem id="${id}"><name>${esc(c.text.slice(0, 24))}</name><duration>${e - s}</duration>${RATE}<start>${s}</start><end>${e}</end><in>0</in><out>${e - s}</out><effect><name>Text</name><effectid>Text</effectid><effectcategory>Text</effectcategory><effecttype>generator</effecttype><mediatype>video</mediatype><parameter><parameterid>str</parameterid><name>Text</name><value>${esc(c.text)}</value></parameter><parameter><parameterid>font</parameterid><name>Font</name><value>${esc(fontName)}</value></parameter><parameter><parameterid>fontsize</parameterid><name>Size</name><value>${size}</value></parameter><parameter><parameterid>alignment</parameterid><name>Alignment</name><value>center</value></parameter><parameter><parameterid>fillcolor</parameterid><name>Color</name><value><alpha>255</alpha><red>${col.r}</red><green>${col.g}</green><blue>${col.b}</blue></value></parameter></effect><filter><effect><name>Basic Motion</name><effectid>basic</effectid><effectcategory>motion</effectcategory><effecttype>motion</effecttype><mediatype>video</mediatype><parameter><parameterid>scale</parameterid><name>Scale</name><value>100.0000</value></parameter><parameter><parameterid>center</parameterid><name>Center</name><value><horiz>${pos.horiz}</horiz><vert>${pos.vert * vsign}</vert></value></parameter></effect></filter></generatoritem>`;
     };
     const dlgCues = tl.cues.filter((c) => c.lane === "dlg").sort((a, b) => a.t0 - b.t0);
     const narCues = tl.cues.filter((c) => c.lane === "nar").sort((a, b) => a.t0 - b.t0);
@@ -162,7 +167,10 @@ export const exportStep: StepHandler = {
         </track>
         <track>
         ${a2}
-        </track>
+        </track>${a3 ? `
+        <track>
+        ${a3}
+        </track>` : ""}
       </audio>
     </media>
   </sequence>
@@ -207,7 +215,8 @@ export const exportStep: StepHandler = {
     gates.push({ step: "subtitle", id: "G-자막(같은 레인 겹침)", pass: ov <= AJ["G-자막_겹침_max"].value, hard: true, detail: `겹침 ${ov}` });
     gates.push({ step: "subtitle", id: "G-죽은시간(홀드 제외)", pass: deadRatio <= AJ["G-죽은시간_max"].value, hard: true, detail: `${deadRatio} (≤${AJ["G-죽은시간_max"].value}, 홀드 ${r3(holdS)}s)` });
     // export 자체: XML 요소 수 = 실측 수
-    gates.push({ step: "export", id: "XML 요소 수 = 타임라인 실측", pass: true, hard: true, detail: `V1 컷 ${pics.length} · V2 대사 자막 ${dlgCues.length} · V3 나레 자막 ${narCues.length} · A1 ${pics.length} · A2 나레 ${nars.length} · 믹스 ${r3(mixDur)}s` });
+    const duckN = pics.filter((p) => p.audio === "duck").length;
+    gates.push({ step: "export", id: "XML 요소 수 = 타임라인 실측", pass: true, hard: true, detail: `V1 컷 ${pics.length} · V2 대사 자막 ${dlgCues.length} · V3 나레 자막 ${narCues.length} · A1 원본 소리 ${separateDuck ? pics.length - duckN : pics.length} · A2 나레 ${nars.length}${separateDuck ? ` · A3 덕킹 컷 소리 ${duckN}` : ""} · 믹스 ${r3(mixDur)}s` });
     const failed = gates.filter((g) => g.hard && g.pass === false);
     if (failed.length) {
       return reject("export", preset, `최종 재검사 불통 ${failed.length}건 — ${failed.map((g) => `[${g.step}] ${g.id}: ${g.detail}`).join(" / ")}`, "불통 단계로 돌아가 그 단계의 수리 지침대로 고친 뒤 이후 단계를 다시 돌리고 export 를 다시 부르라. 최종 산출물은 중간 파일을 신뢰하지 않고 다시 잰다.");
@@ -216,7 +225,7 @@ export const exportStep: StepHandler = {
     const fontsUsed = { 나레: SUB.폰트.나레, 대사: SUB.폰트.대사 };
     const manifest = {
       title, source: source.path, created: new Date().toISOString().slice(0, 10),
-      format: ASM.내보내기.형식, sequence: { name: seqName, width: W, height: H, timebase: tb, ntsc, fps: r3(fps), total_s: totalS, total_frames: totalF, tracks: ASM.내보내기.트랙 },
+      format: ASM.내보내기.형식, sequence: { name: seqName, width: W, height: H, timebase: tb, ntsc, fps: r3(fps), total_s: totalS, total_frames: totalF, tracks: { ...ASM.내보내기.트랙, ...(separateDuck ? { A3: "덕킹 컷 원본 소리(볼륨 낮춤·필요시 음소거)" } : {}) } },
       materials: {
         xml: join(renderDir, `${slug}.xml`), narration_mix_wav: mixPath, narration_block_wavs: nars.map((n) => n.wav),
         srt: { all: join(renderDir, "subtitle.srt"), narration: join(renderDir, "subtitle_nar.srt"), dialogue: join(renderDir, "subtitle_dlg.srt") },
@@ -226,7 +235,7 @@ export const exportStep: StepHandler = {
       fonts: fontsUsed,
       gates,
       metrics: { total_s: totalS, source_ratio: r3(totalS / ps.duration_s), narration_s: r3(narTotal), dialogue_s: dlgS, nar_share: share, dead_ratio: deadRatio, reuse_ratio: reuseRatio, mix_duration_s: r3(mixDur), sec_per_char: voice.metrics?.sec_per_char_measured ?? null },
-      notes: ["타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다", "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "세로 위치(center vert) 부호가 뒤집혀 보이면 자막 클립 전체 선택 → Motion > Position Y 부호 반전"],
+      notes: ["타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다 (XML 폰트 이름은 규격 자막.폰트.xml명)", separateDuck ? "연장·브리지 컷의 원본 소리는 A3 트랙에 따로 두었다 — 나레와 겹치면 A3 볼륨을 내리거나 음소거" : "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "세로 위치(center vert)는 규격 자막.위치_center.세로부호 로 맞춘다 (사용자 프리미어 −1)"],
     };
     return base("export", preset, {
       status: "done", next_step: null,

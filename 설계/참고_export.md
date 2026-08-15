@@ -124,3 +124,21 @@
 | ③-c 훅 블록1 | 구간1 이 0.0s 대사로 시작해 틈이 없음 | select/subtitle: 훅 앞에 무대사 컷(원본 0 앞은 없으므로 시각몽타주 짧은 컷 또는 seg1 앞 확장 불가) → script 위치를 bridge0 로 옮기거나 hook 을 seg1 첫 틈(12~26s) 이후로. 결정 필요 |
 | (확인) 24 ntsc | 프리미어가 23.976 로 잡았는지 | 시퀀스 설정 화면 확인 요청 |
 
+### 6-1. `_import_test.xml` 실측 (2026-08-16)
+- 폰트 경고창 "확인할 수 없음(기본 글꼴로 대체됨)" 4건: `Sandoll`+깨진 한글(=B2 `Sandoll 광화문`) · 깨진 한글+`Bold`(=A2 `본명조 Bold`) · `SourceHanSerifK K`(=A4 `Source Han Serif K`) · `SourceHanSerifKBoldold`(=A1 `Source Han Serif K Bold`). **한글 폰트 이름은 파라미터 인코딩에서 깨져 탈락 확정**(본문 한글은 정상 렌더). 공백 있는 영문 이름은 공백을 뭉개 찾다 실패한 흔적.
+- **생존(경고 없음)**: A3 `SourceHanSerifK-Bold`(PS) · B1 `Sandoll Gwanghwamun` · B3 `SDGwanghwamun`(PS) · B4 `Sandoll Gwanghwamun TTF`. 실제 렌더 확인은 `_import_test2.xml`(라벨을 시간순으로 하나씩).
+- 0:02 에 "A1 …" 라벨이 얇은 고딕(대체)으로 화면 위에 하나만 보임 — 세로 부호 반전으로 8줄이 밖으로 나가거나 겹친 결과.
+- **vert=+300 라벨이 화면 위 → 세로 부호 반대 확정** → 규격 「자막.위치_center.세로부호」 = −1.
+- **시퀀스 23.976 프레임/초 확정**(스크린샷).
+
+### 6-2. 수리 반영 (2026-08-16, 커밋 참조)
+| 증상 | 수리 | 어디 |
+| :---- | :---- | :---- |
+| ① 상단 | 규격 「자막.위치_center.세로부호」= −1 → export 가 vert 에 곱함 (나레 −300 · 대사 −440) | 규격.json · export.ts |
+| ② 폰트 | 규격 「자막.폰트.*.xml명」 신설, 우선 PS 명(`SourceHanSerifK-Bold` · `SDGwanghwamun`) — 렌더 확정은 `_import_test2.xml`(생존 4종 4초씩 + 부호 확인 줄) | 규격.json · export.ts |
+| ③-a 덕킹 | 규격 「조립.덕킹_방식」= 별도트랙: A1 = 살릴 컷만, **A3 = 연장·브리지 컷의 원본 소리**(Audio Levels 첨부, 안 읽히면 A3 음소거/볼륨) | export.ts |
+| ③-b 늘어난 발화 | transcript ① 에 `silence_scan`(ffmpeg silencedetect, 규격 「전사.무음스캔」 −24dB·0.4s, stderr 측정) → ② 는 발화 끝을 **꼬리 무음을 벗긴 마지막 소리의 끝**으로(추정 절단 폐기), transcript.json 에 `silences` 기록 | transcript.ts · 규격 |
+| ③-b 배치·컷 | subtitle: 나레 틈 = 정상 길이 발화 ∪ **실측 소리** 없는 자리(수상하게 긴 세그먼트의 시각은 안 믿음) · 자리 없으면 실측 소리와 가장 덜 겹치는 위치 · 무음 컷은 발화·나레·**지속 ≥1.5s 소리**만 보호(현장음 스웰은 잘라도 됨) | subtitle.ts · 규격 「조립.죽은시간_컷.보호_소리_최소_s」 |
+| ③-c 연장 컷 | before/after 가 붙어 있는 이웃 구간이 있으면 화면을 늘리지 않고 그 구간의 틈(over)으로 이동 · 늘려야 하면 앞/뒤 30s 안에서 **실측 소리가 가장 적은 창**을 고른다 (같은 장면 중복·대사 위 겹침 제거 → G16 재사용 0) | subtitle.ts |
+| 결과 | Full Time 재출력: 총 553.4s · 컷 46 · 큐 194 · 죽은 시간 8.4% · 재사용 0 · 나레 밑 실측 소리 남은 곳 = 훅 n01(자리 없음)·브리지0 n02·연장 n03 → 전부 A3(덕킹 트랙) 위 | render/ |
+

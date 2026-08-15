@@ -25,7 +25,8 @@ interface TranscribeSpec {
   파일상한_mb: number;
   분할전사: string;
   환청규칙: { 최소길이_s: number; 최대단어: number };
-  늘어난발화_규칙: { 단어당_최대_s: number; 여유_s: number };
+  늘어난발화_규칙: { 트리거_단어당_s: number; 트리거_여유_s: number; 무음_최소_s: number };
+  무음스캔: { 필터: string; noise_dB: number; d_s: number };
 }
 const T = (spec as unknown as { 전사: TranscribeSpec })["전사"];
 
@@ -95,11 +96,11 @@ export const transcript: StepHandler = {
           `① do[] 의 extract_audio 를 그대로 실행해 ${audioPath} 를 만든다.`,
           `② do[] 의 audio_size 로 크기를 잰다. ${T.파일상한_mb}MB(규격.json 전사.파일상한_mb)를 넘으면 여기서 멈추고 사람에게 보고한다 — 장편 분할 전사는 미정이다.`,
           `③ jobs 의 transcribe 를 그대로 보낸다. 키는 auth 대로 환경변수 ${T.키_환경변수} 에서 읽어 헤더에 붙인다. 키 값을 화면·파일·payload 에 쓰지 않는다. 응답 JSON 을 out 경로에 저장한다.`,
-          "④ measure 대로 응답 JSON 을 payload.asr 에, 크기 JSON 을 payload.audio_bytes 에 넣고, carry 값과 함께 transcript 를 다시 부른다.",
+          "④ measure 대로 응답 JSON 을 payload.asr 에, 크기 JSON 을 payload.audio_bytes 에, silence_scan 의 stderr 전문을 payload.silences_raw 에 넣고, carry 값과 함께 transcript 를 다시 부른다.",
         ],
         then_call_with: [
           "step: 'transcript'",
-          "payload: { workdir, source, probe_summary, asr: <Groq verbose_json 응답>, audio_bytes: <audio_size 의 JSON> }",
+          "payload: { workdir, source, probe_summary, asr: <Groq verbose_json 응답>, audio_bytes: <audio_size 의 JSON>, silences_raw: <silence_scan stderr> }",
         ],
         do: [
           {
@@ -121,6 +122,11 @@ export const transcript: StepHandler = {
             argv: ["ffprobe", "-v", "error", "-print_format", "json", "-show_entries", "format=size,duration", audioPath],
             note: "업로드 상한 확인용",
           },
+          {
+            name: "silence_scan",
+            argv: ["ffmpeg", "-v", "info", "-nostats", "-i", audioPath, "-af", `${T.무음스캔.필터},silencedetect=noise=${T.무음스캔.noise_dB}dB:d=${T.무음스캔.d_s}`, "-f", "null", "-"],
+            note: "오디오 전체 무음 구간 실측 (stderr 에 silence_start/end). 늘어난 발화 끝·나레 배치 틈·무음 컷이 이 실측을 쓴다",
+          },
         ],
         jobs_kind: "transcribe",
         jobs: [
@@ -141,6 +147,7 @@ export const transcript: StepHandler = {
         measure: [
           { as: "asr", from: "job:groq_asr", unit: "json_stdout" },
           { as: "audio_bytes", from: "job:audio_size", unit: "json_stdout" },
+          { as: "silences_raw", from: "job:silence_scan", unit: "stderr" },
         ],
         carry: ["source", "workdir", "probe_summary"],
         source, workdir, probe_summary: ps,
@@ -160,6 +167,17 @@ export const transcript: StepHandler = {
     // 규칙 (단계상세.md 2. transcript): 발화 시작이 원본 길이 이후면 제거하고 경고 기록.
     //   근거: Full Time whisper 끝부분 환청 실측 ("Thank you." 925.9→955.9s, 2026-08-15)
     // 원본 길이를 넘는 끝 타임코드는 길이에 맞춰 자른다.
+    // 무음 실측 (silence_scan stderr) → [[start,end],…]. 없으면 빈 배열 + 경고 (늘어난 발화 끝은 못 자른다)
+    const silences: [number, number][] = [];
+    {
+      const txt = typeof payload.silences_raw === "string" ? payload.silences_raw : "";
+      let cur: number | null = null;
+      for (const m of txt.matchAll(/silence_(start|end): ([\d.]+)/g)) {
+        if (m[1] === "start") cur = Number(m[2]);
+        else if (cur !== null) { silences.push([r3(cur), r3(Number(m[2]))]); cur = null; }
+      }
+      if (cur !== null) silences.push([r3(cur), r3(durationS)]);
+    }
     // 규칙 ⓐ 환청 (규격.json 전사.환청규칙): 길이 ≥ 최소길이_s 이면서 단어 ≤ 최대단어 → 제거+경고.
     //   근거: Full Time 실측 — 무음 구간에서 정확히 30.0s "Thank you."/"The End"/"I'm sorry." 10개 (단계상세.md 2. transcript)
     let clamped = 0;
@@ -182,10 +200,23 @@ export const transcript: StepHandler = {
       .map((s, i) => {
         let end = s.end as number;
         if (end > durationS) { end = durationS; clamped++; }
-        // 규칙 ⓒ 늘어난 발화 (규격 전사.늘어난발화_규칙): 길이 > 단어 수 × 단어당_최대 + 여유 → 끝을 상한으로 자른다 (시작은 믿는다)
-        const words = (s.text ?? "").trim().split(/\s+/).filter(Boolean).length;
-        const cap = words * T.늘어난발화_규칙.단어당_최대_s + T.늘어난발화_규칙.여유_s;
-        if (end - (s.start as number) > cap) { stretched.push({ start: s.start as number, end, text: (s.text ?? "").trim(), cut_to: r3((s.start as number) + cap) }); end = (s.start as number) + cap; }
+        // 규칙 ⓒ 늘어난 발화 (규격 전사.늘어난발화_규칙): 끝을 **실측**으로 — 원래 끝 앞의 꼬리 무음(silence_scan)을 벗겨 '마지막 소리의 끝'으로 자른다.
+        //   시작은 믿는다. 첫 무음에서 자르지 않는다(여러 마디가 한 세그먼트로 합쳐진 발화를 망친다). 무음 실측이 없으면 자르지 않는다.
+        //   단어 수 기준(트리거)은 '자른 목록'을 경고에 실을 때 수상한 것만 골라 보여주는 용도다.
+        if (silences.length) {
+          const st = s.start as number, orig = end;
+          let guard = 0;
+          while (guard++ < 50) {
+            const tail = silences.find(([a, b]) => a < end && b >= end - 0.05 && a > st + 0.3 && b - a >= T.늘어난발화_규칙.무음_최소_s);
+            if (!tail) break;
+            end = tail[0];
+          }
+          if (orig - end > 0.2) {
+            const words = (s.text ?? "").trim().split(/\s+/).filter(Boolean).length;
+            const suspicious = orig - st > words * T.늘어난발화_규칙.트리거_단어당_s + T.늘어난발화_규칙.트리거_여유_s;
+            stretched.push({ start: st, end: orig, text: (s.text ?? "").trim() + (suspicious ? "" : " (경미)"), cut_to: r3(end) });
+          }
+        }
         return { i, start: r3(s.start as number), end: r3(end), text: (s.text ?? "").trim() };
       })
       .filter((u) => u.end > u.start);
@@ -211,7 +242,8 @@ export const transcript: StepHandler = {
     if (droppedAfterEnd.length > 0) {
       warnings.push(`원본 길이(${durationS}s) 이후에 시작하는 발화 ${droppedAfterEnd.length}건을 제거했다 (whisper 끝부분 환청 규칙): ${droppedAfterEnd.map((d) => `${d.start}→${d.end}s "${d.text.slice(0, 20)}"`).join(", ")}`);
     }
-    if (stretched.length > 0) warnings.push(`늘어난 발화 ${stretched.length}건의 끝을 단어 수 기준 상한으로 잘랐다 (규격 전사.늘어난발화_규칙): ${stretched.slice(0, 6).map((x) => `${r3(x.start)}→${r3(x.end)}s→${x.cut_to}s "${x.text.slice(0, 18)}"`).join(", ")}${stretched.length > 6 ? " …" : ""}`);
+    if (silences.length === 0) warnings.push("무음 실측(silence_scan)이 없다 — 늘어난 발화 끝을 자르지 못했고 subtitle 이 틈·컷을 실측 없이 계산한다. ① 의 silence_scan 을 실행해 payload.silences_raw 를 넣어라.");
+    if (stretched.length > 0) warnings.push(`발화 ${stretched.length}건의 꼬리 무음을 실측대로 벗겼다 (규격 전사.늘어난발화_규칙 — 끝 = 마지막 소리의 끝): ${stretched.slice(0, 6).map((x) => `${r3(x.start)}→${r3(x.end)}s→${x.cut_to}s "${x.text.slice(0, 18)}"`).join(", ")}${stretched.length > 6 ? " …" : ""}`);
     if (clamped > 0) warnings.push(`원본 길이(${durationS}s)를 넘는 발화 ${clamped}건의 끝을 길이에 맞춰 잘랐다 (whisper 끝부분 특성. 마지막 발화 본문이 "Thank you." 류면 환청일 수 있다 — 사람이 확인).`);
     if (durationS > 0 && lastEnd < durationS * 0.5) {
       warnings.push(`마지막 발화 끝(${lastEnd}s)이 원본 길이의 절반 이하다 — 전사가 중간에 끊겼을 수 있다 (파일 상한·분할 전사 미정).`);
@@ -228,6 +260,8 @@ export const transcript: StepHandler = {
       duration_s: durationS,
       utterance_count: utterances.length,
       speech_s: speechS,
+      silences,
+      silence_scan: T.무음스캔,
       warnings,
       utterances,
     };
@@ -254,6 +288,7 @@ export const transcript: StepHandler = {
         dropped_hallucination: droppedHallucination.length,
         dropped_hallucination_s: r3(droppedHallucination.reduce((a, d) => a + (d.end - d.start), 0)),
         stretched_cut: stretched.length,
+        silences_measured: silences.length,
         dropped_after_end: droppedAfterEnd.length,
         clamped_end: clamped,
         audio_bytes: readBytes(payload.audio_bytes),

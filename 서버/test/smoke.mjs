@@ -180,6 +180,7 @@ const PROBE_SUMMARY = { duration_s: 929.077, width: 1920, height: 1080, fps: 23.
   ok(j?.auth?.env === "GROQ_API_KEY" && !/gsk_/.test(JSON.stringify(sc)), "transcript① → auth 는 env 이름만, 응답에 키 값 없음", JSON.stringify(j?.auth));
   ok(sc?.measure?.some((m) => m.as === "asr" && m.from === "job:groq_asr") && sc?.carry?.includes("probe_summary"), "transcript① → measure asr / carry", JSON.stringify(sc?.measure));
   ok(sc?.instructions?.some((l) => /25MB/.test(l) && /분할 전사는 미정/.test(l)), "transcript① → 지시문에 파일 상한·분할 전사 미정", "");
+  ok(sc?.do?.some((d) => d.name === "silence_scan" && d.argv.some((a) => /silencedetect=noise=-24dB:d=0\.4/.test(a))) && sc?.measure?.some((m) => m.as === "silences_raw" && m.unit === "stderr"), "transcript① → do[] silence_scan(무음 실측) · measure stderr", "");
 }
 
 // 11) tools/call transcript ② 결과 (정상)
@@ -198,15 +199,16 @@ const ASR_OK = {
   ],
 };
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY, asr: ASR_OK, audio_bytes: { format: { size: "5600000", duration: "929.08" } } } } });
+  const SIL_RAW = ["[silencedetect @ 0x1] silence_start: 512.3", "[silencedetect @ 0x1] silence_end: 526.5 | silence_duration: 14.2", "[silencedetect @ 0x1] silence_start: 902.0", "[silencedetect @ 0x1] silence_end: 905.5 | silence_duration: 3.5"].join(String.fromCharCode(10));
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload: { ...CARRY, probe_summary: PROBE_SUMMARY, asr: ASR_OK, audio_bytes: { format: { size: "5600000", duration: "929.08" } }, silences_raw: SIL_RAW } } });
   const sc = res.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "brief", "transcript② → execute, next_step=brief", `${sc?.status}/${sc?.next_step}`);
   const m = sc?.metrics ?? {};
-  ok(m.utterance_count === 4 && m.speech_s === 15.077 && m.silence_ratio === 0.984 && m.audio_bytes === 5600000, "transcript② → metrics(발화 수·발화 길이·무음 비율)", JSON.stringify(m));
+  ok(m.utterance_count === 4 && m.speech_s === 17.877 && m.silence_ratio === 0.981 && m.audio_bytes === 5600000, "transcript② → metrics(발화 수·발화 길이·무음 비율)", JSON.stringify(m));
   ok(m.dropped_hallucination === 2 && m.dropped_hallucination_s === 59.96 && sc?.warnings?.some((w) => /환청 규칙/.test(w) && /The End/.test(w)), "transcript② → 환청 규칙(≥26s·≤3단어) 제거 + 경고, 긴 정상 발화는 유지", JSON.stringify(sc?.warnings?.find((w) => /환청/.test(w))));
   ok(m.dropped_after_end === 1 && sc?.warnings?.some((w) => /이후에 시작하는 발화 1건을 제거/.test(w)) && sc?.write_files?.[0]?.content?.warnings?.length >= 1, "transcript② → 영상 길이 이후 시작 발화 제거 + 경고(transcript.json 에도 기록)", JSON.stringify(sc?.warnings?.[0]));
   const wf = sc?.write_files?.[0];
-  ok(m.stretched_cut === 3 && wf?.content?.utterances?.find((u) => /No way this is a real/.test(u.text))?.end === 510, "transcript② → 늘어난 발화 끝을 단어 수 상한으로 자름(9단어→10s, 1단어 짧은 줄도 2s 로)", JSON.stringify(wf?.content?.utterances?.find((u) => /No way/.test(u.text))));
+  ok(m.stretched_cut === 2 && wf?.content?.utterances?.find((u) => /No way this is a real/.test(u.text))?.end === 512.3 && wf?.content?.utterances?.find((u) => /Bye/.test(u.text))?.end === 902 && m.silences_measured === 2 && wf?.content?.silences?.length === 2, "transcript② → 발화 꼬리 무음을 실측대로 벗김(끝 = 마지막 소리 끝) + silences 기록", JSON.stringify([wf?.content?.utterances?.find((u) => /No way/.test(u.text))?.end, wf?.content?.utterances?.find((u) => /Bye/.test(u.text))?.end]));
   ok(wf?.path === "C:/youstudio_work/sample/transcript/transcript.json" && wf?.content?.utterances?.length === 4 && wf.content.utterances[0].text === "Hello.", "transcript② → write_files transcript.json(빈 발화 제거)", JSON.stringify(wf?.content?.utterances));
   ok(wf?.content?.utterances?.[2]?.end === 929.077 && sc?.warnings?.some((w) => /잘랐다/.test(w)), "transcript② → 원본 길이 넘는 끝 타임코드 클램프 + 경고", JSON.stringify(sc?.warnings));
   ok(!sc?.warnings?.some((w) => /감지 언어/.test(w)), "transcript② → 언어 이름(English) vs 코드(en) 오경보 없음", JSON.stringify(sc?.warnings));
@@ -552,9 +554,9 @@ const CARRY_EX = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x",
   const xml = sc?.write_files?.find((w) => /\.xml$/.test(w.path))?.content ?? "";
   ok(/<xmeml version="5">/.test(xml) && /<timebase>24<\/timebase><ntsc>TRUE<\/ntsc>/.test(xml) && /<width>1920<\/width><height>1080<\/height>/.test(xml), "export② → FCP XML v5 · 24 ntsc(23.976) · 1920x1080", xml.slice(0, 80).replace(/\n/g, " "));
   const count = (re) => (xml.match(re) ?? []).length;
-  ok(count(/<clipitem id="v1-/g) === 3 && count(/<clipitem id="a1-/g) === 3 && count(/<clipitem id="a2-/g) === 2 && count(/<generatoritem id="v2-/g) === 3 && count(/<generatoritem id="v3-/g) === 4, "export② → 트랙 요소 수 = 타임라인 실측(V1 3·A1 3·A2 2·V2 3·V3 4)", `${count(/<clipitem id="v1-/g)}/${count(/<clipitem id="a1-/g)}/${count(/<clipitem id="a2-/g)}/${count(/<generatoritem id="v2-/g)}/${count(/<generatoritem id="v3-/g)}`);
-  ok(/<in>1820<\/in>/.test(xml) && /<start>480<\/start>/.test(xml) && /Audio Levels/.test(xml) && /<value>0\.25<\/value>/.test(xml), "export② → 원본 in 프레임(75.9s→1820) · 타임라인 프레임(20s→480) · 덕킹 컷 Audio Levels 0.25", "");
-  ok(/<value>Sandoll Gwanghwamun<\/value>/.test(xml) && /<value>Source Han Serif K<\/value>/.test(xml) && /file:\/\/localhost\/C:\/movies\/sample\.mp4/.test(xml), "export② → 폰트 이름(대사 광화문·나레 본명조) · pathurl", "");
+  ok(count(/<clipitem id="v1-/g) === 3 && count(/<clipitem id="a1-/g) === 2 && count(/<clipitem id="a3-/g) === 1 && count(/<clipitem id="a2-/g) === 2 && count(/<generatoritem id="v2-/g) === 3 && count(/<generatoritem id="v3-/g) === 4, "export② → 트랙 요소 수 = 실측(V1 3·A1 2(살림)·A3 1(덕킹 별도)·A2 2·V2 3·V3 4)", `${count(/<clipitem id="v1-/g)}/${count(/<clipitem id="a1-/g)}/${count(/<clipitem id="a3-/g)}/${count(/<clipitem id="a2-/g)}/${count(/<generatoritem id="v2-/g)}/${count(/<generatoritem id="v3-/g)}`);
+  ok(/<in>1820<\/in>/.test(xml) && /<start>480<\/start>/.test(xml) && /Audio Levels/.test(xml) && /<value>0\.25<\/value>/.test(xml), "export② → 원본 in 프레임(75.9s→1820) · 타임라인 프레임(20s→480) · A3 덕킹 컷 Audio Levels 0.25", "");
+  ok(/<value>SDGwanghwamun<\/value>/.test(xml) && /<value>SourceHanSerifK-Bold<\/value>/.test(xml) && /<vert>-300<\/vert>/.test(xml) && /<vert>-440<\/vert>/.test(xml) && /file:\/\/localhost\/C:\/movies\/sample\.mp4/.test(xml), "export② → 폰트 xml명(PS: SDGwanghwamun·SourceHanSerifK-Bold) · 세로부호 −1(vert −300/−440) · pathurl", "");
   const man = sc?.write_files?.find((w) => /manifest\.json$/.test(w.path))?.content;
   ok(man?.counts?.cuts === 3 && man?.counts?.cues === 7 && man?.fonts?.나레?.패밀리 === "Source Han Serif K" && Array.isArray(man?.gates) && man.gates.every((g) => g.pass !== false) && man?.sequence?.total_s === 30, "export② → manifest(재료·총 길이·게이트 전부 통과·폰트)", JSON.stringify(man?.gates?.map((g) => [g.step, g.pass])));
   ok(sc?.write_files?.length === 5 && sc?.write_files?.some((w) => /subtitle_dlg\.srt$/.test(w.path)), "export② → write_files 5개(XML·SRT 3종·manifest)", JSON.stringify(sc?.write_files?.map((w) => w.path.split("/").pop())));
