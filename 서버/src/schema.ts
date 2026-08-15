@@ -145,10 +145,12 @@ export interface MeasureRule {
   /**
    * 어떻게 읽는지.
    * bytes = 응답 본문의 바이트 수 (숫자). 바이너리 응답(TTS pcm)의 길이 계산용
+   * tts_timestamps = ElevenLabs with-timestamps 응답(JSON). runner 는 audio_base64 를 디코드해 out 파일(pcm)로 저장하고,
+   *   payload 에는 {audio_bytes: <디코드된 바이트 수>, alignment: {characters[], character_start_times_seconds[], character_end_times_seconds[]}} 만 넣는다 (base64 는 싣지 않는다)
    * gemini_json_text = 응답의 candidates[0].content.parts[].text 를 이어 붙여 JSON.parse 한 것.
    *   finishReason 이 STOP 이 아니면(MAX_TOKENS 등) 잘린 것 — 여기서 멈추고 오류로 보고한다 (참고_runner.md 「EvoLink 호출 규약」)
    */
-  unit: "json_stdout" | "stdout" | "stdout_first_line" | "seconds" | "gemini_json_text" | "bytes";
+  unit: "json_stdout" | "stdout" | "stdout_first_line" | "seconds" | "gemini_json_text" | "bytes" | "tts_timestamps";
 }
 
 export interface StepResponse {

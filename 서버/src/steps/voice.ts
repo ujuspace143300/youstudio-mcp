@@ -55,7 +55,7 @@ export const voice: StepHandler = {
     const bname = (n: number) => `b${pad2(n)}`;
 
     // ── ① 지시 ──────────────────────────────────────────────────────────
-    if (payload.voice_bytes === undefined) {
+    if (payload.voice_ts === undefined) {
       if (!V.보이스_ID) {
         return reject(
           "voice", preset,
@@ -65,11 +65,12 @@ export const voice: StepHandler = {
       }
       const tooLong = blocks.filter((b) => (b.text ?? "").length > V.요청_최대자수);
       if (tooLong.length) return reject("voice", preset, `블록 ${tooLong.map((b) => b.n).join(",")} 의 본문이 요청 최대 ${V.요청_최대자수}자를 넘는다`, "script 로 돌아가 블록을 나누라.");
-      const url = V.엔드포인트.replace("{voice_id}", V.보이스_ID) + `?output_format=${V.출력형식}`;
+      // with-timestamps: 글자별 시작·끝 초를 함께 받는다 (subtitle 큐 실측용 — 결정 E 2026-08-16)
+      const url = V.엔드포인트.replace("{voice_id}", V.보이스_ID) + `/with-timestamps?output_format=${V.출력형식}`;
       const auth = { env: V.키_환경변수, header: `xi-api-key: <${V.키_환경변수} 값>`, note: "ElevenLabs. 서버는 키를 보관하지 않는다 — runner 가 로컬 환경변수에서 읽어 헤더에 붙인다." };
       const jobs: SynthesizeJob[] = blocks.map((b) => ({
         name: bname(b.n), provider: "elevenlabs", model: V.모델, voice_id: V.보이스_ID!,
-        request: { method: "POST", url, headers: { "Content-Type": "application/json", Accept: "audio/*" }, body: { text: b.text, model_id: V.모델, voice_settings: V.voice_settings } },
+        request: { method: "POST", url, headers: { "Content-Type": "application/json", Accept: "application/json" }, body: { text: b.text, model_id: V.모델, voice_settings: V.voice_settings } },
         auth, out: join(voiceDir, `${bname(b.n)}.pcm`),
         note: `블록 ${b.n} (${b.chars}자) — ${b.pos.kind}${b.pos.kind === "bridge" ? ` bridge#${b.pos.bridge}` : ` seg#${b.pos.seg}`}`,
       }));
@@ -78,19 +79,19 @@ export const voice: StepHandler = {
         argv: ["ffmpeg", "-y", "-v", "error", "-f", "s16le", "-ar", String(V.샘플레이트_hz), "-ac", "1", "-i", join(voiceDir, `${bname(b.n)}.pcm`), join(voiceDir, `${bname(b.n)}.wav`)],
         note: "pcm(16bit 모노) → wav 감싸기. 인코딩 없음 — 길이 그대로",
       }));
-      const measure: MeasureRule[] = blocks.map((b) => ({ as: `voice_bytes.${bname(b.n)}`, from: `job:${bname(b.n)}`, unit: "bytes" }));
+      const measure: MeasureRule[] = blocks.map((b) => ({ as: `voice_ts.${bname(b.n)}`, from: `job:${bname(b.n)}`, unit: "tts_timestamps" }));
       const totalChars = blocks.reduce((a, b) => a + (b.chars ?? b.text.length), 0);
       return base("voice", preset, {
         status: "execute",
         next_step: "voice",
-        message: `TTS 지시: ${blocks.length}블록 · ${totalChars}자 → ${V.제공자}/${V.모델} 보이스 ${V.보이스_이름 ?? V.보이스_ID}. 각 응답의 바이트 수를 payload.voice_bytes 에 실어 voice 를 다시 부르라.`,
+        message: `TTS 지시: ${blocks.length}블록 · ${totalChars}자 → ${V.제공자}/${V.모델} 보이스 ${V.보이스_이름 ?? V.보이스_ID} (with-timestamps). 각 응답의 {audio_bytes, alignment} 를 payload.voice_ts 에 실어 voice 를 다시 부르라.`,
         instructions: [
-          `① jobs 의 synthesize 를 블록 순서대로 보낸다. 키는 auth 대로 환경변수 ${V.키_환경변수} 에서 읽어 헤더 xi-api-key 에 붙인다. 응답 본문(원시 pcm)을 out 경로에 그대로 저장한다. HTTP 200 이 아니면 그 블록은 실패다 — 본문의 detail 을 사람에게 보여주고 나머지는 계속한다.`,
+          `① jobs 의 synthesize 를 블록 순서대로 보낸다. 키는 auth 대로 환경변수 ${V.키_환경변수} 에서 읽어 헤더 xi-api-key 에 붙인다. 응답은 JSON — audio_base64 를 디코드한 원시 pcm 을 out 경로에 저장한다. HTTP 200 이 아니면 그 블록은 실패다 — 본문의 detail 을 사람에게 보여주고 나머지는 계속한다.`,
           "② post[] 의 ffmpeg 를 그대로 실행한다 (pcm → wav).",
-          "③ measure 대로 각 응답의 바이트 수를 payload.voice_bytes.bNN 에 넣는다 (실패한 블록은 0).",
+          "③ measure(tts_timestamps) 대로 payload.voice_ts.bNN = {audio_bytes, alignment} 를 넣는다 (실패한 블록은 {audio_bytes:0}).",
           "④ carry 값(script 포함)과 함께 voice 를 다시 부른다.",
         ],
-        then_call_with: ["step: 'voice'", "payload: { …carry, script, voice_bytes: { b01: <bytes>, b02: … } }"],
+        then_call_with: ["step: 'voice'", "payload: { …carry, script, voice_ts: { b01: {audio_bytes, alignment}, b02: … } }"],
         jobs_kind: "synthesize", jobs, post, measure,
         carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "script"],
         source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, selection_path: payload.selection_path, script_path: payload.script_path, script,
@@ -99,17 +100,23 @@ export const voice: StepHandler = {
     }
 
     // ── ② 결과 검사 ──────────────────────────────────────────────────────
-    const vb = payload.voice_bytes as Record<string, unknown>;
-    if (typeof vb !== "object" || vb === null) return reject("voice", preset, "payload.voice_bytes 가 객체가 아니다", "① 의 measure 대로 {b01: <bytes>, …} 를 실어 다시 부르라.");
+    const vb = payload.voice_ts as Record<string, { audio_bytes?: number; alignment?: { characters?: string[]; character_start_times_seconds?: number[]; character_end_times_seconds?: number[] } } | number>;
+    if (typeof vb !== "object" || vb === null) return reject("voice", preset, "payload.voice_ts 가 객체가 아니다", "① 의 measure 대로 {b01: {audio_bytes, alignment}, …} 를 실어 다시 부르라.");
     const failed: string[] = [];
     const per = blocks.map((b) => {
       const raw = vb[bname(b.n)];
-      const bytes = typeof raw === "number" ? raw : Number(raw ?? 0);
+      const bytes = typeof raw === "number" ? raw : Number((raw as { audio_bytes?: number } | undefined)?.audio_bytes ?? 0);
       if (!Number.isFinite(bytes) || bytes <= 0) failed.push(`블록 ${b.n}(${bname(b.n)})`);
       const dur = r3(bytes / bytesPerSec);
       const chars = b.chars ?? b.text.replace(/\s+/g, " ").trim().length;
-      return { n: b.n, pos: b.pos, text: b.text, chars, bytes, dur_s: dur, sec_per_char: chars > 0 ? r3(dur / chars) : null, est_s: b.est_s ?? r3(chars * N.자당초_추정), wav: join(voiceDir, `${bname(b.n)}.wav`) };
+      const al = typeof raw === "object" && raw ? raw.alignment : undefined;
+      // 글자별 시각 (subtitle 이 큐를 실측으로 자른다). 없으면 null — subtitle 이 글자 비례로 대신한다
+      const chars_t = al && Array.isArray(al.characters) && Array.isArray(al.character_start_times_seconds) && Array.isArray(al.character_end_times_seconds)
+        ? al.characters.map((c, i) => ({ c, s: r3(al.character_start_times_seconds![i]), e: r3(al.character_end_times_seconds![i]) }))
+        : null;
+      return { n: b.n, pos: b.pos, text: b.text, chars, bytes, dur_s: dur, sec_per_char: chars > 0 ? r3(dur / chars) : null, est_s: b.est_s ?? r3(chars * N.자당초_추정), wav: join(voiceDir, `${bname(b.n)}.wav`), chars_t };
     });
+    const withTs = per.filter((p) => p.chars_t).length;
     if (failed.length > 0) {
       return reject(
         "voice", preset,
@@ -137,7 +144,7 @@ export const voice: StepHandler = {
     const voiceDoc = {
       source: source.path, title: source.title ?? null,
       tts: { provider: V.제공자, model: V.모델, voice_id: V.보이스_ID, voice_name: V.보이스_이름, output_format: V.출력형식, sample_rate_hz: V.샘플레이트_hz, voice_settings: V.voice_settings },
-      metrics: { block_count: per.length, total_s: totalS, total_chars: totalChars, sec_per_char_measured: spc, sec_per_char_est: N.자당초_추정, est_total_s: estTotal, est_error_ratio: r3(estTotal / totalS), dialogue_s: dlgS, nar_share_measured: shareMeasured, nar_share_est: shareEst, headroom_s: headroomS, headroom_chars: headroomChars, slowest_block: { n: slowest.n, sec_per_char: slowest.sec_per_char }, fastest_block: { n: fastest.n, sec_per_char: fastest.sec_per_char } },
+      metrics: { block_count: per.length, blocks_with_timestamps: withTs, total_s: totalS, total_chars: totalChars, sec_per_char_measured: spc, sec_per_char_est: N.자당초_추정, est_total_s: estTotal, est_error_ratio: r3(estTotal / totalS), dialogue_s: dlgS, nar_share_measured: shareMeasured, nar_share_est: shareEst, headroom_s: headroomS, headroom_chars: headroomChars, slowest_block: { n: slowest.n, sec_per_char: slowest.sec_per_char }, fastest_block: { n: fastest.n, sec_per_char: fastest.sec_per_char } },
       warnings,
       blocks: per,
     };

@@ -124,9 +124,9 @@ console.log(`서버: ${URL_}`);
 
 // 6) 미구현 단계
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼" } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼" } });
   const sc = res.structuredContent;
-  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "subtitle → not_implemented 스텁", sc?.message);
+  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "export → not_implemented 스텁", sc?.message);
 }
 
 // 7) tools/call probe (정상 — Full Time 실측과 같은 모양의 ffprobe JSON)
@@ -202,10 +202,11 @@ const ASR_OK = {
   const sc = res.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "brief", "transcript② → execute, next_step=brief", `${sc?.status}/${sc?.next_step}`);
   const m = sc?.metrics ?? {};
-  ok(m.utterance_count === 4 && m.speech_s === 34.577 && m.silence_ratio === 0.963 && m.audio_bytes === 5600000, "transcript② → metrics(발화 수·발화 길이·무음 비율)", JSON.stringify(m));
+  ok(m.utterance_count === 4 && m.speech_s === 15.077 && m.silence_ratio === 0.984 && m.audio_bytes === 5600000, "transcript② → metrics(발화 수·발화 길이·무음 비율)", JSON.stringify(m));
   ok(m.dropped_hallucination === 2 && m.dropped_hallucination_s === 59.96 && sc?.warnings?.some((w) => /환청 규칙/.test(w) && /The End/.test(w)), "transcript② → 환청 규칙(≥26s·≤3단어) 제거 + 경고, 긴 정상 발화는 유지", JSON.stringify(sc?.warnings?.find((w) => /환청/.test(w))));
   ok(m.dropped_after_end === 1 && sc?.warnings?.some((w) => /이후에 시작하는 발화 1건을 제거/.test(w)) && sc?.write_files?.[0]?.content?.warnings?.length >= 1, "transcript② → 영상 길이 이후 시작 발화 제거 + 경고(transcript.json 에도 기록)", JSON.stringify(sc?.warnings?.[0]));
   const wf = sc?.write_files?.[0];
+  ok(m.stretched_cut === 3 && wf?.content?.utterances?.find((u) => /No way this is a real/.test(u.text))?.end === 510, "transcript② → 늘어난 발화 끝을 단어 수 상한으로 자름(9단어→10s, 1단어 짧은 줄도 2s 로)", JSON.stringify(wf?.content?.utterances?.find((u) => /No way/.test(u.text))));
   ok(wf?.path === "C:/youstudio_work/sample/transcript/transcript.json" && wf?.content?.utterances?.length === 4 && wf.content.utterances[0].text === "Hello.", "transcript② → write_files transcript.json(빈 발화 제거)", JSON.stringify(wf?.content?.utterances));
   ok(wf?.content?.utterances?.[2]?.end === 929.077 && sc?.warnings?.some((w) => /잘랐다/.test(w)), "transcript② → 원본 길이 넘는 끝 타임코드 클램프 + 경고", JSON.stringify(sc?.warnings));
   ok(!sc?.warnings?.some((w) => /감지 언어/.test(w)), "transcript② → 언어 이름(English) vs 코드(en) 오경보 없음", JSON.stringify(sc?.warnings));
@@ -445,27 +446,79 @@ const CARRY_V = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/y
     const j = sc?.jobs?.[0];
     ok(sc?.status === "execute" && sc?.jobs_kind === "synthesize" && sc?.jobs?.length === 2 && j?.provider === "elevenlabs" && j?.model === "eleven_v3" && /api\.elevenlabs\.io\/v1\/text-to-speech\/.+\?output_format=pcm_\d+/.test(j?.request?.url ?? ""), "voice①(보이스 있음) → synthesize job 블록수만큼(eleven_v3, pcm)", j?.request?.url);
     ok(j?.auth?.env === "ELEVENLABS_API_KEY" && /xi-api-key/.test(j?.auth?.header ?? "") && !/sk_1bf/.test(JSON.stringify(sc)), "voice① → auth env 만, 키 값 없음", JSON.stringify(j?.auth?.env));
-    ok(sc?.post?.length === 2 && sc.post[0].argv[0] === "ffmpeg" && sc.post[0].argv.includes("s16le") && sc?.measure?.[0]?.unit === "bytes" && sc?.measure?.[0]?.as === "voice_bytes.b01", "voice① → post[] pcm→wav · measure bytes", JSON.stringify(sc?.measure?.[0]));
+    ok(sc?.post?.length === 2 && sc.post[0].argv[0] === "ffmpeg" && sc.post[0].argv.includes("s16le") && sc?.measure?.[0]?.unit === "tts_timestamps" && sc?.measure?.[0]?.as === "voice_ts.b01" && /with-timestamps/.test(j?.request?.url ?? ""), "voice① → with-timestamps URL · post[] pcm→wav · measure tts_timestamps", JSON.stringify(sc?.measure?.[0]));
   }
 }
 
 // 28) voice ② 통과 — 바이트 → 실측 길이·자당초·시간점유 재계산·여유
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_bytes: { b01: 24000 * 2 * 5.28, b02: 24000 * 2 * 5.5 } } } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28, alignment: { characters: ["계", "단"], character_start_times_seconds: [0, 0.2], character_end_times_seconds: [0.2, 0.4] } }, b02: { audio_bytes: 24000 * 2 * 5.5 } } } } });
   const sc = res.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "subtitle", "voice② → execute, next_step=subtitle", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 80)}`);
   const m = sc?.metrics ?? {};
   ok(m.block_count === 2 && m.total_s === 10.78 && m.sec_per_char_measured === 0.161 && m.sec_per_char_est === 0.122 && typeof m.nar_share_measured === "number" && typeof m.headroom_chars === "number", "voice② → metrics(총 길이·실측 자당초 vs 추정·시간점유 실측·여유 자수)", JSON.stringify(m));
   const wf = sc?.write_files?.[0];
-  ok(wf?.path === "C:/youstudio_work/sample/voice/voice.json" && wf?.content?.blocks?.[0]?.dur_s === 5.28 && /b01\.wav$/.test(wf.content.blocks[0].wav), "voice② → write_files voice.json(블록별 실측 길이·wav 경로)", "");
+  ok(wf?.path === "C:/youstudio_work/sample/voice/voice.json" && wf?.content?.blocks?.[0]?.dur_s === 5.28 && /b01\.wav$/.test(wf.content.blocks[0].wav) && wf.content.blocks[0].chars_t?.length === 2 && wf.content.blocks[1].chars_t === null && sc?.metrics?.blocks_with_timestamps === 1, "voice② → write_files voice.json(블록별 실측 길이·wav·글자별 시각)", "");
   ok(sc?.record_to_ours?.tts?.자당초?.value === 0.161 && sc?.record_to_ours?.tts?.자당초?.n === 2 && sc?.instructions?.some((l) => /우리실측\.json/.test(l)), "voice② → record_to_ours(우리실측.json tts.자당초) + 기록 지시", JSON.stringify(sc?.record_to_ours?.tts?.자당초?.value));
 }
 
 // 29) voice ② 합성 실패 → hard_fail
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_bytes: { b01: 24000 * 2 * 5, b02: 0 } } } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5 }, b02: { audio_bytes: 0 } } } } });
   const sc = res.structuredContent;
   ok(res.isError === true && /hard_fail: 합성 실패 1건/.test(sc?.message ?? "") && /블록 2/.test(sc?.message ?? "") && /401|quota|voice_not_fine_tuned/.test(sc?.message ?? ""), "voice②(0바이트) → hard_fail + 수리 지침(원인별)", (sc?.message ?? "").slice(0, 120));
+}
+
+// 30) tools/call subtitle ① — 타임라인 + need_input(번역)
+const V_BLOCKS = [
+  { n: 1, pos: { kind: "over", seg: 1 }, text: "계단 앞에서 발가락 얘기로 낄낄대던.. 보드 든 청년이 있죠", dur_s: 4.0, wav: "C:/youstudio_work/sample/voice/b01.wav", chars_t: null },
+  { n: 2, pos: { kind: "bridge", bridge: 0 }, text: "친구들의 놀림은 그날도 이어졌고.. 늘 그런 하루일 듯했습니다", dur_s: 4.9, wav: "C:/youstudio_work/sample/voice/b02.wav", chars_t: null },
+  { n: 3, pos: { kind: "before", seg: 2 }, text: "허나 그때.. 정장 남자가 오십 달러를 꺼냅니다", dur_s: 3.1, wav: "C:/youstudio_work/sample/voice/b03.wav", chars_t: null },
+  { n: 4, pos: { kind: "over", seg: 3 }, text: "고용주만 그대로인 광장을.. 마이클은 처음으로 떠납니다", dur_s: 3.1, wav: "C:/youstudio_work/sample/voice/b04.wav", chars_t: [{ c: "고", s: 0, e: 0.2 }, { c: "용", s: 0.2, e: 0.4 }] },
+];
+const SEL_S = { segments: [
+  { i: 1, in: 0, out: 26.3, len_s: 26.3, role: "나레이션덮기", kind: "dialogue", src: ["brief#1"], why: "친구들" },
+  { i: 2, in: 75.9, out: 95.9, len_s: 20, role: "원본대사", kind: "dialogue", src: ["brief#3"], why: "낯선 남자" },
+  { i: 3, in: 780, out: 854.3, len_s: 74.3, role: "시각몽타주", kind: "ending", src: ["visual:ending(통째)"], why: "결말" },
+], narration_bridges: [{ start: 26.3, end: 75.9, len_s: 49.6, events: [] }] };
+const UTTS = [{ start: 1, end: 3, text: "Dude, Mike, your uncle is a podiatrist, right?" }, { start: 3.2, end: 9, text: "line two" }, { start: 10, end: 12, text: "Yeah, it never really crossed my mind." }, { start: 12.5, end: 20, text: "line four" }, { start: 20.5, end: 26, text: "line five" }, { start: 76, end: 78, text: "line six" }, { start: 78.1, end: 79, text: "Me?" }, { start: 79.2, end: 80.5, text: "line eight" }, { start: 80.7, end: 84, text: "Are you guys able to help me with something real quick?" }, { start: 84.2, end: 85.6, text: "line ten" }, { start: 85.8, end: 87.5, text: "I will give you 50 bucks." }, { start: 87.7, end: 92, text: "line twelve" }, { start: 92.2, end: 95.8, text: "line thirteen" }, { start: 300, end: 302, text: "unrelated" }];
+const CARRY_SUB = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x", brief_path: "x", selection_path: "x", script_path: "x", voice_path: "x", selection: SEL_S, voice: { blocks: V_BLOCKS }, transcript_utterances: UTTS, visual: { silent: [{ scenes: [{ start: 30, end: 40, what: "놀림 장면" }] }] } };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: CARRY_SUB } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "need_input" && sc?.need_input?.keys?.includes("translations") && sc?.next_step === "subtitle", "subtitle① → need_input(translations)", `${sc?.status} ${(sc?.message ?? "").slice(0, 80)}`);
+  const lines = sc?.material?.dialogue_lines ?? [];
+  ok(lines.length === 13 && lines.every((l) => /^d\d{3}$/.test(l.id)) && !lines.some((l) => /unrelated/.test(l.en)), "subtitle① → 번역 대상 = 대사 역할 구간 안 발화만(13줄, 시각몽타주·미선택 제외)", JSON.stringify(lines.map((l) => l.id)));
+  ok(sc?.style_guide?.some((l) => /지무비 구어체/.test(l)) && sc?.style_guide?.some((l) => /29자/.test(l)), "subtitle① → 번역 문체 안내(지무비 구어체·29자)", "");
+  const tp = sc?.material?.timeline_preview;
+  ok(tp?.total_s > 26.3 + 20 + 74.3 && tp?.cuts >= 5, "subtitle① → 타임라인 총장 = 구간합 + 브리지 컷 + before 연장", JSON.stringify(tp));
+}
+// 31) subtitle ② 통과
+const TR = [{ id: "d001", ko: "야 마이크 너네 삼촌 발 전문의지" }, { id: "d002", ko: "둘째 줄" }, { id: "d003", ko: "어 그런 생각 해본 적도 없는데" }, { id: "d004", ko: "넷째 줄" }, { id: "d005", ko: "다섯째 줄" }, { id: "d006", ko: "여섯째 줄" }, { id: "d007", ko: "저요?" }, { id: "d008", ko: "여덟째 줄" }, { id: "d009", ko: "잠깐 뭐 좀 도와줄 수 있어요?" }, { id: "d010", ko: "열째 줄" }, { id: "d011", ko: "50달러 줄게요" }, { id: "d012", ko: "열두째 줄" }, { id: "d013", ko: "열셋째 줄" }];
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: { ...CARRY_SUB, translations: TR } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "export", "subtitle② → execute, next_step=export", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 100)}`);
+  const tl = sc?.write_files?.find((w) => /timeline\.json$/.test(w.path))?.content;
+  const pics = tl?.picture ?? [];
+  ok(pics.some((p) => p.kind === "bridge" && p.src_in === 30 && /앵커 장면/.test(p.why ?? "")) && pics.some((p) => p.kind === "extend" && p.seg === 2), "subtitle② → 브리지 컷(판정 장면 앵커 30s) + before 연장 컷", JSON.stringify(pics.map((p) => [p.kind, p.src_in, p.src_out])));
+  const nars = tl?.narration ?? [];
+  const n4 = nars.find((n) => n.n === 4);
+  ok(nars.length === 4 && n4 && /균등/.test(n4.anchor) && nars.find((n) => n.n === 1)?.anchor.includes("틈"), "subtitle② → over 배치(시각몽타주 균등 · 대사 역할은 틈)", JSON.stringify(nars.map((n) => [n.n, n.t0, n.anchor.slice(0, 20)])));
+  const cues = tl?.cues ?? [];
+  const narCues = cues.filter((c) => c.lane === "nar"), dlgCues = cues.filter((c) => c.lane === "dlg");
+  ok(dlgCues.length === 13 && narCues.length >= 8 && narCues.every((c) => c.text.length <= 18) && dlgCues.every((c) => c.text.length <= 29), "subtitle② → 큐(나레 ≤18자 조각·대사 ≤29자)", `nar=${narCues.length} dlg=${dlgCues.length}`);
+  ok(sc?.metrics?.overlaps === 0 && sc?.gates?.some((g) => /겹침/.test(g.id) && g.pass) && sc?.gates?.some((g) => /죽은시간/.test(g.id) && g.hard), "subtitle② → 게이트(겹침 0 · 죽은시간 hard)", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
+  const srt = sc?.write_files?.find((w) => /subtitle\.srt$/.test(w.path))?.content ?? "";
+  ok(/^1\n\d\d:\d\d:\d\d,\d{3} --> /.test(srt) && /– 저요\?/.test(srt) && sc?.write_files?.length === 4, "subtitle② → SRT 3종+timeline (합본 대사 접두 –)", srt.slice(0, 60).replace(/\n/g, "\\n"));
+  ok(typeof sc?.metrics?.dead_ratio === "number" && sc?.metrics?.hold_s === 74.3 && sc?.metrics?.added_time_s > 0, "subtitle② → metrics(죽은 시간 비율·홀드 제외·추가 시간)", JSON.stringify({ dead: sc?.metrics?.dead_ratio, hold: sc?.metrics?.hold_s, added: sc?.metrics?.added_time_s }));
+}
+// 32) subtitle ② 번역 초과·누락 → 반려
+{
+  const bad = [...TR.slice(2)].map((x) => ({ ...x })); bad.unshift({ id: "d001", ko: "야 마이크 너네 삼촌이 발 전문의라고 했지 맞지 진짜 그랬잖아 기억나" }, { id: "d002", ko: "둘째, 줄" }); bad.pop(); // d013 누락
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: { ...CARRY_SUB, translations: bad } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /d001: 대사 \d+자 > 29자/.test(sc?.message ?? "") && /d002: 대사 자막에 마침표·쉼표 금지/.test(sc?.message ?? "") && /번역 누락 1줄: d013/.test(sc?.message ?? ""), "subtitle②(초과·구두점·누락) → 반려 + 어느 줄이 왜", (sc?.message ?? "").slice(0, 160));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

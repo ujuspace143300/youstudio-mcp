@@ -25,6 +25,7 @@ interface TranscribeSpec {
   파일상한_mb: number;
   분할전사: string;
   환청규칙: { 최소길이_s: number; 최대단어: number };
+  늘어난발화_규칙: { 단어당_최대_s: number; 여유_s: number };
 }
 const T = (spec as unknown as { 전사: TranscribeSpec })["전사"];
 
@@ -162,6 +163,7 @@ export const transcript: StepHandler = {
     // 규칙 ⓐ 환청 (규격.json 전사.환청규칙): 길이 ≥ 최소길이_s 이면서 단어 ≤ 최대단어 → 제거+경고.
     //   근거: Full Time 실측 — 무음 구간에서 정확히 30.0s "Thank you."/"The End"/"I'm sorry." 10개 (단계상세.md 2. transcript)
     let clamped = 0;
+    const stretched: { start: number; end: number; text: string; cut_to: number }[] = [];
     const droppedAfterEnd: { start: number; end: number; text: string }[] = [];
     const droppedHallucination: { start: number; end: number; text: string }[] = [];
     const H = T.환청규칙;
@@ -180,6 +182,10 @@ export const transcript: StepHandler = {
       .map((s, i) => {
         let end = s.end as number;
         if (end > durationS) { end = durationS; clamped++; }
+        // 규칙 ⓒ 늘어난 발화 (규격 전사.늘어난발화_규칙): 길이 > 단어 수 × 단어당_최대 + 여유 → 끝을 상한으로 자른다 (시작은 믿는다)
+        const words = (s.text ?? "").trim().split(/\s+/).filter(Boolean).length;
+        const cap = words * T.늘어난발화_규칙.단어당_최대_s + T.늘어난발화_규칙.여유_s;
+        if (end - (s.start as number) > cap) { stretched.push({ start: s.start as number, end, text: (s.text ?? "").trim(), cut_to: r3((s.start as number) + cap) }); end = (s.start as number) + cap; }
         return { i, start: r3(s.start as number), end: r3(end), text: (s.text ?? "").trim() };
       })
       .filter((u) => u.end > u.start);
@@ -205,6 +211,7 @@ export const transcript: StepHandler = {
     if (droppedAfterEnd.length > 0) {
       warnings.push(`원본 길이(${durationS}s) 이후에 시작하는 발화 ${droppedAfterEnd.length}건을 제거했다 (whisper 끝부분 환청 규칙): ${droppedAfterEnd.map((d) => `${d.start}→${d.end}s "${d.text.slice(0, 20)}"`).join(", ")}`);
     }
+    if (stretched.length > 0) warnings.push(`늘어난 발화 ${stretched.length}건의 끝을 단어 수 기준 상한으로 잘랐다 (규격 전사.늘어난발화_규칙): ${stretched.slice(0, 6).map((x) => `${r3(x.start)}→${r3(x.end)}s→${x.cut_to}s "${x.text.slice(0, 18)}"`).join(", ")}${stretched.length > 6 ? " …" : ""}`);
     if (clamped > 0) warnings.push(`원본 길이(${durationS}s)를 넘는 발화 ${clamped}건의 끝을 길이에 맞춰 잘랐다 (whisper 끝부분 특성. 마지막 발화 본문이 "Thank you." 류면 환청일 수 있다 — 사람이 확인).`);
     if (durationS > 0 && lastEnd < durationS * 0.5) {
       warnings.push(`마지막 발화 끝(${lastEnd}s)이 원본 길이의 절반 이하다 — 전사가 중간에 끊겼을 수 있다 (파일 상한·분할 전사 미정).`);
@@ -246,6 +253,7 @@ export const transcript: StepHandler = {
         silence_ratio: silenceRatio,
         dropped_hallucination: droppedHallucination.length,
         dropped_hallucination_s: r3(droppedHallucination.reduce((a, d) => a + (d.end - d.start), 0)),
+        stretched_cut: stretched.length,
         dropped_after_end: droppedAfterEnd.length,
         clamped_end: clamped,
         audio_bytes: readBytes(payload.audio_bytes),
