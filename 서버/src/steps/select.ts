@@ -26,8 +26,11 @@ interface SelectSpec {
   역할규칙: { 원본대사_최소중요도: number; 나레이션덮기_최대중요도: number; 무음장면_역할: string };
   결말포함: boolean;
 }
+interface ProviderSpec { 엔드포인트: string; 키_환경변수: string; 인증헤더: string; 파일업로드: string | null }
 interface VideoJudgeSpec {
-  backend: "google"; 모델: string; 엔드포인트: string; 파일업로드: string; 키_환경변수: string;
+  backend: "evolink" | "google"; 모델: string;
+  제공자: { evolink: ProviderSpec; google: ProviderSpec };
+  클립전달: "inline" | "files_api"; 인라인_상한_mb: number;
   온도: number; thinkingBudget: number; maxOutputTokens: number; responseMimeType: string;
 }
 interface Band { min?: number; max?: number; value?: number; 출처: string; 적용: string }
@@ -37,6 +40,8 @@ interface SelectAnswer {
 }
 const S = (spec as unknown as { 구간선택: SelectSpec })["구간선택"];
 const V = (spec as unknown as { 판정: { 영상: VideoJudgeSpec } })["판정"]["영상"];
+/** 규격 판정.영상.backend 가 가리키는 제공자 설정 (evolink 기본, google 스위치) */
+const P: ProviderSpec = V.제공자[V.backend];
 const A = (answer as unknown as { 구간선택: SelectAnswer })["구간선택"];
 
 function join(root: string, ...parts: string[]): string {
@@ -142,10 +147,14 @@ export const select: StepHandler = {
 
     // ── ① 지시 ──────────────────────────────────────────────────────────
     if (payload.visual === undefined) {
-      const url = V.엔드포인트.replace("{model}", V.모델);
+      const url = P.엔드포인트.replace("{model}", V.모델);
       const doJobs: ArgvJob[] = [];
       const jobs: JudgeJob[] = [];
-      const auth = { env: V.키_환경변수, header: `x-goog-api-key: <${V.키_환경변수} 값>`, note: "Google 순정. 서버는 키를 보관하지 않는다 — runner 가 로컬 환경변수에서 읽어 헤더에 붙인다. Files API 업로드도 같은 키." };
+      const useFilesApi = V.클립전달 === "files_api";
+      if (useFilesApi && !P.파일업로드) {
+        return reject("select", preset, `규격 판정.영상.클립전달=files_api 인데 backend=${V.backend} 에는 Files API 가 없다`, "규격.json 판정.영상.backend 를 google 로 바꾸거나 클립전달 을 inline 으로 바꿔라 (인라인 상한 안이면 inline 이 기본).");
+      }
+      const auth = { env: P.키_환경변수, header: P.인증헤더.replace("<키>", `<${P.키_환경변수} 값>`), note: `${V.backend}. 서버는 키를 보관하지 않는다 — runner 가 로컬 환경변수에서 읽어 헤더에 붙인다.${useFilesApi ? " Files API 업로드도 같은 키." : ""}` };
       const measure: { as: string; from: string; unit: "gemini_json_text" }[] = [];
 
       // (a) 무음 구간 프레임 판정 — 구간마다 1콜
@@ -167,7 +176,7 @@ export const select: StepHandler = {
           parts.push({ "@inline_file": { path: join(dir, `f_${String(i + 1).padStart(3, "0")}.jpg`), mime: "image/jpeg" } });
         }
         jobs.push({
-          name: `judge_silent_${k}`, provider: "google", model: V.모델,
+          name: `judge_silent_${k}`, provider: V.backend, model: V.모델,
           request: { method: "POST", url, headers: { "Content-Type": "application/json" }, body: { contents: [{ role: "user", parts }], generationConfig: genConfig(SCENE_SCHEMA) } },
           inputs: [], media: { kind: "@inline_file", count: n, note: "프레임 jpg 를 base64 inline_data 로" },
           auth, out: join(clipsDir, "judge", `silent_${k}.json`),
@@ -194,14 +203,17 @@ export const select: StepHandler = {
         const parts: unknown[] = [{ text: clipPrompt(title, a, b, ending.note, clips) }];
         for (const c of clips) {
           parts.push({ text: `클립 ${c.start}~${c.end}s:` });
-          parts.push({ "@file_uri": { path: c.path, mime: "video/mp4" } });
+          parts.push(useFilesApi ? { "@file_uri": { path: c.path, mime: "video/mp4" } } : { "@inline_file": { path: c.path, mime: "video/mp4" } });
         }
         jobs.push({
-          name: "judge_ending", provider: "google", model: V.모델,
+          name: "judge_ending", provider: V.backend, model: V.모델,
           request: { method: "POST", url, headers: { "Content-Type": "application/json" }, body: { contents: [{ role: "user", parts }], generationConfig: genConfig(BEAT_SCHEMA) } },
-          inputs: [], media: { kind: "@file_uri", count: clips.length, note: `Files API(${V.파일업로드}) 업로드 → state ACTIVE 대기 → file_data` },
+          inputs: [],
+          media: useFilesApi
+            ? { kind: "@file_uri", count: clips.length, note: `Files API(${P.파일업로드}) 업로드 → state ACTIVE 대기 → file_data` }
+            : { kind: "@inline_file", count: clips.length, note: `클립 mp4 를 base64 inline_data 로 (요청 합계 ≤ ${V.인라인_상한_mb}MB — 넘으면 규격 판정.영상 을 google + files_api 로)` },
           auth, out: join(clipsDir, "judge", "ending.json"),
-          note: `결말 ${a}~${b}s 클립 ${clips.length}개(각 ≤${L}s) → 감정 비트 (정서·결말용)`,
+          note: `결말 ${a}~${b}s 클립 ${clips.length}개(각 ≤${L}s, 영상+소리) → 감정 비트 (정서·결말용)`,
         });
         measure.push({ as: "visual.ending", from: "job:judge_ending", unit: "gemini_json_text" });
       }
@@ -209,10 +221,10 @@ export const select: StepHandler = {
       return base("select", preset, {
         status: "execute",
         next_step: "select",
-        message: `시각 판정 지시: 무음 구간 ${stretches.length}개 프레임 판정 + 결말 클립 판정 ${ending ? 1 : 0}콜 (Google ${V.모델}). 결과를 payload.visual 에 실어 select 를 다시 부르라. 목표 ${target}s · 예산 ${budget}s · 크레딧 ${creditsStart ?? "미상"}s 이후 제외.`,
+        message: `시각 판정 지시: 무음 구간 ${stretches.length}개 프레임 판정 + 결말 클립 판정 ${ending ? 1 : 0}콜 (${V.backend}/${V.모델}, 클립 ${V.클립전달}). 결과를 payload.visual 에 실어 select 를 다시 부르라. 목표 ${target}s · 예산 ${budget}s · 크레딧 ${creditsStart ?? "미상"}s 이후 제외.`,
         instructions: [
           "① do[] 의 ffmpeg 를 순서대로 그대로 실행한다 (프레임 폴더·클립 파일이 생긴다).",
-          `② jobs 의 judge 를 그대로 보낸다. 파트 안의 {"@inline_file"} 은 파일을 base64 로 읽어 inline_data 로, {"@file_uri"} 는 Files API(${V.파일업로드})에 올려 state 가 ACTIVE 가 된 뒤 file_data 로 바꾼다. 키는 auth 대로 환경변수 ${V.키_환경변수} 에서 읽어 헤더 x-goog-api-key 에 붙인다. 키 값을 화면·파일·payload 에 쓰지 않는다. 응답 JSON 은 out 경로에 저장한다.`,
+          `② jobs 의 judge 를 그대로 보낸다. 파트 안의 {"@inline_file"} 은 파일을 base64 로 읽어 inline_data 로 바꾼다${useFilesApi ? `, {"@file_uri"} 는 Files API(${P.파일업로드})에 올려 state 가 ACTIVE 가 된 뒤 file_data 로 바꾼다` : ""}. 키는 auth 대로 환경변수 ${P.키_환경변수} 에서 읽어 헤더(${P.인증헤더.split(":")[0]})에 붙인다. 키 값을 화면·파일·payload 에 쓰지 않는다. 응답 JSON 은 out 경로에 저장한다.`,
           "③ measure 대로 각 응답의 candidates[0].content.parts[].text 를 JSON 으로 파싱해 payload.visual.silent[k] / payload.visual.ending 에 넣는다. finishReason 이 STOP 이 아니면 멈추고 보고한다.",
           "④ carry 값(source·workdir·probe_summary·transcript_path·brief_path·brief·facts·utterance_spans)과 함께 select 를 다시 부른다.",
         ],
@@ -223,7 +235,7 @@ export const select: StepHandler = {
         measure,
         carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "brief", "facts", "utterance_spans"],
         source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, brief: briefDoc, facts, utterance_spans: payload.utterance_spans ?? [],
-        plan: { target_s: target, budget_s: budget, usable_end_s: usableEnd, silent_stretches: stretches.length, ending_clips: ending ? Math.ceil((Math.min(ending.end_s, usableEnd) - ending.start_s) / S.시각판정.정서결말용_클립길이_s) : 0 },
+        plan: { backend: V.backend, model: V.모델, clip_transfer: V.클립전달, target_s: target, budget_s: budget, usable_end_s: usableEnd, silent_stretches: stretches.length, ending_clips: ending ? Math.ceil((Math.min(ending.end_s, usableEnd) - ending.start_s) / S.시각판정.정서결말용_클립길이_s) : 0 },
         ...(warnings.length ? { warnings } : {}),
       });
     }

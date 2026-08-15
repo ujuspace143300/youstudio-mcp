@@ -6,7 +6,7 @@
     "전사.파일상한_mb": "Groq 무료 티어 기준 25. 개발자 티어면 100 으로 올릴 수 있다",
     "전사.분할전사": "미정 — 장편(상한 초과)은 아직 안 만든다. 첫 소재(Full Time 15.5분)는 한 번에 된다",
     "판정.텍스트": "2026-08-15 결정: 가족 파이프라인과 같은 방식 — 텍스트 판정은 EvoLink(Google-Native v1beta, Bearer). 참고_runner.md 「EvoLink 호출 규약」. 모델 gemini-3.5-flash 는 가족 기본값이며 EvoLink 실호출로 확인(2026-08-15 200 OK · JSON 강제·thinkingBudget 0 수용 · 31토큰)",
-    "판정.영상": "select 시각 판정. EvoLink 에 Files API 가 없어 구글 순정. 모델은 텍스트 판정과 같은 gemini-3.5-flash(참고 VERIFIED_MODELS google 목록에 있음). 검증 필요 — 첫 실호출로 확인",
+    "판정.영상": "2026-08-15 결정(C안): 기본 evolink — 같은 날 실측으로 EvoLink v1beta 가 inline_data 로 이미지·영상(소리 포함)을 받는 것을 확인했고(참고_runner.md 우리 실측 2), 텍스트·영상 판정이 한 계정으로 모인다. google 은 스위치로 남긴다 — EvoLink 는 리셀러라 인라인 영상 지원이 바뀔 수 있고, 인라인 상한(≈20MB)을 넘는 큰 클립은 Files API(구글 순정 전용)가 필요하다. Google 키는 같은 날 선불 크레딧 0(429)이었다",
     "판정.brief.사건_평균길이_목표_s": "후보값 40s. 참고 story_brief 는 장편 기준 beats 40개(≈150s/사건)인데, select 창이 20~120s(참고_40단계 2-2)라 사건이 그 크기여야 고를 수 있다. 검증 필요 — 첫 영상 결과 보고 조정",
     "판정.brief.타임코드_허용오차_s": "모델이 발화 끝 초를 반올림해 적는다. 1초 안이면 원본 길이에 맞춰 자르고, 넘으면 반려",
     "전사.환청규칙": "Full Time 실측(2026-08-15): Groq whisper 가 무음 구간에서 정확히 30.0s 길이의 세그먼트 10개를 냈다(\"Thank you.\" \"The End\" \"I'm sorry.\" — 316~376·489~609·780~870·925~955, 합계 ≈300s). 압축비 0.5~0.58, no_speech_prob 는 전부 0 이라 판별에 못 쓴다. 길이 ≥26s 이면서 단어 ≤3개면 환청으로 본다. 처음 25s 로 두었더니 실제 대사 175.8→200.9s \"No fucking way.\"(25.1s·3단어, 끝이 무음 위로 늘어난 것)까지 걸려 26s 로 올렸다 — 그 대사는 복구되고 30.0s 환청 10개는 그대로 차단된다. 가사(895s 28.3s 10단어)는 단어 수로 살아남는다",
@@ -16,7 +16,8 @@
     "구간선택.인접병합_간격_s": "가족 공식 — 인접 ≤2s 병합. 검증 필요",
     "구간선택.시각판정": "단계상세.md select 두 겹 판정(2026-08-15 대조 실측). 경계용 5~10초 프레임 → 5s, 정서·결말용 10~20초 클립 → 15s. 해상도 640px 는 업로드 용량용",
     "구간선택.역할규칙": "2026-08-15 결정(단순 우선순위 채움과 함께). 대사 사건 importance ≥4 → 원본대사(원음 유지), ≤3 → 나레이션덮기(화면만 쓰고 나레 얹음), 무음 장면 → 시각몽타주. 검증 필요 — 첫 영상 결과 보고 조정",
-    "구간선택.결말포함": "정답지(지무비 19편)가 결말까지 말하는 스타일이고 대역 수치가 거기서 왔으므로 스타일 일관성상 기본 포함. 노스포 버전은 나중에 preset 옵션으로 — 그때 brief 의 spoiler 표시가 재료가 된다"
+    "구간선택.결말포함": "정답지(지무비 19편)가 결말까지 말하는 스타일이고 대역 수치가 거기서 왔으므로 스타일 일관성상 기본 포함. 노스포 버전은 나중에 preset 옵션으로 — 그때 brief 의 spoiler 표시가 재료가 된다",
+    "판정.영상.인라인_상한_mb": "Gemini 요청 본문 상한 ≈20MB(인라인 미디어 포함). 15s·640px 클립은 0.25~0.45MB 라 결말 5개(≈2MB)는 여유. 넘으면 backend=google + 클립전달=files_api 로"
   },
   "전사": {
     "제공자": "groq",
@@ -52,16 +53,30 @@
       "responseMimeType": "application/json"
     },
     "영상": {
-      "backend": "google",
+      "backend": "evolink",
+      "_backend_값": "evolink | google — 가족 설계(google|evolink|auto)와 같은 모양. auto 는 runner 쪽 키 유무로 정하는 것이라 서버 규격에선 두 값만 쓴다",
       "모델": "gemini-3.5-flash",
-      "엔드포인트": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-      "파일업로드": "https://generativelanguage.googleapis.com/upload/v1beta/files",
-      "키_환경변수": "GEMINI_API_KEY",
+      "제공자": {
+        "evolink": {
+          "엔드포인트": "https://api.evolink.ai/v1beta/models/{model}:generateContent",
+          "키_환경변수": "EVOLINK_API_KEY",
+          "인증헤더": "Authorization: Bearer <키>",
+          "파일업로드": null
+        },
+        "google": {
+          "엔드포인트": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+          "키_환경변수": "GEMINI_API_KEY",
+          "인증헤더": "x-goog-api-key: <키>",
+          "파일업로드": "https://generativelanguage.googleapis.com/upload/v1beta/files"
+        }
+      },
+      "클립전달": "inline",
+      "_클립전달_값": "inline(base64 inline_data, 기본) | files_api(Google 전용 — 인라인 상한을 넘는 큰 클립)",
+      "인라인_상한_mb": 20,
       "온도": 0.3,
       "thinkingBudget": 0,
       "maxOutputTokens": 8192,
-      "responseMimeType": "application/json",
-      "상태": "사용 준비됨 — 키 저장 2026-08-15. select 에서 첫 실호출"
+      "responseMimeType": "application/json"
     },
     "brief": {
       "사건_평균길이_목표_s": 40,
