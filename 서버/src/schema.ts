@@ -91,8 +91,13 @@ export interface StepResponse {
   /** 기계 일감 묶음. 종류는 jobs_kind 가 선언한다 (모양으로 추측하지 않는다) */
   jobs: ArgvJob[];
   jobs_kind: JobsKind | null;
-  /** 무엇을 재서 payload 어느 칸에 넣을지 */
+  /** runner 에게 주는 측정 규칙 — 무엇을 재서 payload 어느 칸에 넣을지 (볼케이노 문법) */
   measure: MeasureRule[];
+  /**
+   * 이 단계가 뱉는 숫자 (HARNESS 4장 관측 가능성). 서버가 계산한 결과이지 지시가 아니다.
+   * metrics 는 나중에 우리실측.json 에 쌓이는 원천이다 — 게이트는 이 숫자를 정답지 대역과 비교한다.
+   */
+  metrics: Record<string, unknown>;
   /** 이 응답의 값 중 다음 호출 payload 에 그대로 실어 보낼 키 */
   carry: string[];
   /** 화면에 그대로 찍을 안내 · 경고 */

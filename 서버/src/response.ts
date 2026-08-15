@@ -24,6 +24,7 @@ export function base(step: Step, preset: Preset, over: Partial<StepResponse> = {
     jobs: [],
     jobs_kind: null,
     measure: [],
+    metrics: {},
     carry: [],
     ...over,
   };
@@ -34,8 +35,8 @@ export function notImplemented(step: Step, preset: Preset): StepResponse {
   return base(step, preset, {
     status: "not_implemented",
     next_step: null,
-    message: `'${step}' 단계는 아직 구현 안 됨. 설계/단계와게이트.md 참조.`,
-    instructions: ["여기서 멈춘다. 이 단계의 지시는 설계/단계와게이트.md 의 단계 목록이 채워진 뒤 만든다."],
+    message: `'${step}' 단계는 아직 구현 안 됨. 설계/단계상세.md 참조.`,
+    instructions: ["여기서 멈춘다. 이 단계의 지시는 설계/단계상세.md 의 명세대로 만든다."],
   });
 }
 

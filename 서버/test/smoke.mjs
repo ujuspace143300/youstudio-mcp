@@ -10,6 +10,8 @@
  *   2) tools/list      — youstudio_video 하나가 있다
  *   3) tools/call setup — 규격(spec)이 실려 오고 next_step=start
  *   4) tools/call start — ffprobe argv 가 조립돼 오고 next_step=probe
+ *   5) tools/call probe — 정상 JSON 이면 metrics·carry 가 오고 next_step=transcript
+ *      오디오 없는 JSON 이면 hard_fail(status error) + 수리 지침 · payload 없으면 반려
  */
 const URL_ = process.env.MCP_URL ?? "http://localhost:8787";
 const PROTOCOL = "2025-11-25"; // 2025 세대(stateless) 로 붙는다 — 서버가 legacy 폴백으로 받는다
@@ -118,7 +120,44 @@ console.log(`서버: ${URL_}`);
 {
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "select", preset: "영화롱폼" } });
   const sc = res.structuredContent;
-  ok(sc?.status === "not_implemented" && /단계와게이트/.test(sc?.message ?? ""), "select → not_implemented 스텁", sc?.message);
+  ok(sc?.status === "not_implemented" && /단계상세/.test(sc?.message ?? ""), "select → not_implemented 스텁", sc?.message);
+}
+
+// 7) tools/call probe (정상 — Full Time 실측과 같은 모양의 ffprobe JSON)
+const PROBE_OK = {
+  streams: [
+    { index: 0, codec_type: "video", codec_name: "h264", width: 1920, height: 1080, r_frame_rate: "24000/1001", avg_frame_rate: "24000/1001", duration: "929.011417" },
+    { index: 1, codec_type: "audio", codec_name: "aac", channels: 2, sample_rate: "44100", channel_layout: "stereo", duration: "929.076825", tags: { language: "eng" } },
+  ],
+  format: { filename: "C:/movies/sample.mp4", nb_streams: 2, duration: "929.076825", size: "256735178", bit_rate: "2210669" },
+};
+const CARRY = { workdir: "C:/youstudio_work/sample", source: { kind: "local_video", path: "C:/movies/sample.mp4", title: "샘플 (2024)", lang: "en" } };
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "probe", preset: "영화롱폼", payload: { ...CARRY, probe: PROBE_OK } } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "transcript", "probe → status=execute, next_step=transcript", `${sc?.status}/${sc?.next_step}`);
+  const m = sc?.metrics ?? {};
+  ok(m.duration_s === 929.077 && m.width === 1920 && m.height === 1080 && m.fps === 23.976 && m.audio === true, "probe → metrics(길이·해상도·fps·오디오)", JSON.stringify(m));
+  ok(sc?.jobs_kind === null && sc?.jobs?.length === 0 && sc?.measure?.length === 0, "probe → jobs 없음 (argv 는 start 가 실행)", `${sc?.jobs_kind}/${sc?.jobs?.length}/${sc?.measure?.length}`);
+  ok(["source", "workdir", "probe_summary"].every((k) => sc?.carry?.includes(k) && k in sc), "probe → carry(source·workdir·probe_summary) 값 동봉", JSON.stringify(sc?.carry));
+  ok(sc?.probe_summary?.audio_tracks === 1 && sc?.probe_summary?.fps_fraction === "24000/1001", "probe → probe_summary 요약", JSON.stringify(sc?.probe_summary));
+  ok(sc?.instructions?.some((l) => /ASR 제공자 결정 대기/.test(l)), "probe → 지시문에 'ASR 제공자 결정 대기'", "");
+}
+
+// 8) tools/call probe (오디오 트랙 없음 → hard_fail = status error + 수리 지침)
+{
+  const noAudio = { ...PROBE_OK, streams: PROBE_OK.streams.filter((s) => s.codec_type !== "audio") };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "probe", preset: "영화롱폼", payload: { ...CARRY, probe: noAudio } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && sc?.next_step === "probe", "probe(오디오 없음) → hard_fail(status error), next_step 유지", `${sc?.status}/${sc?.next_step}`);
+  ok(/hard_fail/.test(sc?.message ?? "") && /ffmpeg -i/.test(sc?.message ?? ""), "probe(오디오 없음) → 수리 지침 포함", (sc?.message ?? "").slice(0, 80));
+}
+
+// 9) tools/call probe (payload.probe 누락 → 반려 + 고치는 법)
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "probe", preset: "영화롱폼", payload: { ...CARRY } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && sc?.status === "error" && /probe\.json/.test(sc?.message ?? ""), "probe(probe 없음) → 반려 + 고치는 법", sc?.message);
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");
