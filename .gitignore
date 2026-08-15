@@ -16,6 +16,17 @@ dist/
 # ── 작업 산출물 (영상 만들 때 생김 · 크고 재생성 가능) ────────────────────
 work/
 **/work/
+youstudio_work/
+**/youstudio_work/
+# 미디어·프레임·클립은 어디에 있든 저장소 밖 (작업 폴더는 저장소 밖 Desktop/youstudio_work 이 정본)
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.mp3
+*.jpg
+*.jpeg
+*.png
 
 # ── OS · 편집기 임시 파일 ────────────────────────────────────────────────
 .DS_Store
