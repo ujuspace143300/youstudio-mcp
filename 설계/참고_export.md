@@ -164,3 +164,49 @@
 - **확정 원인**: 프리미어 쪽 상태 — **같은 소재가 이미 있는 프로젝트에 재임포트하면 오디오 트랙이 조용히 누락된다.** XML 은 무죄, 수리 불필요.
 - **운영 규칙**: **XML 임포트는 항상 새 빈 프로젝트에서 한다.** export ② 안내문·서버 README 임포트 순서에 같은 문장을 넣었다.
 - 시험 파일: `render/_import_test4a.xml`·`4b.xml` 은 재현용으로 보관, `4c~e` 는 쓸 일이 없어져 삭제(2026-08-16).
+
+## 9. 가족(볼케이노) 완성 prproj 분석 — 같은 원본 Full Time (2026-08-16, 읽기 전용)
+
+파일: `Desktop/가족전달/Full_Time_롱폼_v26_b05.prproj`(gzip → PremiereData v3, 프로젝트 Version 45, 3.7MB) + `media/`(source mp4 · tts wav 39 · sfx wav 12) + `.audio_peak.json` 사이드카. 원본 미수정 — 임시 폴더에 복사해 풀었다. 수치는 `벤치마크/볼케이노_FullTime_실측.json`.
+
+### 9-1. 트랙 구성 (XML 안 표현)
+- 시퀀스 1개 `Full_Time_롱폼_v26`(UID `1a30025c-…`), TrackGroups 3: Video(5트랙)·Audio(3트랙)·Data(캡션 1트랙). 트랙은 `VideoClipTrack`/`AudioClipTrack` 오브젝트(ObjectUID) 안 `ClipItems > TrackItems > TrackItem ObjectRef` 목록. 트랙 아이템 = `VideoClipTrackItem`(Start/End 틱, TPS 254016000000) → `SubClip`(이름) → `VideoClip`(InPoint/OutPoint) → `VideoMediaSource` → `Media`(FilePath) 사슬. 오디오는 같은 사슬의 Audio 판.
+- **V1** 원본 컷 134 (전부 mp4, 틈 0, 재사용 0) · **V2** 대사 자막 79 · **V3** 나레 자막 34 · **V4** 나레 강조 자막 23 + Cross Dissolve 1(첫 클립 페이드인) · **V5** 빈 트랙 · **A1** 원본 소리 134 + Constant Power 크로스페이드 130(전부 0.167s = 4프레임) · **A2** 나레 wav 39 + 페이드 78 · **A3** 효과음 12 + 페이드 24 · **캡션 트랙** 1개(ID 354) **비어 있음**. V1↔A1 은 `Link` 134 로 묶임.
+- 레벨: A1 기본 **−15 dB**(0.1778) · 덕킹 컷 46개 **−30 dB**(0.0317, 총 89.9s) · A2 나레 −15 dB · A3 효과음 −29~−20.5 dB(사이드카 `audio_peak.json` = LUFS −23 목표 자동 게인 결과).
+
+### 9-2. 자막 방식
+- **캡션 트랙이 아니라 텍스트 그래픽 클립**(`AE.ADBE Text` VideoFilterComponent, 파라미터 22개: Source Text(FlatBuffers 블롭)·Transform·**Position**·Scale·Rotation·Opacity·Anchor Point…). 그래픽 미디어는 Premiere 합성 소스(`Graphic`, In=3600s 고정 = GRAPHIC_IN_TICKS).
+- **위치는 Text 컴포넌트의 `Position` 파라미터, 정규화 좌표(0~1)**: V2 대사 `0.5:0.95556` · V3 나레 `0.5:0.96481` · V4 강조 `0.5:0.92778` — 트랙마다 **한 값으로 고정**(79/34/23 전부 동일). 우리 임포트에서 프리미어가 박아 넣던 `0.039:0.156` 과 같은 자리·같은 단위 → **자막 위치는 이 파라미터를 써야만 자동화된다**(FCP XML 의 Basic Motion 으로는 못 닿음, 6-3절).
+- **폰트는 블롭 안 PostScript 명**: 대사 `SDGwanghwamun`, 나레 기본 `SourceHanSerifK-Bold`, 톤 폰트 `SDAchim-bMd`·`SDSeongkyeong-bMd`·`SDKwangya`·`SDGdMyeongjo`·`SDCharisma-bBd`·`SDBangkakbon-cBd`·`SDComicStencil-aBasic`·`SDNemony2dBasicBd`. 블롭마다 `Cafe24Dangdanghae` 가 함께 들어 있음(도너 템플릿 블롭의 기본 폰트 + 실제 폰트 런). 우리 규격 「자막.폰트」의 PS 명 선택(본명조 Bold·광화문)과 일치.
+- 파라미터 이름이 영어(`Source Text`, `Position`) — 사용자 프리미어(한국어 UI)가 저장한 파일은 한국어(`소스 텍스트`, `위치`). 즉 이 파일은 사용자 PC 의 프리미어가 저장한 것이 아니다.
+
+### 9-3. 나레이션 wav 참조
+- 클립마다 `Media` 오브젝트(FilePath/ActualMediaFilePath = **절대 Windows 경로 `C:\Users\user\Desktop\가족전달\media\tts\nNNN.wav`** — 받는 PC 기준으로 미리 써 둠), `MasterClip` + `ClipProjectItem`(프로젝트 패널 항목) + `AudioMediaSource`/`AudioStream`. 파일명 `n<컷번호 3자리>.wav`(컷 134개 중 39곳). A2 아이템 ObjectID 간격 18 로 일정.
+
+### 9-4. 제작 방식 증거 (단정 없이 목록)
+**(a) 프로그램 생성 흔적** — 강함
+- ObjectID 간격 일정: V1 아이템 +4(133/133), A2 +18(38/38); 컷 시작/끝 중 50개가 **프레임 비정렬**(ms 단위 — 프리미어 손 편집은 항상 프레임에 붙는다) · 페이드 232개 전부 0.167s · 레벨이 정확히 −15/−30 dB · 트랙마다 위치 한 값 · nar 파일명이 컷 번호 · 미디어 경로가 받는 PC 경로 · 블롭이 같은 템플릿(Cafe24 기본 폰트) 위에 폰트만 치환 · 사이드카 `_meta.stage: audio_spec`, `prproj: …\longformmovie_이관\pipeline\build\fulltime\…b05.prproj` = **참고 폴더의 가족 파이프라인이 이 PC 에서 04:05 에 빌드**(`pipeline/build/fulltime/` 에 b02~b05 있음), 이름 `v26_b05`(빌드 5).
+- 참고 폴더 `longformmovie_이관/pipeline/stages/assemble.py`(7,856줄)·`assemble_full.py`·`specs/textblob.py`(미니 FlatBuffers 리더/빌더, GT 블롭 724B md5)·`builders/timeline_builder.py`(4,708줄) 가 바로 그 빌더다(읽기만 함).
+**(b) 도너 복제 흔적** — 강함
+- `assets/donor/real-edited-2026-v45-25fps.prproj`(65KB, "real-edited" = 사람이 편집한 실물 프로젝트) 를 뼈대로 쓴다고 assemble.py 도큐스트링·`DONOR` 표(seq_uid `1a30025c-…` = 이 파일의 시퀀스 UID, 트랙 UID 8개, mp4/mp3 lineage ObjectID, 타이틀 도너 서브트리 123)가 명시. "도너 타이틀 클립 서브트리 복제 → ObjectID/Ref 재배선 → 블롭 치환 → gzip 재직렬화".
+- 잔재: 빈 V5 · 캡션 트랙(ID 354, 비어 있음) + 고아 `CaptionDataClipTrackItem` 18 · `TranscriptClip` 37 + `SyntheticTranscript`(프리미어 음성 텍스트 변환 잔재) · 고아 V1 아이템 9개(114~122, Full Time 훅 컷에 **Horizontal Flip + Motion**) · `Cutback-<uuid>`·`Color Matte` 프로젝트 항목 · 빈 확장 상태 313개 · 트랙 ID 1,7,8,9,19 / 3,4,24 / 354, NextTrackID 20/25, NextAutoNestedSequenceNumber 24 · 프리뷰 프리셋 1080×1920(세로) · 내보내기 경로 `/Volumes/DATA/렌더링/#렌더.mp4`, Ingest 프리셋 `/Applications/Adobe Premiere Pro 2025.app/…`(**Mac Premiere 2025, 영어 UI** 에서 온 도너).
+**(c) 사람 수동 편집 흔적** — 약함
+- 원본 순서를 거스르는 컷 4개, 첫 클립 Cross Dissolve 1개, 효과음 레벨 제각각 — 전부 프로그램 규칙으로도 설명됨. 프리미어 손 편집의 전형(비정형 값·수동 키프레임·프레임 스냅된 불규칙 길이·최근 저장 프리미어 버전 흔적)은 없음. 도너 자체(real-edited)만 사람 편집물.
+
+### 9-5. 판단 근거
+**(a) 우리 FCP XML 방식으로 동급 도달 가능한가**
+| 항목 | FCP XML(지금) | 판정 |
+| :---- | :---- | :---- |
+| 원본 컷 V1 134·틈 0·A1 링크 | 됨(clipitem, 프레임 단위 — 가족은 ms 단위) | ○ |
+| A1 기본 −15 dB·덕킹 −30 dB | Audio Levels 필터는 프리미어가 안 읽는 것으로 관측(6절) → 우리는 A3 분리 | △ (레벨 자동 X, 트랙 분리로 대체) |
+| 크로스페이드 0.167s 232개 | FCP XML `<transitionitem>` 오디오 크로스페이드 — 프리미어 임포트 지원 **미확인** | ? (시험 필요) |
+| 나레 A2·효과음 A3 | 됨 | ○ |
+| 자막 텍스트·폰트(PS 명) | 됨(6-3 확정) | ○ |
+| **자막 위치(트랙별 정규화 Position)** | **안 됨** — 프리미어가 center 를 버림 → 수동 1회/트랙 | ✕ |
+| 자막 한 큐 안 폰트/크기/색 런(스팬) | 안 됨(제너레이터 1폰트) | ✕ |
+| 등장 모션 프리셋(키프레임) | 안 됨 | ✕ |
+| 캡션 트랙 | 안 됨(가족도 안 씀) | — |
+결론: **컷·소리·나레·폰트는 동급, 자막 위치·런·모션은 못 닿음.** 지금 방식 = FCP XML + 트랙별 위치 1회 수동이 최단.
+**(b) prproj 직접 생성/바꿔치기의 현실성**
+- 가족이 실제로 그 길을 갔고 코드가 참고 폴더에 있다(읽기만): 조립 7.9k + 풀버전 1.8k + 타임라인 4.7k + 블롭 0.9k 줄, 도너 UID/ObjectID 표, FlatBuffers 블롭 패치, ObjectID 재배선, 미디어 오프라인 수리 지식(FilePath 절대경로·ImporterPrefs·FileKey), 게이트 96개. **작업량 추정: 우리가 새로 쓰면 최소 수 주** — 도너 확보(사용자 프리미어 26.3.2 로 실물 편집 1회) + 서브트리 복제·재배선 + 블롭 패치(가장 위험) + 임포트 검증 루프. 자막 위치 하나 때문에 갈 길은 아니다. **중간 길**: 자막만 prproj 로(도너 타이틀 1개 복제) + 나머지 FCP XML — 두 파일을 사람이 합쳐야 해서 지금의 "1회 수동 위치"보다 낫지 않다. 3차 시험(`_import_test3.xml` origin 파라미터) 결과가 오면 최종 판단.
+**(c) 미확인 → `가족인터뷰.md` Q1 밑에 추가.**
