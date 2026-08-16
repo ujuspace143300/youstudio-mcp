@@ -32,7 +32,7 @@
 | 7 | `subtitle` | 컷 타임라인 · 대사 번역 · 자막 큐(글자별 실측) · 무음 컷 · 죽은 시간 게이트 | ✅ |
 | 8 | `export` | FCP XML v5 + SRT 3종 + 나레이션 믹스 + manifest · 1~7 게이트 전체 재검사 | ✅ |
 
-첫 시험 소재(단편 15.5분)로 **`setup`~`export` 전 단계**를 실호출까지 통과했다 (마일스톤 `v0.1-select` → `v0.2-script` → `v0.3-voice` → `v0.4-subtitle` → `v0.5-export`). 다음은 프리미어 실제 임포트 검증과 2차 목표 `render`(완성 mp4).
+첫 시험 소재(단편 15.5분)로 **`setup`~`export` 전 단계**를 실호출까지 통과했다 (마일스톤 `v0.1-select` → `v0.2-script` → `v0.3-voice` → `v0.4-subtitle` → `v0.5-export`). 프리미어 실제 임포트 검증까지 완료(`v0.6-import`: 자막 origin 좌표계·폰트 PS 명·A3 덕킹 트랙·새 빈 프로젝트 규칙). **다음 본선 = 산출물을 .prproj 로**(열면 전부 제자리, 볼케이노 방식 — `설계/prproj생성_설계안.md`, 계단식·사람 확인). FCP XML 은 폴백으로 유지. 2차 목표 `render`(완성 mp4).
 
 ## 실행·테스트
 
