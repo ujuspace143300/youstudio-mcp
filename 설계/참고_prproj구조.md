@@ -93,15 +93,22 @@ wav 하나마다 **미디어 계보 전체를 새로** 만든다(도너에 없�
 6. gzip 왕복: 풀었다 그대로 싼 결과가 원본과 XML 바이트 동일(계단 2).
 7. "기능 동일" diff: 난수(ObjectID 순번·uuid·BinaryHash 앞부분)만 정규화한 뒤 바이트 대조 — 회귀 게이트로 쓴다.
 
-## 6. 우리 도너에서 프로그램이 찾을 것 (도너 절차서와 1:1)
+## 6. 도너(볼케이노 완성본)에서 프로그램이 찾을 것 — 실측 ID (2026-08-17)
 
-| 도너 안 실체 | 프로그램이 찾는 방법 | 쓰임 |
+도너 = `도너/볼케이노_FullTime_v26_b05_ppro-v45.prproj` (원본 `가족전달/…b05.prproj` 복사본, PremiereData v3 · Project Version 45). 아래 값은 그 파일을 풀어 실측한 것이고 규격 「조립.도너」에 같은 값이 있다.
+
+**시퀀스 설정 = 우리 probe 와 일치**: VideoTrackGroup FrameRate 10594584000(23.976) · FrameRect 0,0,1920,1080 · AudioTrackGroup FrameRate 5292000(48k) · 시퀀스 UID `1a30025c-9c12-4372-9119-b3320c2bc048`, 이름 `Full_Time_롱폼_v26`, WorkOutPoint/OutPoint 67487500080000(265.68s), LinkContainer 에 Link 134. 미리보기 프리셋 1080×1920 은 잔재(무해).
+
+| 찾을 것 | 실측 | 쓰임 |
 | :---- | :---- | :---- |
-| 시퀀스 `영화롱폼` | `Sequence > Name` | UID·LinkContainer·길이 |
-| 트랙 6개(이름 `V1 원본컷`…`A3 덕킹소리`) | 트랙 블록의 이름(트랙 이름은 트랙 `Node > Properties` 또는 `Name` — 계단 1 결과물을 풀어 **실제 위치 확인**) | 아이템 목록 교체 대상 |
-| V1/A1 견본 컷(mp4) + 링크 | V1 트랙의 유일한 아이템 → SubClip → VideoClip → Source → Media | 컷 서브트리 템플릿 + mp4 미디어 계보(경로 치환) |
-| A2 견본(b01.wav) | A2 트랙 아이템 → 계보 | 나레 계보 템플릿 |
-| A3 견본(mp4 소리, −12 dB) | A3 트랙 아이템 → 체인 → 필터 → Level 파라미터 | 덕킹 볼륨 템플릿 |
-| V3 `나레 견본` / V2 `대사 견본` 텍스트 클립 | 트랙 아이템 → SubClip Name | 자막 서브트리 템플릿(위치·폰트·크기·모양 포함) |
+| 트랙 UID | V1 `f98324c5-05e3-49dd-81c4-d87a64b193f5` · V2 `df7d7fd7-b804-4676-84d5-d8d0e7d60807` · V3 `da67a6d2-1aa4-421d-971c-cfcca14a274b` · V4 `5f224ae5-db8a-4641-a584-bf77ccfd6fea` · V5 `ff347226-fc80-45da-a29a-0e8abe4d00cc` / A1 `eba226e5-31a0-4e3d-9503-bf360347baf2` · A2 `bf92abdb-d2e6-4cf5-bc53-943c68db8c33` · A3 `886a8f78-0e42-42ff-a9c8-a02bf14edf8a` / 캡션 `c8e25888-838c-4b40-a6b2-bbc9ca63f34c` ; 그룹 ObjectID Video 104 · Audio 105 · Data 106 | 아이템 목록 교체 |
+| 원본 mp4 미디어 | Media UID `cad770b8-36db-4efe-8517-6fb3dcee2284`(FilePath `C:\Users\user\Desktop\가족전달\media\source\23. FULL TIME  Omeleto.mp4`, ConformedAudioRate 5760000, VideoStream 111 · AudioStream 110) · VideoMediaSource 94 · AudioMediaSource 95 · Markers 93 · MasterClip UID `988f41ba-8474-4224-85cf-0b10fe6ef763` | 유지, 경로만 치환 |
+| 컷 견본(비디오) | V1 첫 아이템 **647**(체인 644 · SubClip 645 · VideoClip 646, In 532.157s → 시퀀스 0~1.96s) · Link **6885**(647↔1186) | 컷 서브트리 템플릿 |
+| 컷 견본(오디오, 덕킹 −15 dB) | A1 첫 아이템 **1186**(체인 1183 · SubClip 1184 · AudioClip 1185, 볼륨 필터 1180 · Level 파라미터 1182 = `0.031653400511`) | A3(덕킹) 템플릿 |
+| 컷 견본(오디오, 유니티) | A1 아이템 **1194**(1.96s, 필터 1188 · Level 1190 = `0.177827998996`) | A1(살릴 컷) 템플릿 |
+| 나레 견본 | A2 첫 아이템 **2268**(체인 2265 · SubClip 2266 · AudioClip 2267 · Level `0.177827998996`) · 계보: Media UID `e64871fe-b4e4-4769-a38f-a066894772da`(n001.wav) · AudioStream 2252(레이아웃 `[{"channellabel":0}]`, SampleType 3, **FrameRate 5292000 = 48k**, Duration 427381920000) · AudioMediaSource 2253 · Markers 2254 · LoggingInfo 2255 · ChannelGroups 2259 · MasterClip UID `c38ba838-fa53-4c7d-b164-1770ce215368` · ClipProjectItem UID `07710d4d-94d8-46dc-b5fb-a7b9c91b7123` · RootProjectItem UID `c11e486f-1ee5-4571-8625-00f1fdb28bca`(Items 55) | 나레 계보 템플릿 (24k 로 치환) |
+| 대사 자막 견본 | V2 첫 아이템 **3293**(체인 3291 · VideoFilterComponent 3287 · 파라미터 3267~3290 · SubClip 3292 · VideoClip 3288 · Source 541(Graphic) · MasterClip UID `ebfb8f8d-03b7-48bc-a7a8-3a00c6414625`) · Source Text 파라미터 **3267**(블롭 960B, 1런 `SDGwanghwamun` 58px) · Position 파라미터 **3269** = `0.5:0.95556` | V2 템플릿 — V2 79개 전부 같은 폰트·크기·1런 |
+| 나레 자막 견본 | V3 아이템 **4211**(65.77s "자리를 지킨..", 체인 4209 · VFC 4205 · 파라미터 4185~4208 · SubClip 4210 · VideoClip 4206) · Source Text **4185**(블롭 1148B, **2런** `SourceHanSerifK-Bold` 120px) · Position **4187** = `0.5:0.96481` | V3 템플릿 — 1런 본명조 견본은 없음(V3 는 Cafe24 1런 17 · 본명조 2~3런 15 · 톤 폰트) → 텍스트를 런 2개로 나눠 넣는다 |
+| 텍스트 클립 파라미터 22개 순서 | Source Text · Transform · **Position** · Scale · Horizontal Scale · (균등비율) · Rotation · Opacity · Anchor Point · … · Parent Width/Height/Rotation · … | 위치는 3번째 |
 
-계단 1 이 끝나면 이 표의 "찾는 방법" 칸을 실제 도너를 풀어 **오브젝트 ID/UID 로 채운다**(그 값들이 규격 「조립.도너」의 내용).
+**미디어 경로 해석**: `가족전달\media\source`(mp4 1) · `tts`(39) · `sfx`(12) 전부 이 PC 에 실존 — 도너 자체는 열릴 조건을 갖췄다. 우리 산출물은 이 경로를 `youstudio_work\<영화>\…` 로 갈아끼운다.
