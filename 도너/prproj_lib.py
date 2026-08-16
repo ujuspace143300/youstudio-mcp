@@ -15,6 +15,7 @@ TPS = 254016000000
 FRAME_TICKS = 10594584000          # 23.976
 SEQ_AUDIO_RATE = 5292000            # 48k
 GRAPHIC_IN = 914457600000000        # 3600s
+MAGIC = bytes([0x44, 0x33, 0x22, 0x11])   # 블롭 매직
 
 def frame_ticks(sec: float) -> int:
     return round(sec * 24000 / 1001) * FRAME_TICKS
@@ -167,6 +168,58 @@ def parse_blob(b64: str) -> dict:
         for i in range(_u32(b, vec)):
             el = vec + 4 + 4 * i; out["fonts"].append(_rstr(b, el + _u32(b, el)))
     return out
+
+# ── Source Text 블롭 쓰기 (tail relocation — 재조립 금지, 참고_prproj구조.md 4절) ──
+def blob_set_texts(b64: str, texts: list[str]) -> tuple[str, str, dict]:
+    """런 텍스트만 바꾼 새 블롭. 반환 (base64, BinaryHash, 재파싱 정보).
+    규칙: 문자열은 **항상 버퍼 끝에 새로 붙이고**(4바이트 정렬) 그 런의 참조 오프셋 하나만 돌린다.
+    옛 바이트는 죽은 채 남긴다(도너 문자열 슬롯 패딩이 공유 vtable 과 겹칠 수 있어 in-place 금지).
+    서식(StyleTable)·폰트 벡터·레이어 테이블은 1바이트도 건드리지 않는다."""
+    raw = bytearray(base64.b64decode(re.sub(r"\s+", "", b64)))
+    b = bytes(raw)
+    assert struct.unpack_from("<Q", b, 0)[0] == len(raw) - 12 and b[8:12] == MAGIC, "블롭 헤더/매직"
+    root = 12 + _u32(b, 12); p = _fpos(b, root, 0); main = p + _u32(b, p)
+    rp = _fpos(b, main, 0); assert rp is not None, "런 벡터 없음"
+    vec = rp + _u32(b, rp); n = _u32(b, vec)
+    assert len(texts) == n, f"런 수 {n} != 텍스트 {len(texts)}"
+    tfs = []
+    for i in range(n):
+        el = vec + 4 + 4 * i; rt = el + _u32(b, el); tf = _fpos(b, rt, 0)
+        assert tf is not None, f"런 {i} 텍스트 필드 없음"
+        tfs.append(tf)
+    for tf, text in zip(tfs, texts):
+        data = text.encode("utf-8")
+        while len(raw) % 4: raw.append(0)
+        new_pos = len(raw)
+        raw += struct.pack("<I", len(data)) + data + bytes([0])
+        while len(raw) % 4: raw.append(0)
+        struct.pack_into("<I", raw, tf, new_pos - tf)
+    struct.pack_into("<Q", raw, 0, len(raw) - 12)
+    out = base64.b64encode(bytes(raw)).decode("ascii")
+    info = parse_blob(out)                       # 자가검증: 재파싱
+    assert [r["text"] for r in info["runs"]] == texts, "재파싱 텍스트 불일치"
+    return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
+
+BLOB_RE = re.compile(r'(<StartKeyframeValue Encoding="base64" BinaryHash=")([^"]+)(">)([^<]+)(</StartKeyframeValue>)', re.S)
+
+def param_blob(block: str) -> str:
+    m = BLOB_RE.search(block); assert m, "Source Text 블롭 없음"
+    return re.sub(r"\s+", "", m.group(4))
+
+def param_set_blob(block: str, b64: str, binhash: str) -> str:
+    return BLOB_RE.sub(lambda m: m.group(1) + binhash + m.group(3) + b64 + m.group(5), block, count=1)
+
+def split_runs(text: str, n: int) -> list[str]:
+    """텍스트를 런 n개로 나눈다(같은 폰트·크기라 이어 보인다). n=1 이면 그대로."""
+    if n <= 1: return [text]
+    cut = max(1, round(len(text) / n))
+    parts = [text[:cut]] + [""] * (n - 1)
+    rest = text[cut:]
+    step = max(1, round(len(rest) / (n - 1))) if n > 2 else len(rest)
+    for i in range(1, n):
+        parts[i] = rest[:step] if i < n - 1 else rest
+        rest = rest[step:]
+    return parts
 
 # ── 검증 규칙 7개 ────────────────────────────────────────────────────────────
 def verify(path: str, expect_tracks: dict | None = None) -> dict:
