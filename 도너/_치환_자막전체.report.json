@@ -1,0 +1,3666 @@
+{
+ "stage": "3-d 자막전체(최종 조립본)",
+ "input": "_치환_나레.prproj",
+ "counts": {
+  "V2_대사": 120,
+  "V3_나레": 74,
+  "V4": 0,
+  "removed_blocks": 3702,
+  "added_blocks": 5238
+ },
+ "run_split": "B안 — 단어 경계에서만 분할(단어 < 런이면 첫 런에 전부 + 빈 런). 강조 서식 방침은 설계/분석단계_강조학습.md",
+ "template": {
+  "dlg": {
+   "blocks": 27,
+   "runs": 1
+  },
+  "nar": {
+   "blocks": 27,
+   "runs": 2
+  }
+ },
+ "blob_mismatch": [],
+ "timeline_mismatch": [],
+ "cues": [
+  {
+   "lane": "dlg",
+   "t0_s": 0,
+   "t1_s": 3.66,
+   "text": "야 너 발가락 빨 수 있냐?",
+   "runs": [
+    "야 너 발가락 빨 수 있냐?"
+   ],
+   "item": 8497,
+   "blob_len": 1000,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "야 너 발가락 빨 수 있냐?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 3.74,
+   "t1_s": 6.58,
+   "text": "글쎄 생각해 본 적도 없는데",
+   "runs": [
+    "글쎄 생각해 본 적도 없는데"
+   ],
+   "item": 8524,
+   "blob_len": 1004,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "글쎄 생각해 본 적도 없는데"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 6.66,
+   "t1_s": 8.72,
+   "text": "돈 준다면?",
+   "runs": [
+    "돈 준다면?"
+   ],
+   "item": 8551,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "돈 준다면?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 8.8,
+   "t1_s": 10.34,
+   "text": "돈 받고 발가락을 빨라고?",
+   "runs": [
+    "돈 받고 발가락을 빨라고?"
+   ],
+   "item": 8578,
+   "blob_len": 1000,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "돈 받고 발가락을 빨라고?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 10.42,
+   "t1_s": 12.56,
+   "text": "당연하지 잘근잘근 다 씹어 줄게",
+   "runs": [
+    "당연하지 잘근잘근 다 씹어 줄게"
+   ],
+   "item": 8605,
+   "blob_len": 1008,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "당연하지 잘근잘근 다 씹어 줄게"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 12.64,
+   "t1_s": 13.9,
+   "text": "절대 안 해!",
+   "runs": [
+    "절대 안 해!"
+   ],
+   "item": 8632,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "절대 안 해!"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 13.98,
+   "t1_s": 17,
+   "text": "얼마를 줘도 남의 발가락은 안 빨아 장난해?",
+   "runs": [
+    "얼마를 줘도 남의 발가락은 안 빨아 장난해?"
+   ],
+   "item": 8659,
+   "blob_len": 1024,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "얼마를 줘도 남의 발가락은 안 빨아 장난해?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 17.08,
+   "t1_s": 18.36,
+   "text": "그래 내가 나쁜 놈이다",
+   "runs": [
+    "그래 내가 나쁜 놈이다"
+   ],
+   "item": 8686,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "그래 내가 나쁜 놈이다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 18.44,
+   "t1_s": 20.92,
+   "text": "야 마이크 너네 삼촌 발 전문의지?",
+   "runs": [
+    "야 마이크 너네 삼촌 발 전문의지?"
+   ],
+   "item": 8713,
+   "blob_len": 1012,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "야 마이크 너네 삼촌 발 전문의지?"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 20.5,
+   "t1_s": 21.94,
+   "text": "계단 앞에서 발가락 얘기로",
+   "runs": [
+    "계단 앞에서 ",
+    "발가락 얘기로"
+   ],
+   "item": 8740,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "계단 앞에서 발가락 얘기로"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 21,
+   "t1_s": 24.31,
+   "text": "어 근데 발 전문의는 발가락 안 빨아",
+   "runs": [
+    "어 근데 발 전문의는 발가락 안 빨아"
+   ],
+   "item": 8767,
+   "blob_len": 1016,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "어 근데 발 전문의는 발가락 안 빨아"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 22.1,
+   "t1_s": 22.9,
+   "text": "낄낄대던..",
+   "runs": [
+    "낄낄대던..",
+    ""
+   ],
+   "item": 8794,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "낄낄대던.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 22.98,
+   "t1_s": 24.34,
+   "text": "보드 든 청년이 있죠",
+   "runs": [
+    "보드 든 청년이 ",
+    "있죠"
+   ],
+   "item": 8821,
+   "blob_len": 1188,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "보드 든 청년이 있죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 24.42,
+   "t1_s": 27.2,
+   "text": "잠깐 발 전문의가 발가락 빠는 줄 알았어?",
+   "runs": [
+    "잠깐 발 전문의가 발가락 빠는 줄 알았어?"
+   ],
+   "item": 8848,
+   "blob_len": 1020,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "잠깐 발 전문의가 발가락 빠는 줄 알았어?"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 26.7,
+   "t1_s": 28.22,
+   "text": "친구들의 놀림은 그날도",
+   "runs": [
+    "친구들의 놀림은 ",
+    "그날도"
+   ],
+   "item": 8875,
+   "blob_len": 1192,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "친구들의 놀림은 그날도"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 28.3,
+   "t1_s": 29.98,
+   "text": "이어졌고..",
+   "runs": [
+    "이어졌고..",
+    ""
+   ],
+   "item": 8902,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "이어졌고.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 30.14,
+   "t1_s": 31.74,
+   "text": "늘 그런 하루일 듯했습니다",
+   "runs": [
+    "늘 그런 하루일 ",
+    "듯했습니다"
+   ],
+   "item": 8929,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "늘 그런 하루일 듯했습니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 32.14,
+   "t1_s": 32.94,
+   "text": "허나 그때..",
+   "runs": [
+    "허나 ",
+    "그때.."
+   ],
+   "item": 8956,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "허나 그때.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 33.02,
+   "t1_s": 35.26,
+   "text": "정장 남자가 오십 달러를 꺼냅니다",
+   "runs": [
+    "정장 남자가 오십 ",
+    "달러를 꺼냅니다"
+   ],
+   "item": 8983,
+   "blob_len": 1208,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "정장 남자가 오십 달러를 꺼냅니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 35.32,
+   "t1_s": 37.12,
+   "text": "저기요",
+   "runs": [
+    "저기요"
+   ],
+   "item": 9010,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "저기요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 37.46,
+   "t1_s": 38.42,
+   "text": "저요?",
+   "runs": [
+    "저요?"
+   ],
+   "item": 9037,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "저요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 38.5,
+   "t1_s": 39.96,
+   "text": "아무나요?",
+   "runs": [
+    "아무나요?"
+   ],
+   "item": 9064,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "아무나요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 40.04,
+   "t1_s": 43.4,
+   "text": "잠깐 뭐 좀 도와줄 수 있어요?",
+   "runs": [
+    "잠깐 뭐 좀 도와줄 수 있어요?"
+   ],
+   "item": 9091,
+   "blob_len": 1004,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "잠깐 뭐 좀 도와줄 수 있어요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 43.48,
+   "t1_s": 45.12,
+   "text": "아뇨",
+   "runs": [
+    "아뇨"
+   ],
+   "item": 9118,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "아뇨"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 45.2,
+   "t1_s": 47.06,
+   "text": "50달러 드릴게요",
+   "runs": [
+    "50달러 드릴게요"
+   ],
+   "item": 9145,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "50달러 드릴게요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 47.14,
+   "t1_s": 51.7,
+   "text": "잠깐 사실 제가 할게요 얘넨 좀 별로예요",
+   "runs": [
+    "잠깐 사실 제가 할게요 얘넨 좀 별로예요"
+   ],
+   "item": 9172,
+   "blob_len": 1020,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "잠깐 사실 제가 할게요 얘넨 좀 별로예요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 51.78,
+   "t1_s": 53.54,
+   "text": "그 기세 마음에 드네요",
+   "runs": [
+    "그 기세 마음에 드네요"
+   ],
+   "item": 9199,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "그 기세 마음에 드네요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 53.62,
+   "t1_s": 55.2,
+   "text": "뭘 도와드리면 돼요?",
+   "runs": [
+    "뭘 도와드리면 돼요?"
+   ],
+   "item": 9226,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "뭘 도와드리면 돼요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 55.28,
+   "t1_s": 57.04,
+   "text": "딱 좋네요",
+   "runs": [
+    "딱 좋네요"
+   ],
+   "item": 9253,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "딱 좋네요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 57.12,
+   "t1_s": 60.104,
+   "text": "이 선 네 개 보이죠?",
+   "runs": [
+    "이 선 네 개 보이죠?"
+   ],
+   "item": 9280,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "이 선 네 개 보이죠?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 60.48,
+   "t1_s": 61.4,
+   "text": "네",
+   "runs": [
+    "네"
+   ],
+   "item": 9307,
+   "blob_len": 968,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "네"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 61.48,
+   "t1_s": 62.48,
+   "text": "좋아요",
+   "runs": [
+    "좋아요"
+   ],
+   "item": 9334,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "좋아요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 62.48,
+   "t1_s": 67.4,
+   "text": "오늘 5시 반까지 여기 서 있어 주면 돼요",
+   "runs": [
+    "오늘 5시 반까지 여기 서 있어 주면 돼요"
+   ],
+   "item": 9361,
+   "blob_len": 1020,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "오늘 5시 반까지 여기 서 있어 주면 돼요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 67.48,
+   "t1_s": 70.4,
+   "text": "도와달라는 게 그거예요?",
+   "runs": [
+    "도와달라는 게 그거예요?"
+   ],
+   "item": 9388,
+   "blob_len": 1000,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "도와달라는 게 그거예요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 70.48,
+   "t1_s": 71.48,
+   "text": "네",
+   "runs": [
+    "네"
+   ],
+   "item": 9415,
+   "blob_len": 968,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "네"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 71.48,
+   "t1_s": 73.4,
+   "text": "원래 하던 사람이 안 나왔어요",
+   "runs": [
+    "원래 하던 사람이 안 나왔어요"
+   ],
+   "item": 9442,
+   "blob_len": 1008,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "원래 하던 사람이 안 나왔어요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 73.48,
+   "t1_s": 75.4,
+   "text": "사람을 구하는 중이에요",
+   "runs": [
+    "사람을 구하는 중이에요"
+   ],
+   "item": 9469,
+   "blob_len": 1000,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "사람을 구하는 중이에요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 75.48,
+   "t1_s": 77.42,
+   "text": "저 놀리시는 거죠",
+   "runs": [
+    "저 놀리시는 거죠"
+   ],
+   "item": 9496,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "저 놀리시는 거죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 77.5,
+   "t1_s": 78.48,
+   "text": "전혀요",
+   "runs": [
+    "전혀요"
+   ],
+   "item": 9523,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "전혀요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 78.48,
+   "t1_s": 81.48,
+   "text": "하루 종일 서 있었는데 안 오시면…",
+   "runs": [
+    "하루 종일 서 있었는데 안 오시면…"
+   ],
+   "item": 9550,
+   "blob_len": 1012,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "하루 종일 서 있었는데 안 오시면…"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 81.48,
+   "t1_s": 82.48,
+   "text": "됐어요",
+   "runs": [
+    "됐어요"
+   ],
+   "item": 9577,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "됐어요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 82.48,
+   "t1_s": 83.48,
+   "text": "친구분한테 부탁하죠",
+   "runs": [
+    "친구분한테 부탁하죠"
+   ],
+   "item": 9604,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "친구분한테 부탁하죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 83.48,
+   "t1_s": 84.48,
+   "text": "잠깐 잠깐 잠깐",
+   "runs": [
+    "잠깐 잠깐 잠깐"
+   ],
+   "item": 9631,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "잠깐 잠깐 잠깐"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 84.48,
+   "t1_s": 85.48,
+   "text": "50달러 현금이요?",
+   "runs": [
+    "50달러 현금이요?"
+   ],
+   "item": 9658,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "50달러 현금이요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 85.48,
+   "t1_s": 86.48,
+   "text": "네",
+   "runs": [
+    "네"
+   ],
+   "item": 9685,
+   "blob_len": 968,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "네"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 86.48,
+   "t1_s": 87.48,
+   "text": "30일 뒤 입금 아니고요?",
+   "runs": [
+    "30일 뒤 입금 아니고요?"
+   ],
+   "item": 9712,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "30일 뒤 입금 아니고요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 87.48,
+   "t1_s": 88.4,
+   "text": "아뇨",
+   "runs": [
+    "아뇨"
+   ],
+   "item": 9739,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "아뇨"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 88.48,
+   "t1_s": 90.4,
+   "text": "네 할게요",
+   "runs": [
+    "네 할게요"
+   ],
+   "item": 9766,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "네 할게요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 90.48,
+   "t1_s": 92.4,
+   "text": "좋아요",
+   "runs": [
+    "좋아요"
+   ],
+   "item": 9793,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "좋아요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 92.48,
+   "t1_s": 95.4,
+   "text": "오늘 5시 반에 봐요",
+   "runs": [
+    "오늘 5시 반에 봐요"
+   ],
+   "item": 9820,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "오늘 5시 반에 봐요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 95.48,
+   "t1_s": 97.502,
+   "text": "5시 반",
+   "runs": [
+    "5시 반"
+   ],
+   "item": 9847,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "5시 반"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 96.542,
+   "t1_s": 97.342,
+   "text": "부탁이란..",
+   "runs": [
+    "부탁이란..",
+    ""
+   ],
+   "item": 9874,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "부탁이란.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 97.582,
+   "t1_s": 99.342,
+   "text": "바닥의 네모 선 안에 다섯 시",
+   "runs": [
+    "바닥의 네모 선 ",
+    "안에 다섯 시"
+   ],
+   "item": 9901,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "바닥의 네모 선 안에 다섯 시"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 99.462,
+   "t1_s": 101.022,
+   "text": "반까지 서 있는 일이었죠",
+   "runs": [
+    "반까지 서 있는 ",
+    "일이었죠"
+   ],
+   "item": 9928,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "반까지 서 있는 일이었죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 101.102,
+   "t1_s": 102.782,
+   "text": "장난인지 의심하면서도..",
+   "runs": [
+    "장난인지 ",
+    "의심하면서도.."
+   ],
+   "item": 9955,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "장난인지 의심하면서도.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 102.902,
+   "t1_s": 105.022,
+   "text": "당장 쥐어 주는 현금에 청년은 선",
+   "runs": [
+    "당장 쥐어 주는 ",
+    "현금에 청년은 선"
+   ],
+   "item": 9982,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "당장 쥐어 주는 현금에 청년은 선"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 105.102,
+   "t1_s": 105.902,
+   "text": "안에 섭니다",
+   "runs": [
+    "안에 ",
+    "섭니다"
+   ],
+   "item": 10009,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "안에 섭니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 105.982,
+   "t1_s": 107.022,
+   "text": "그렇게 몇 시간 뒤..",
+   "runs": [
+    "그렇게 몇 ",
+    "시간 뒤.."
+   ],
+   "item": 10036,
+   "blob_len": 1188,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "그렇게 몇 시간 뒤.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 107.182,
+   "t1_s": 108.782,
+   "text": "남자는 정말로 돌아옵니다",
+   "runs": [
+    "남자는 정말로 ",
+    "돌아옵니다"
+   ],
+   "item": 10063,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "남자는 정말로 돌아옵니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 109.782,
+   "t1_s": 111.953,
+   "text": "꼭 오셔야 돼요",
+   "runs": [
+    "꼭 오셔야 돼요"
+   ],
+   "item": 10090,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "꼭 오셔야 돼요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 112.033,
+   "t1_s": 116.067,
+   "text": "말도 안 돼",
+   "runs": [
+    "말도 안 돼"
+   ],
+   "item": 10117,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "말도 안 돼"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 118.049,
+   "t1_s": 120.109,
+   "text": "고맙습니다",
+   "runs": [
+    "고맙습니다"
+   ],
+   "item": 10144,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "고맙습니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 120.269,
+   "t1_s": 122.129,
+   "text": "정말 오실 줄 몰랐어요",
+   "runs": [
+    "정말 오실 줄 몰랐어요"
+   ],
+   "item": 10171,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "정말 오실 줄 몰랐어요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 122.209,
+   "t1_s": 123.829,
+   "text": "솔직히 좀 의심했거든요",
+   "runs": [
+    "솔직히 좀 의심했거든요"
+   ],
+   "item": 10198,
+   "blob_len": 1000,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "솔직히 좀 의심했거든요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 123.909,
+   "t1_s": 125.049,
+   "text": "이름이?",
+   "runs": [
+    "이름이?"
+   ],
+   "item": 10225,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "이름이?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 125.129,
+   "t1_s": 125.929,
+   "text": "마이클이요",
+   "runs": [
+    "마이클이요"
+   ],
+   "item": 10252,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "마이클이요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 125.969,
+   "t1_s": 127.569,
+   "text": "마이클 터커요",
+   "runs": [
+    "마이클 터커요"
+   ],
+   "item": 10279,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "마이클 터커요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 127.649,
+   "t1_s": 129.673,
+   "text": "정말 잘했어요 마이클",
+   "runs": [
+    "정말 잘했어요 마이클"
+   ],
+   "item": 10306,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "정말 잘했어요 마이클"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 129.753,
+   "t1_s": 133.259,
+   "text": "마이클 여기 정규직 자리를 제안하고 싶어요",
+   "runs": [
+    "마이클 여기 정규직 자리를 제안하고 싶어요"
+   ],
+   "item": 10333,
+   "blob_len": 1024,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "마이클 여기 정규직 자리를 제안하고 싶어요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 133.339,
+   "t1_s": 134.739,
+   "text": "무슨 말씀이세요?",
+   "runs": [
+    "무슨 말씀이세요?"
+   ],
+   "item": 10360,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "무슨 말씀이세요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 134.819,
+   "t1_s": 136.379,
+   "text": "제가 뭘 하는데요?",
+   "runs": [
+    "제가 뭘 하는데요?"
+   ],
+   "item": 10387,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "제가 뭘 하는데요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 136.459,
+   "t1_s": 140.792,
+   "text": "오늘이랑 똑같이 대신 50 말고 200이요",
+   "runs": [
+    "오늘이랑 똑같이 대신 50 말고 200이요"
+   ],
+   "item": 10414,
+   "blob_len": 1016,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "오늘이랑 똑같이 대신 50 말고 200이요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 140.872,
+   "t1_s": 141.752,
+   "text": "좋아요",
+   "runs": [
+    "좋아요"
+   ],
+   "item": 10441,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "좋아요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 141.832,
+   "t1_s": 143.632,
+   "text": "잘됐네요",
+   "runs": [
+    "잘됐네요"
+   ],
+   "item": 10468,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "잘됐네요"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 142.462,
+   "t1_s": 143.502,
+   "text": "이름은 마이클..",
+   "runs": [
+    "이름은 ",
+    "마이클.."
+   ],
+   "item": 10495,
+   "blob_len": 1180,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "이름은 마이클.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 143.609,
+   "t1_s": 145.582,
+   "text": "하루 이백 달러 정규직이 그",
+   "runs": [
+    "하루 이백 달러 ",
+    "정규직이 그"
+   ],
+   "item": 10522,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "하루 이백 달러 정규직이 그"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 145.622,
+   "t1_s": 146.862,
+   "text": "자리에서 정해지죠",
+   "runs": [
+    "자리에서 ",
+    "정해지죠"
+   ],
+   "item": 10549,
+   "blob_len": 1188,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "자리에서 정해지죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 147.262,
+   "t1_s": 148.782,
+   "text": "번 돈을 자랑하러 달려간",
+   "runs": [
+    "번 돈을 자랑하러 ",
+    "달려간"
+   ],
+   "item": 10576,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "번 돈을 자랑하러 달려간"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 148.862,
+   "t1_s": 149.862,
+   "text": "마이클은..",
+   "runs": [
+    "마이클은..",
+    ""
+   ],
+   "item": 10603,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "마이클은.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 149.982,
+   "t1_s": 151.902,
+   "text": "이제 자기 일이 있는 사람이었죠",
+   "runs": [
+    "이제 자기 일이 ",
+    "있는 사람이었죠"
+   ],
+   "item": 10630,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "이제 자기 일이 있는 사람이었죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 152.302,
+   "t1_s": 153.692,
+   "text": "워 워 워 조심해",
+   "runs": [
+    "워 워 워 조심해"
+   ],
+   "item": 10657,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "워 워 워 조심해"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 153.772,
+   "t1_s": 155.132,
+   "text": "나 여기 있어야 돼",
+   "runs": [
+    "나 여기 있어야 돼"
+   ],
+   "item": 10684,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "나 여기 있어야 돼"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 155.212,
+   "t1_s": 156.332,
+   "text": "무슨 말씀이세요?",
+   "runs": [
+    "무슨 말씀이세요?"
+   ],
+   "item": 10711,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "무슨 말씀이세요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 156.412,
+   "t1_s": 158.672,
+   "text": "일하는 중이야 안 보여?",
+   "runs": [
+    "일하는 중이야 안 보여?"
+   ],
+   "item": 10738,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "일하는 중이야 안 보여?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 158.752,
+   "t1_s": 160.332,
+   "text": "알았어 내 잘못",
+   "runs": [
+    "알았어 내 잘못"
+   ],
+   "item": 10765,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "알았어 내 잘못"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 160.412,
+   "t1_s": 162.675,
+   "text": "이상하게 만들려던 건 아니고 그냥…",
+   "runs": [
+    "이상하게 만들려던 건 아니고 그냥…"
+   ],
+   "item": 10792,
+   "blob_len": 1016,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "이상하게 만들려던 건 아니고 그냥…"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 162.832,
+   "t1_s": 163.452,
+   "text": "그러니까",
+   "runs": [
+    "그러니까"
+   ],
+   "item": 10819,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "그러니까"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 163.532,
+   "t1_s": 166.492,
+   "text": "미드타운 스케이트 갈 건데 같이 갈래?",
+   "runs": [
+    "미드타운 스케이트 갈 건데 같이 갈래?"
+   ],
+   "item": 10846,
+   "blob_len": 1016,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "미드타운 스케이트 갈 건데 같이 갈래?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 166.572,
+   "t1_s": 167.972,
+   "text": "제리도 온대",
+   "runs": [
+    "제리도 온대"
+   ],
+   "item": 10873,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "제리도 온대"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 167.972,
+   "t1_s": 169.152,
+   "text": "맥주도 사 온다고",
+   "runs": [
+    "맥주도 사 온다고"
+   ],
+   "item": 10900,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "맥주도 사 온다고"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 169.192,
+   "t1_s": 169.992,
+   "text": "장난 아닐 거야",
+   "runs": [
+    "장난 아닐 거야"
+   ],
+   "item": 10927,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "장난 아닐 거야"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 170.072,
+   "t1_s": 171.052,
+   "text": "너도 와",
+   "runs": [
+    "너도 와"
+   ],
+   "item": 10954,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "너도 와"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 171.132,
+   "t1_s": 174.352,
+   "text": "나도 가고 싶은데 일하는 중이라",
+   "runs": [
+    "나도 가고 싶은데 일하는 중이라"
+   ],
+   "item": 10981,
+   "blob_len": 1008,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "나도 가고 싶은데 일하는 중이라"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 174.432,
+   "t1_s": 175.892,
+   "text": "진짜 안 돼",
+   "runs": [
+    "진짜 안 돼"
+   ],
+   "item": 11008,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "진짜 안 돼"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 175.972,
+   "t1_s": 178.071,
+   "text": "누가 보고 있기나 해?",
+   "runs": [
+    "누가 보고 있기나 해?"
+   ],
+   "item": 11035,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "누가 보고 있기나 해?"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 177.111,
+   "t1_s": 178.231,
+   "text": "스케이트 타러 가자는",
+   "runs": [
+    "스케이트 타러 ",
+    "가자는"
+   ],
+   "item": 11062,
+   "blob_len": 1192,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "스케이트 타러 가자는"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 178.311,
+   "t1_s": 178.991,
+   "text": "친구들에게..",
+   "runs": [
+    "친구들에게..",
+    ""
+   ],
+   "item": 11089,
+   "blob_len": 1180,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "친구들에게.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 179.071,
+   "t1_s": 181.111,
+   "text": "일하는 중이란 말이 처음 나옵니다",
+   "runs": [
+    "일하는 중이란 말이 ",
+    "처음 나옵니다"
+   ],
+   "item": 11116,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "일하는 중이란 말이 처음 나옵니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 182.052,
+   "t1_s": 184.812,
+   "text": "야 나 먹고사는 중이야",
+   "runs": [
+    "야 나 먹고사는 중이야"
+   ],
+   "item": 11143,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "야 나 먹고사는 중이야"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 185.032,
+   "t1_s": 186.472,
+   "text": "이제 정식이라고",
+   "runs": [
+    "이제 정식이라고"
+   ],
+   "item": 11170,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "이제 정식이라고"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 186.552,
+   "t1_s": 188.332,
+   "text": "정식?",
+   "runs": [
+    "정식?"
+   ],
+   "item": 11197,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "정식?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 188.412,
+   "t1_s": 189.912,
+   "text": "됐다 가자",
+   "runs": [
+    "됐다 가자"
+   ],
+   "item": 11224,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "됐다 가자"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 189.992,
+   "t1_s": 190.792,
+   "text": "또 보자",
+   "runs": [
+    "또 보자"
+   ],
+   "item": 11251,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "또 보자"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 190.832,
+   "t1_s": 194.402,
+   "text": "잘 놀아",
+   "runs": [
+    "잘 놀아"
+   ],
+   "item": 11278,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "잘 놀아"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 193.802,
+   "t1_s": 195.322,
+   "text": "친구들이 떠난 광장에서..",
+   "runs": [
+    "친구들이 떠난 ",
+    "광장에서.."
+   ],
+   "item": 11305,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "친구들이 떠난 광장에서.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 195.402,
+   "t1_s": 197.482,
+   "text": "마이클은 셔츠를 여미고 홀로 남죠",
+   "runs": [
+    "마이클은 셔츠를 ",
+    "여미고 홀로 남죠"
+   ],
+   "item": 11332,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "마이클은 셔츠를 여미고 홀로 남죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 215.842,
+   "t1_s": 217.842,
+   "text": "선에 발을 맞추고 시계를 보며..",
+   "runs": [
+    "선에 발을 맞추고 ",
+    "시계를 보며.."
+   ],
+   "item": 11359,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "선에 발을 맞추고 시계를 보며.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 217.949,
+   "t1_s": 219.922,
+   "text": "아무것도 안 하는 일을 지킵니다",
+   "runs": [
+    "아무것도 안 하는 ",
+    "일을 지킵니다"
+   ],
+   "item": 11386,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "아무것도 안 하는 일을 지킵니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 237.882,
+   "t1_s": 249.882,
+   "text": "야!",
+   "runs": [
+    "야!"
+   ],
+   "item": 11413,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "야!"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 243.497,
+   "t1_s": 245.217,
+   "text": "허나 그 자리를 지킨다는 건..",
+   "runs": [
+    "허나 그 자리를 ",
+    "지킨다는 건.."
+   ],
+   "item": 11440,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "허나 그 자리를 지킨다는 건.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 245.317,
+   "t1_s": 247.577,
+   "text": "눈앞의 도움을 외면한다는 뜻이었죠",
+   "runs": [
+    "눈앞의 도움을 외면한다는 ",
+    "뜻이었죠"
+   ],
+   "item": 11467,
+   "blob_len": 1212,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "눈앞의 도움을 외면한다는 뜻이었죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 248.028,
+   "t1_s": 249.308,
+   "text": "가방을 낚아챈 소매치기가",
+   "runs": [
+    "가방을 낚아챈 ",
+    "소매치기가"
+   ],
+   "item": 11494,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "가방을 낚아챈 소매치기가"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 249.388,
+   "t1_s": 249.948,
+   "text": "달아나고..",
+   "runs": [
+    "달아나고..",
+    ""
+   ],
+   "item": 11521,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "달아나고.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 250.028,
+   "t1_s": 251.788,
+   "text": "여자의 비명이 광장을 가르죠",
+   "runs": [
+    "여자의 비명이 ",
+    "광장을 가르죠"
+   ],
+   "item": 11548,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "여자의 비명이 광장을 가르죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 253.239,
+   "t1_s": 255.239,
+   "text": "도와줘요!",
+   "runs": [
+    "도와줘요!"
+   ],
+   "item": 11575,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "도와줘요!"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 255.239,
+   "t1_s": 256.239,
+   "text": "비켜 이년아!",
+   "runs": [
+    "비켜 이년아!"
+   ],
+   "item": 11602,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "비켜 이년아!"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 256.239,
+   "t1_s": 258.239,
+   "text": "야!",
+   "runs": [
+    "야!"
+   ],
+   "item": 11629,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "야!"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 258.239,
+   "t1_s": 261.259,
+   "text": "저 남자가 내 가방 훔쳐 갔어요",
+   "runs": [
+    "저 남자가 내 가방 훔쳐 갔어요"
+   ],
+   "item": 11656,
+   "blob_len": 1008,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "저 남자가 내 가방 훔쳐 갔어요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 261.339,
+   "t1_s": 262.259,
+   "text": "정말 죄송해요",
+   "runs": [
+    "정말 죄송해요"
+   ],
+   "item": 11683,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "정말 죄송해요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 262.299,
+   "t1_s": 263.239,
+   "text": "제발 좀 도와줘요",
+   "runs": [
+    "제발 좀 도와줘요"
+   ],
+   "item": 11710,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "제발 좀 도와줘요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 263.319,
+   "t1_s": 264.259,
+   "text": "안 돼요",
+   "runs": [
+    "안 돼요"
+   ],
+   "item": 11737,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "안 돼요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 264.269,
+   "t1_s": 265.319,
+   "text": "도망갔잖아",
+   "runs": [
+    "도망갔잖아"
+   ],
+   "item": 11764,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "도망갔잖아"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 265.399,
+   "t1_s": 267.939,
+   "text": "진짜 진짜 죄송해요",
+   "runs": [
+    "진짜 진짜 죄송해요"
+   ],
+   "item": 11791,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "진짜 진짜 죄송해요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 268.019,
+   "t1_s": 269.819,
+   "text": "아니 하나도 안 미안하잖아",
+   "runs": [
+    "아니 하나도 안 미안하잖아"
+   ],
+   "item": 11818,
+   "blob_len": 1004,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "아니 하나도 안 미안하잖아"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 270.139,
+   "t1_s": 270.979,
+   "text": "미안해요",
+   "runs": [
+    "미안해요"
+   ],
+   "item": 11845,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "미안해요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 271.059,
+   "t1_s": 271.959,
+   "text": "아니 하나도 안 미안하잖아",
+   "runs": [
+    "아니 하나도 안 미안하잖아"
+   ],
+   "item": 11872,
+   "blob_len": 1004,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "아니 하나도 안 미안하잖아"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 271.769,
+   "t1_s": 273.609,
+   "text": "가방을 빼앗긴 여성의 원망에도..",
+   "runs": [
+    "가방을 빼앗긴 여성의 ",
+    "원망에도.."
+   ],
+   "item": 11899,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "가방을 빼앗긴 여성의 원망에도.."
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 272.039,
+   "t1_s": 276.111,
+   "text": "젠장",
+   "runs": [
+    "젠장"
+   ],
+   "item": 11926,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "젠장"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 274.009,
+   "t1_s": 276.809,
+   "text": "그의 발은 선 밖으로 안 나갑니다",
+   "runs": [
+    "그의 발은 선 밖으로 ",
+    "안 나갑니다"
+   ],
+   "item": 11953,
+   "blob_len": 1208,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "그의 발은 선 밖으로 안 나갑니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 282.099,
+   "t1_s": 283.515,
+   "text": "고맙습니다",
+   "runs": [
+    "고맙습니다"
+   ],
+   "item": 11980,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "고맙습니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 283.595,
+   "t1_s": 285.675,
+   "text": "저기요 사장님",
+   "runs": [
+    "저기요 사장님"
+   ],
+   "item": 12007,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "저기요 사장님"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 284.771,
+   "t1_s": 286.211,
+   "text": "일당을 받아 든 마이클은..",
+   "runs": [
+    "일당을 받아 든 ",
+    "마이클은.."
+   ],
+   "item": 12034,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "일당을 받아 든 마이클은.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 286.291,
+   "t1_s": 288.211,
+   "text": "무언가 물으려다 입을 다물죠",
+   "runs": [
+    "무언가 물으려다 ",
+    "입을 다물죠"
+   ],
+   "item": 12061,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "무언가 물으려다 입을 다물죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 288.475,
+   "t1_s": 289.155,
+   "text": "뭐죠?",
+   "runs": [
+    "뭐죠?"
+   ],
+   "item": 12088,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "뭐죠?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 289.235,
+   "t1_s": 291.155,
+   "text": "어…",
+   "runs": [
+    "어…"
+   ],
+   "item": 12115,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "어…"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 291.235,
+   "t1_s": 303.235,
+   "text": "아니에요 됐어요 고맙습니다",
+   "runs": [
+    "아니에요 됐어요 고맙습니다"
+   ],
+   "item": 12142,
+   "blob_len": 1004,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "아니에요 됐어요 고맙습니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 330.485,
+   "t1_s": 331.925,
+   "text": "퇴근길에 뛰어 돌아와..",
+   "runs": [
+    "퇴근길에 뛰어 ",
+    "돌아와.."
+   ],
+   "item": 12169,
+   "blob_len": 1192,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "퇴근길에 뛰어 돌아와.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 332.045,
+   "t1_s": 333.925,
+   "text": "불 켜진 창을 올려다보는 밤이",
+   "runs": [
+    "불 켜진 창을 ",
+    "올려다보는 밤이"
+   ],
+   "item": 12196,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "불 켜진 창을 올려다보는 밤이"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 334.005,
+   "t1_s": 334.805,
+   "text": "이어지죠",
+   "runs": [
+    "이어지죠",
+    ""
+   ],
+   "item": 12223,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "이어지죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 352.865,
+   "t1_s": 353.825,
+   "text": "창 안에서는..",
+   "runs": [
+    "창 ",
+    "안에서는.."
+   ],
+   "item": 12250,
+   "blob_len": 1180,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "창 안에서는.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 353.905,
+   "t1_s": 355.585,
+   "text": "거울 앞에 광대 분장을 하고",
+   "runs": [
+    "거울 앞에 광대 ",
+    "분장을 하고"
+   ],
+   "item": 12277,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "거울 앞에 광대 분장을 하고"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 355.705,
+   "t1_s": 357.265,
+   "text": "가발을 쓰는 남자가 보입니다",
+   "runs": [
+    "가발을 쓰는 남자가 ",
+    "보입니다"
+   ],
+   "item": 12304,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "가발을 쓰는 남자가 보입니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 380.445,
+   "t1_s": 381.885,
+   "text": "정장에 넥타이를 맨..",
+   "runs": [
+    "정장에 넥타이를 ",
+    "맨.."
+   ],
+   "item": 12331,
+   "blob_len": 1188,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "정장에 넥타이를 맨.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 382.005,
+   "t1_s": 384.045,
+   "text": "광장의 청년은 어느새 직장인의",
+   "runs": [
+    "광장의 청년은 ",
+    "어느새 직장인의"
+   ],
+   "item": 12358,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "광장의 청년은 어느새 직장인의"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 384.152,
+   "t1_s": 384.952,
+   "text": "얼굴이죠",
+   "runs": [
+    "얼굴이죠",
+    ""
+   ],
+   "item": 12385,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "얼굴이죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 399.085,
+   "t1_s": 406.612,
+   "text": "마이크 성실하고 믿음직한 우리 자산이에요",
+   "runs": [
+    "마이크 성실하고 믿음직한 우리 자산이에요"
+   ],
+   "item": 12412,
+   "blob_len": 1024,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "마이크 성실하고 믿음직한 우리 자산이에요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 406.725,
+   "t1_s": 408.705,
+   "text": "고맙습니다 사장님",
+   "runs": [
+    "고맙습니다 사장님"
+   ],
+   "item": 12439,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "고맙습니다 사장님"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 408.785,
+   "t1_s": 410.171,
+   "text": "따라와요",
+   "runs": [
+    "따라와요"
+   ],
+   "item": 12466,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "따라와요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 410.251,
+   "t1_s": 412.693,
+   "text": "월급 30% 올려 줄게요",
+   "runs": [
+    "월급 30% 올려 줄게요"
+   ],
+   "item": 12493,
+   "blob_len": 992,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "월급 30% 올려 줄게요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 412.773,
+   "t1_s": 414.713,
+   "text": "정말요?",
+   "runs": [
+    "정말요?"
+   ],
+   "item": 12520,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "정말요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 414.793,
+   "t1_s": 415.753,
+   "text": "설마",
+   "runs": [
+    "설마"
+   ],
+   "item": 12547,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "설마"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 415.833,
+   "t1_s": 417.073,
+   "text": "정말요?",
+   "runs": [
+    "정말요?"
+   ],
+   "item": 12574,
+   "blob_len": 976,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "정말요?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 417.153,
+   "t1_s": 418.053,
+   "text": "들어가 봐요",
+   "runs": [
+    "들어가 봐요"
+   ],
+   "item": 12601,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "들어가 봐요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 418.133,
+   "t1_s": 419.813,
+   "text": "한번 봐요",
+   "runs": [
+    "한번 봐요"
+   ],
+   "item": 12628,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "한번 봐요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 419.893,
+   "t1_s": 422.373,
+   "text": "엄청 넓네요",
+   "runs": [
+    "엄청 넓네요"
+   ],
+   "item": 12655,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "엄청 넓네요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 423.313,
+   "t1_s": 425.773,
+   "text": "이 공간 좀 봐",
+   "runs": [
+    "이 공간 좀 봐"
+   ],
+   "item": 12682,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "이 공간 좀 봐"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 426.153,
+   "t1_s": 428.293,
+   "text": "여기서 다리도 보이네요",
+   "runs": [
+    "여기서 다리도 보이네요"
+   ],
+   "item": 12709,
+   "blob_len": 1000,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "여기서 다리도 보이네요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 428.373,
+   "t1_s": 429.013,
+   "text": "그럴 자격 있어요",
+   "runs": [
+    "그럴 자격 있어요"
+   ],
+   "item": 12736,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "그럴 자격 있어요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 429.093,
+   "t1_s": 433.49,
+   "text": "정말 감사합니다",
+   "runs": [
+    "정말 감사합니다"
+   ],
+   "item": 12763,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "정말 감사합니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 434.293,
+   "t1_s": 436.413,
+   "text": "믿기지가 않네요",
+   "runs": [
+    "믿기지가 않네요"
+   ],
+   "item": 12790,
+   "blob_len": 988,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "믿기지가 않네요"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 435.413,
+   "t1_s": 437.013,
+   "text": "성실함의 대가는 삼십 퍼센트",
+   "runs": [
+    "성실함의 대가는 ",
+    "삼십 퍼센트"
+   ],
+   "item": 12817,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "성실함의 대가는 삼십 퍼센트"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 437.093,
+   "t1_s": 437.893,
+   "text": "인상과..",
+   "runs": [
+    "인상과..",
+    ""
+   ],
+   "item": 12844,
+   "blob_len": 1172,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "인상과.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 438.293,
+   "t1_s": 440.853,
+   "text": "다리가 보이는 새 자리였습니다",
+   "runs": [
+    "다리가 보이는 ",
+    "새 자리였습니다"
+   ],
+   "item": 12871,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "다리가 보이는 새 자리였습니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 441.253,
+   "t1_s": 442.613,
+   "text": "무엇이든 팔린다는 택시 안",
+   "runs": [
+    "무엇이든 팔린다는 ",
+    "택시 안"
+   ],
+   "item": 12898,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "무엇이든 팔린다는 택시 안"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 442.746,
+   "t1_s": 443.253,
+   "text": "잡담을..",
+   "runs": [
+    "잡담을..",
+    ""
+   ],
+   "item": 12925,
+   "blob_len": 1172,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "잡담을.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 443.333,
+   "t1_s": 444.613,
+   "text": "마이클은 말없이 듣죠",
+   "runs": [
+    "마이클은 말없이 ",
+    "듣죠"
+   ],
+   "item": 12952,
+   "blob_len": 1188,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "마이클은 말없이 듣죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 445.013,
+   "t1_s": 446.293,
+   "text": "이천 달러 일당을 받는",
+   "runs": [
+    "이천 달러 ",
+    "일당을 받는"
+   ],
+   "item": 12979,
+   "blob_len": 1192,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "이천 달러 일당을 받는"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 446.373,
+   "t1_s": 446.906,
+   "text": "마이클은..",
+   "runs": [
+    "마이클은..",
+    ""
+   ],
+   "item": 13006,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "마이클은.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 446.986,
+   "t1_s": 448.933,
+   "text": "어느새 백발 노인이 되어 있었죠",
+   "runs": [
+    "어느새 백발 노인이 ",
+    "되어 있었죠"
+   ],
+   "item": 13033,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "어느새 백발 노인이 되어 있었죠"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 448.963,
+   "t1_s": 452.943,
+   "text": "오늘 일당 2천 달러예요",
+   "runs": [
+    "오늘 일당 2천 달러예요"
+   ],
+   "item": 13060,
+   "blob_len": 996,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "오늘 일당 2천 달러예요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 453.023,
+   "t1_s": 454.96,
+   "text": "고맙습니다",
+   "runs": [
+    "고맙습니다"
+   ],
+   "item": 13087,
+   "blob_len": 980,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "고맙습니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 455.463,
+   "t1_s": 457.843,
+   "text": "저 잠시만요",
+   "runs": [
+    "저 잠시만요"
+   ],
+   "item": 13114,
+   "blob_len": 984,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "저 잠시만요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 457.923,
+   "t1_s": 459.723,
+   "text": "네?",
+   "runs": [
+    "네?"
+   ],
+   "item": 13141,
+   "blob_len": 972,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "네?"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 459.803,
+   "t1_s": 462.922,
+   "text": "함께 일해서 즐거웠습니다",
+   "runs": [
+    "함께 일해서 즐거웠습니다"
+   ],
+   "item": 13168,
+   "blob_len": 1000,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "함께 일해서 즐거웠습니다"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 463.002,
+   "t1_s": 466.602,
+   "text": "그런데 이제 은퇴하고 싶어요",
+   "runs": [
+    "그런데 이제 은퇴하고 싶어요"
+   ],
+   "item": 13195,
+   "blob_len": 1004,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "그런데 이제 은퇴하고 싶어요"
+  },
+  {
+   "lane": "dlg",
+   "t0_s": 466.804,
+   "t1_s": 469.654,
+   "text": "나도 함께 일해서 즐거웠어요",
+   "runs": [
+    "나도 함께 일해서 즐거웠어요"
+   ],
+   "item": 13222,
+   "blob_len": 1004,
+   "font": [
+    "SDGwanghwamun"
+   ],
+   "size": [
+    58.0
+   ],
+   "reparsed": "나도 함께 일해서 즐거웠어요"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 469.054,
+   "t1_s": 470.614,
+   "text": "마지막 인사를 마치고도..",
+   "runs": [
+    "마지막 인사를 ",
+    "마치고도.."
+   ],
+   "item": 13249,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "마지막 인사를 마치고도.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 470.714,
+   "t1_s": 472.574,
+   "text": "두 사람은 한동안 말없이 마주 서",
+   "runs": [
+    "두 사람은 한동안 ",
+    "말없이 마주 서"
+   ],
+   "item": 13276,
+   "blob_len": 1208,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "두 사람은 한동안 말없이 마주 서"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 472.654,
+   "t1_s": 473.454,
+   "text": "있습니다",
+   "runs": [
+    "있습니다",
+    ""
+   ],
+   "item": 13303,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "있습니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 474.014,
+   "t1_s": 476.494,
+   "text": "평생을 선 안에서 보낸 자리를..",
+   "runs": [
+    "평생을 선 안에서 ",
+    "보낸 자리를.."
+   ],
+   "item": 13330,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "평생을 선 안에서 보낸 자리를.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 476.574,
+   "t1_s": 478.254,
+   "text": "고개 숙인 마이클은 쉽게 떠나지",
+   "runs": [
+    "고개 숙인 마이클은 ",
+    "쉽게 떠나지"
+   ],
+   "item": 13357,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "고개 숙인 마이클은 쉽게 떠나지"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 478.334,
+   "t1_s": 479.134,
+   "text": "못하죠",
+   "runs": [
+    "못하죠",
+    ""
+   ],
+   "item": 13384,
+   "blob_len": 1172,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "못하죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 490.458,
+   "t1_s": 491.978,
+   "text": "고용주만 그대로인 광장을..",
+   "runs": [
+    "고용주만 그대로인 ",
+    "광장을.."
+   ],
+   "item": 13411,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "고용주만 그대로인 광장을.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 492.098,
+   "t1_s": 493.498,
+   "text": "마이클은 처음으로 떠납니다",
+   "runs": [
+    "마이클은 처음으로 ",
+    "떠납니다"
+   ],
+   "item": 13438,
+   "blob_len": 1200,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "마이클은 처음으로 떠납니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 504.822,
+   "t1_s": 506.262,
+   "text": "벤치의 여자에게 무언가를",
+   "runs": [
+    "벤치의 여자에게 ",
+    "무언가를"
+   ],
+   "item": 13465,
+   "blob_len": 1196,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "벤치의 여자에게 무언가를"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 506.342,
+   "t1_s": 507.382,
+   "text": "건네고..",
+   "runs": [
+    "건네고..",
+    ""
+   ],
+   "item": 13492,
+   "blob_len": 1172,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "건네고.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 507.462,
+   "t1_s": 509.222,
+   "text": "손에 든 건 스케이트보드였습니다",
+   "runs": [
+    "손에 든 건 ",
+    "스케이트보드였습니다"
+   ],
+   "item": 13519,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "손에 든 건 스케이트보드였습니다"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 520.546,
+   "t1_s": 521.826,
+   "text": "한 번 넘어지고 화면이",
+   "runs": [
+    "한 번 넘어지고 ",
+    "화면이"
+   ],
+   "item": 13546,
+   "blob_len": 1192,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "한 번 넘어지고 화면이"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 521.986,
+   "t1_s": 523.586,
+   "text": "꺼졌다가..",
+   "runs": [
+    "꺼졌다가..",
+    ""
+   ],
+   "item": 13573,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "꺼졌다가.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 523.666,
+   "t1_s": 525.586,
+   "text": "난간 잡고 다시 보드 위에 서죠",
+   "runs": [
+    "난간 잡고 다시 ",
+    "보드 위에 서죠"
+   ],
+   "item": 13600,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "난간 잡고 다시 보드 위에 서죠"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 536.91,
+   "t1_s": 538.43,
+   "text": "평생을 선 안에서 보낸",
+   "runs": [
+    "평생을 선 ",
+    "안에서 보낸"
+   ],
+   "item": 13627,
+   "blob_len": 1192,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "평생을 선 안에서 보낸"
+  },
+  {
+   "lane": "nar",
+   "t0_s": 538.55,
+   "t1_s": 539.35,
+   "text": "풀타임은..",
+   "runs": [
+    "풀타임은..",
+    ""
+   ],
+   "item": 13654,
+   "blob_len": 1176,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "풀타임은.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 539.69,
+   "t1_s": 542.03,
+   "text": "그렇게 선 밖에서 끝났습니다..",
+   "runs": [
+    "그렇게 선 밖에서 ",
+    "끝났습니다.."
+   ],
+   "item": 13681,
+   "blob_len": 1204,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "그렇게 선 밖에서 끝났습니다.."
+  },
+  {
+   "lane": "nar",
+   "t0_s": 542.03,
+   "t1_s": 542.83,
+   "text": "!",
+   "runs": [
+    "!",
+    ""
+   ],
+   "item": 13708,
+   "blob_len": 1164,
+   "font": [
+    "SourceHanSerifK-Bold"
+   ],
+   "size": [
+    120.0,
+    120.0
+   ],
+   "reparsed": "!"
+  }
+ ]
+}

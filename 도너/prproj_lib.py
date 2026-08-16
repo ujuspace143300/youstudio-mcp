@@ -209,6 +209,34 @@ def param_blob(block: str) -> str:
 def param_set_blob(block: str, b64: str, binhash: str) -> str:
     return BLOB_RE.sub(lambda m: m.group(1) + binhash + m.group(3) + b64 + m.group(5), block, count=1)
 
+def split_runs_words(text: str, n: int) -> list[str]:
+    """[B안] 텍스트를 런 n개로 나누되 **단어 경계에서만** 자른다(중간 끊김 방지).
+    단어 수가 런 수보다 적으면 첫 런에 전부 넣고 나머지는 빈 런(맛보기에서 빈 런 정상 확인).
+    런은 같은 폰트·크기라 이어 보인다. 강조 서식을 어느 런에 붙일지는 다음 판 과제
+    (설계/분석단계_강조학습.md)."""
+    if n <= 1:
+        return [text]
+    parts = re.split(r"(\s+)", text)
+    toks, i = [], 0
+    while i < len(parts):
+        w = parts[i]; sp = parts[i + 1] if i + 1 < len(parts) else ""
+        if w: toks.append(w + sp)
+        elif sp and toks: toks[-1] += sp
+        i += 2
+    if len(toks) < n:
+        return [text] + [""] * (n - 1)
+    out, target = [], len(text) / n
+    for r in range(n):
+        left = n - r - 1
+        cur = ""
+        while toks and (len(cur) < target or len(toks) <= left) and not (len(toks) <= left and cur):
+            if len(toks) <= left and cur: break
+            cur += toks.pop(0)
+            if len(cur) >= target and len(toks) > left: break
+        out.append(cur)
+    if toks: out[-1] += "".join(toks)
+    return out
+
 def split_runs(text: str, n: int) -> list[str]:
     """텍스트를 런 n개로 나눈다(같은 폰트·크기라 이어 보인다). n=1 이면 그대로."""
     if n <= 1: return [text]
