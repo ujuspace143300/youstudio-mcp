@@ -14,7 +14,7 @@ import { base, reject } from "../response.js";
 import type { StepHandler } from "./types.js";
 import type { ArgvJob } from "../schema.js";
 
-interface SubSpec { 폰트: Record<string, { 표시명: string; 패밀리: string; PS명: string; xml명?: string }>; 크기_px: Record<string, number>; 위치_center: Record<string, { horiz: number; vert: number } | number | string>; 색: Record<string, { r: number; g: number; b: number }>; 나레_한줄_최대자수: number; 대사_한줄_최대자수: number }
+interface SubSpec { 폰트: Record<string, { 표시명: string; 패밀리: string; PS명: string; xml명?: string }>; 크기_px: Record<string, number>; 위치: Record<string, { origin_x: number; origin_y: number; 목표_px: { x: number; y: number } } | boolean | string>; 색: Record<string, { r: number; g: number; b: number }>; 나레_한줄_최대자수: number; 대사_한줄_최대자수: number }
 interface AsmSpec { 덕킹_레벨: number; 덕킹_방식?: string; 죽은시간_홀드_제외_역할: string[]; 내보내기: { 형식: string; 시퀀스_이름: string; 해상도: { width: number; height: number }; 타임베이스: number; ntsc: boolean; 트랙: Record<string, string> } }
 const SUB = (spec as unknown as { 자막: SubSpec })["자막"];
 const ASM = (spec as unknown as { 조립: AsmSpec })["조립"];
@@ -130,11 +130,12 @@ export const exportStep: StepHandler = {
     // V2 대사 · V3 나레 자막 (Text 제너레이터)
     const gen = (c: Cue, id: string) => {
       const kind = c.lane === "nar" ? "나레" : "대사";
-      const font = SUB.폰트[kind]; const size = SUB.크기_px[kind]; const pos = SUB.위치_center[kind] as { horiz: number; vert: number }; const col = SUB.색[kind];
-      const vsign = typeof SUB.위치_center["세로부호"] === "number" ? (SUB.위치_center["세로부호"] as number) : 1;
+      const font = SUB.폰트[kind]; const size = SUB.크기_px[kind]; const pos = SUB.위치[kind] as { origin_x: number; origin_y: number; 목표_px: { x: number; y: number } }; const col = SUB.색[kind];
+      // 위치: origin(중앙 기준 비율 — 프리미어가 읽는 통로, 규격 자막.위치) + Basic Motion center(픽셀, FCP 규약 병기)
+      const bmH = pos.목표_px.x - W / 2, bmV = pos.목표_px.y - H / 2;
       const fontName = font.xml명 ?? font.패밀리;
       const s = F(c.t0), e = Math.max(s + 1, F(c.t1));
-      return `<generatoritem id="${id}"><name>${esc(c.text.slice(0, 24))}</name><duration>${e - s}</duration>${RATE}<start>${s}</start><end>${e}</end><in>0</in><out>${e - s}</out><effect><name>Text</name><effectid>Text</effectid><effectcategory>Text</effectcategory><effecttype>generator</effecttype><mediatype>video</mediatype><parameter><parameterid>str</parameterid><name>Text</name><value>${esc(c.text)}</value></parameter><parameter><parameterid>font</parameterid><name>Font</name><value>${esc(fontName)}</value></parameter><parameter><parameterid>fontsize</parameterid><name>Size</name><value>${size}</value></parameter><parameter><parameterid>alignment</parameterid><name>Alignment</name><value>center</value></parameter><parameter><parameterid>fillcolor</parameterid><name>Color</name><value><alpha>255</alpha><red>${col.r}</red><green>${col.g}</green><blue>${col.b}</blue></value></parameter></effect><filter><effect><name>Basic Motion</name><effectid>basic</effectid><effectcategory>motion</effectcategory><effecttype>motion</effecttype><mediatype>video</mediatype><parameter><parameterid>scale</parameterid><name>Scale</name><value>100.0000</value></parameter><parameter><parameterid>center</parameterid><name>Center</name><value><horiz>${pos.horiz}</horiz><vert>${pos.vert * vsign}</vert></value></parameter></effect></filter></generatoritem>`;
+      return `<generatoritem id="${id}"><name>${esc(c.text.slice(0, 24))}</name><duration>${e - s}</duration>${RATE}<start>${s}</start><end>${e}</end><in>0</in><out>${e - s}</out><effect><name>Text</name><effectid>Text</effectid><effectcategory>Text</effectcategory><effecttype>generator</effecttype><mediatype>video</mediatype><parameter><parameterid>str</parameterid><name>Text</name><value>${esc(c.text)}</value></parameter><parameter><parameterid>font</parameterid><name>Font</name><value>${esc(fontName)}</value></parameter><parameter><parameterid>fontsize</parameterid><name>Size</name><value>${size}</value></parameter><parameter><parameterid>alignment</parameterid><name>Alignment</name><value>center</value></parameter><parameter><parameterid>fillcolor</parameterid><name>Color</name><value><alpha>255</alpha><red>${col.r}</red><green>${col.g}</green><blue>${col.b}</blue></value></parameter><parameter><parameterid>origin</parameterid><name>Origin</name><value><horiz>${pos.origin_x}</horiz><vert>${pos.origin_y}</vert></value></parameter></effect><filter><effect><name>Basic Motion</name><effectid>basic</effectid><effectcategory>motion</effectcategory><effecttype>motion</effecttype><mediatype>video</mediatype><parameter><parameterid>scale</parameterid><name>Scale</name><value>100.0000</value></parameter><parameter><parameterid>center</parameterid><name>Center</name><value><horiz>${bmH}</horiz><vert>${bmV}</vert></value></parameter></effect></filter></generatoritem>`;
     };
     const dlgCues = tl.cues.filter((c) => c.lane === "dlg").sort((a, b) => a.t0 - b.t0);
     const narCues = tl.cues.filter((c) => c.lane === "nar").sort((a, b) => a.t0 - b.t0);
@@ -235,17 +236,17 @@ export const exportStep: StepHandler = {
       fonts: fontsUsed,
       gates,
       metrics: { total_s: totalS, source_ratio: r3(totalS / ps.duration_s), narration_s: r3(narTotal), dialogue_s: dlgS, nar_share: share, dead_ratio: deadRatio, reuse_ratio: reuseRatio, mix_duration_s: r3(mixDur), sec_per_char: voice.metrics?.sec_per_char_measured ?? null },
-      notes: ["타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다 (XML 폰트 이름은 규격 자막.폰트.xml명 = PS 명, 2026-08-16 확정)", separateDuck ? "연장·브리지 컷의 원본 소리는 A3 트랙에 따로 두었다 — 나레와 겹치면 A3 볼륨을 내리거나 음소거" : "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "자막 위치: 프리미어 2026 은 XML 의 center 를 텍스트 제너레이터에 적용하지 않는다(실측) — 임포트 뒤 프리미어_후속 대로 트랙별 한 번 지정"],
+      notes: ["타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다 (XML 폰트 이름은 규격 자막.폰트.xml명 = PS 명, 2026-08-16 확정)", separateDuck ? "연장·브리지 컷의 원본 소리는 A3 트랙에 따로 두었다 — 나레와 겹치면 A3 볼륨을 내리거나 음소거" : "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "자막 위치: Text 제너레이터 origin 파라미터(중앙 기준 비율, 규격 자막.위치)로 자동 배치 — 2026-08-16 시험5b 로 좌표계 확정. 임포트 뒤 나레 y≈840·대사 y≈980 인지 확인만"],
       프리미어_후속: [
-        { 트랙: "V3 나레 자막", 방법: "V3 클립 전부 선택 → Essential Graphics(기본 그래픽) 편집 → 정렬 및 변형", 위치_px: { x: W / 2 + (SUB.위치_center.나레 as { horiz: number }).horiz, y: H / 2 + (SUB.위치_center.나레 as { vert: number }).vert * (typeof SUB.위치_center["세로부호"] === "number" ? (SUB.위치_center["세로부호"] as number) : 1) }, 정렬: "가운데", 폰트: `${SUB.폰트.나레.패밀리} (${SUB.폰트.나레.xml명 ?? SUB.폰트.나레.PS명})`, 크기_px: SUB.크기_px.나레 },
-        { 트랙: "V2 대사 자막", 방법: "V2 클립 전부 선택 → Essential Graphics(기본 그래픽) 편집 → 정렬 및 변형", 위치_px: { x: W / 2 + (SUB.위치_center.대사 as { horiz: number }).horiz, y: H / 2 + (SUB.위치_center.대사 as { vert: number }).vert * (typeof SUB.위치_center["세로부호"] === "number" ? (SUB.위치_center["세로부호"] as number) : 1) }, 정렬: "가운데", 폰트: `${SUB.폰트.대사.패밀리} (${SUB.폰트.대사.xml명 ?? SUB.폰트.대사.PS명})`, 크기_px: SUB.크기_px.대사 },
-        ...(separateDuck ? [{ 트랙: "A3 덕킹 컷 소리", 방법: "나레와 부딪히면 A3 트랙 볼륨을 내리거나 음소거", 위치_px: null, 정렬: null, 폰트: null, 크기_px: null }] : []),
+        { 트랙: "V3 나레 자막", 방법: "확인만 — origin 으로 자동 배치됨. 어긋나면 V3 클립 전부 선택 → Essential Graphics 정렬 및 변형에서 아래 값으로", 위치_px: (SUB.위치.나레 as { 목표_px: { x: number; y: number } }).목표_px, origin_y: (SUB.위치.나레 as { origin_y: number }).origin_y, 정렬: "가운데", 폰트: `${SUB.폰트.나레.패밀리} (${SUB.폰트.나레.xml명 ?? SUB.폰트.나레.PS명})`, 크기_px: SUB.크기_px.나레 },
+        { 트랙: "V2 대사 자막", 방법: "확인만 — origin 으로 자동 배치됨. 어긋나면 V2 클립 전부 선택 → Essential Graphics 정렬 및 변형에서 아래 값으로", 위치_px: (SUB.위치.대사 as { 목표_px: { x: number; y: number } }).목표_px, origin_y: (SUB.위치.대사 as { origin_y: number }).origin_y, 정렬: "가운데", 폰트: `${SUB.폰트.대사.패밀리} (${SUB.폰트.대사.xml명 ?? SUB.폰트.대사.PS명})`, 크기_px: SUB.크기_px.대사 },
+        ...(separateDuck ? [{ 트랙: "A3 덕킹 컷 소리", 방법: "나레와 부딪히면 A3 트랙 볼륨을 내리거나 음소거", 위치_px: null, origin_y: null, 정렬: null, 폰트: null, 크기_px: null }] : []),
       ],
     };
     return base("export", preset, {
       status: "done", next_step: null,
       message: `내보내기 완료: ${seqName} — 컷 ${pics.length} · 나레 ${nars.length} · 자막 ${allCues.length} · 총 ${totalS}s. 게이트 ${gates.length}개 전부 통과. render/ 에 XML·SRT 3종·나레이션 믹스·manifest.`,
-      instructions: [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: **반드시 새 빈 프로젝트**를 만들어 파일 > 가져오기로 XML 을 연다 (같은 소재가 이미 있는 프로젝트에 재임포트하면 오디오 트랙이 조용히 빠진다 — 2026-08-16 실측, 참고_export.md 8절). 시퀀스 하나가 생긴다. 자막 위치는 XML 로 전달되지 않으므로 manifest.프리미어_후속 의 값으로 V3·V2 를 트랙별 한 번씩 지정한다 (순서는 서버 README)."],
+      instructions: [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: **반드시 새 빈 프로젝트**를 만들어 파일 > 가져오기로 XML 을 연다 (같은 소재가 이미 있는 프로젝트에 재임포트하면 오디오 트랙이 조용히 빠진다 — 2026-08-16 실측, 참고_export.md 8절). 시퀀스 하나가 생긴다. 자막 위치는 origin 파라미터로 자동 배치된다 — 나레 y≈840·대사 y≈980 인지 확인만(어긋나면 manifest.프리미어_후속). 순서는 서버 README."],
       then_call_with: [], jobs_kind: null, jobs: [], measure: [],
       write_files: [
         { path: join(renderDir, `${slug}.xml`), content: xml, note: "FCP XML v5 — 프리미어 파일 > 가져오기" },
