@@ -52,7 +52,7 @@ class Doc:
     def replace_uid(self, uid, text: str):
         s, e, _ = self._find("ObjectUID", uid); self.xml = self.xml[:s] + text + self.xml[e:]
     def remove_many(self, oids) -> int:
-        """여러 ObjectID 블록을 한 번에 제거 (블록 목록 재구성 — 대량 삭제용)."""
+        """여러 블록을 한 번에 제거 (블록 목록 재구성 — 대량 삭제용). 정수 문자열 = ObjectID, 그 외 = ObjectUID."""
         want = set(str(o) for o in oids)
         out, pos, n = [], 0, 0
         for m in BLOCK_RE.finditer(self.xml):
@@ -60,7 +60,7 @@ class Doc:
                 continue
             tag, kind, key = m.group(1), m.group(2), m.group(3)
             end = self.xml.index(f"\n\t</{tag}>", m.start()) + len(f"\n\t</{tag}>")
-            if kind == "ObjectID" and key in want:
+            if key in want:
                 out.append(self.xml[pos:m.start()])
                 pos = end + 1 if self.xml[end:end + 1] == "\n" else end
                 n += 1
@@ -82,11 +82,32 @@ def set_child(block: str, tag: str, value: str) -> str:
     assert pat.search(block), f"<{tag}> 없음"
     return pat.sub(lambda m: m.group(1) + value + m.group(2), block, count=1)
 
-def rewire(block: str, idmap: dict) -> str:
-    """블록 안의 ObjectID / ObjectRef 를 idmap 대로 바꾼다 (idmap 에 없는 참조는 그대로 = 공유 오브젝트)."""
+def rewire(block: str, idmap: dict, uidmap: dict | None = None) -> str:
+    """블록 안의 ObjectID / ObjectRef 를 idmap 대로, ObjectUID / ObjectURef 를 uidmap 대로 바꾼다
+    (맵에 없는 참조는 그대로 = 공유 오브젝트)."""
     def sub_id(m):
         old = int(m.group(2)); return f'{m.group(1)}="{idmap.get(old, old)}"'
-    return re.sub(r'(ObjectID|ObjectRef)="(\d+)"', sub_id, block)
+    block = re.sub(r'(ObjectID|ObjectRef)="(\d+)"', sub_id, block)
+    if uidmap:
+        block = re.sub(r'(ObjectUID|ObjectURef)="([^"]+)"', lambda m: f'{m.group(1)}="{uidmap.get(m.group(2), m.group(2))}"', block)
+    return block
+
+def collect_lineage(doc: "Doc", seeds, stop=()) -> tuple[set, set]:
+    """seeds(ObjectID int 또는 UID str)에서 ObjectRef/ObjectURef 를 따라가며 닿는 블록 전부(ID 집합, UID 집합).
+    stop 에 든 키는 따라가지 않는다(공유 오브젝트 — 예: 원본 mp4 미디어)."""
+    ids, uids, todo = set(), set(), list(seeds)
+    stop = set(str(x) for x in stop)
+    while todo:
+        k = todo.pop()
+        ks = str(k)
+        if ks in stop or ks in ids or ks in uids: continue
+        try:
+            b = doc.get(k) if ks.isdigit() else doc.get_uid(ks)
+        except KeyError:
+            continue
+        (ids if ks.isdigit() else uids).add(ks)
+        todo += re.findall(r'ObjectRef="(\d+)"', b) + re.findall(r'ObjectURef="([^"]+)"', b)
+    return ids, uids
 
 def track_set_items(doc: Doc, track_uid: str, refs, transitions=None) -> None:
     blk = doc.get_uid(track_uid)
