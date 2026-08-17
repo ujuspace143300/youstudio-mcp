@@ -11,10 +11,11 @@
 import spec from "../../../스타일/영화롱폼/규격.json";
 import answer from "../../../스타일/영화롱폼/정답지.json";
 import { base, reject } from "../response.js";
+import { 줄검사, 확정, 의심 } from "../lib/줄바꿈.js";
 import type { StepHandler } from "./types.js";
 import type { ArgvJob } from "../schema.js";
 
-interface SubSpec { 폰트: Record<string, { 표시명: string; 패밀리: string; PS명: string; xml명?: string }>; 크기_px: Record<string, number>; 위치: Record<string, { origin_x: number; origin_y: number; 목표_px: { x: number; y: number } } | boolean | string>; 색: Record<string, { r: number; g: number; b: number }>; 나레_한줄_최대자수: number; 대사_한줄_최대자수: number }
+interface SubSpec { 줄_조각_최소자수?: number; 폰트: Record<string, { 표시명: string; 패밀리: string; PS명: string; xml명?: string }>; 크기_px: Record<string, number>; 위치: Record<string, { origin_x: number; origin_y: number; 목표_px: { x: number; y: number } } | boolean | string>; 색: Record<string, { r: number; g: number; b: number }>; 나레_한줄_최대자수: number; 대사_한줄_최대자수: number }
 interface AsmSpec { 덕킹_레벨: number; 덕킹_방식?: string; 죽은시간_홀드_제외_역할: string[]; 산출물?: string; 조립기?: string; 도너?: { 파일: string }; 내보내기: { 형식: string; 시퀀스_이름: string; 해상도: { width: number; height: number }; 타임베이스: number; ntsc: boolean; 트랙: Record<string, string> } }
 /** 조립 스크립트가 --json 으로 돌려주는 자기검증 요약 */
 interface PrprojReport { pass?: boolean; out?: string; report?: string; donor?: string; total_s?: number; counts?: Record<string, number>; checks?: { check: string; pass: boolean; detail: string }[]; failed?: string[] }
@@ -239,6 +240,14 @@ export const exportStep: StepHandler = {
     // export 자체: XML 요소 수 = 실측 수
     const duckN = pics.filter((p) => p.audio === "duck").length;
     gates.push({ step: "export", id: "XML 요소 수 = 타임라인 실측", pass: true, hard: true, detail: `V1 컷 ${pics.length} · V2 대사 자막 ${dlgCues.length} · V3 나레 자막 ${narCues.length} · A1 원본 소리 ${separateDuck ? pics.length - duckN : pics.length} · A2 나레 ${nars.length}${separateDuck ? ` · A3 덕킹 컷 소리 ${duckN}` : ""} · 믹스 ${r3(mixDur)}s` });
+    // subtitle: 줄바꿈 재검사 (규칙: 설계/한국어_줄바꿈규칙.md · 최종 산출물에서 다시 잰다)
+    const 줄위반 = nars.flatMap((n) => {
+      const mine = narCues.filter((c) => c.ref === `n${n.n}`).sort((a, b) => a.t0 - b.t0);
+      return mine.length < 2 ? [] : 줄검사(mine.map((c) => c.text), { 조각_최소자수: SUB.줄_조각_최소자수 ?? 4, ref: `n${n.n}`, t0s: mine.map((c) => c.t0) });
+    });
+    gates.push({ step: "subtitle", id: "G-줄바꿈", pass: 확정(줄위반).length === 0, hard: true,
+      detail: `확정 위반 ⓑⓒⓔ ${확정(줄위반).length}건 · 의심 ⓐⓓ ${의심(줄위반).length}건${확정(줄위반).length ? ` — ${확정(줄위반).slice(0, 2).map((x) => `${x.패턴} ${x.ref} 「${x.앞줄}」|「${x.줄}」`).join(" · ")}` : ""}`,
+      fix: "script.json 그 블록의 lines[] 를 고친다(줄 나눔의 주인은 집필자 — 규격 「자막.줄나눔_주체」). 규칙은 설계/한국어_줄바꿈규칙.md §2 우선순위." });
     // export: prproj 자기검증 — 조립기가 완성본을 **다시 읽어** 잰 결과를 그대로 게이트로 삼는다 (계단 4)
     const pr = payload.prproj_report as PrprojReport | undefined;
     if (wantPrproj) {

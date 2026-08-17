@@ -13,13 +13,14 @@
 import spec from "../../../스타일/영화롱폼/규격.json";
 import answer from "../../../스타일/영화롱폼/정답지.json";
 import { base, reject } from "../response.js";
+import { 규칙분할, 줄검사, 확정, 의심, 좋은자리 } from "../lib/줄바꿈.js";
 import type { StepHandler } from "./types.js";
 import type { JudgeJob } from "../schema.js";
 
-interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 큐_최소길이_s: number; 잘린_대사큐_최소길이_s?: number; 큐_무음노출_상한_s?: number; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
+interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 줄_조각_최소자수?: number; 줄나눔_주체?: string; 큐_최소길이_s: number; 잘린_대사큐_최소길이_s?: number; 큐_무음노출_상한_s?: number; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
 interface AsmSpec { over_배치: Record<string, string>; before_after: Record<string, string>; 브리지_컷: { 사용: boolean; 패딩_s: number; 앵커: string }; 죽은시간_홀드_제외_역할: string[]; 덕킹_역할: string[]; 죽은시간_컷: { 사용: boolean; 임계_s: number; 앞_남김_s: number; 뒤_남김_s: number; 대상_역할: string[]; 보호_소리_최소_s?: number } }
 interface JudgeTextSpec { backend: string; 모델: string; 엔드포인트: string; 키_환경변수: string; 온도: number; thinkingBudget: number; maxOutputTokens: number; responseMimeType: string }
-interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-자막_겹침_max": { value: number }; "G-교차겹침_max"?: { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
+interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-줄바꿈"?: { 확정위반_max: number }; "G-자막_겹침_max": { value: number }; "G-교차겹침_max"?: { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
 const SUB = (spec as unknown as { 자막: SubSpec })["자막"];
 const TRIG = (spec as unknown as { 전사: { 늘어난발화_규칙: { 트리거_단어당_s: number; 트리거_여유_s: number } } })["전사"]["늘어난발화_규칙"];
 /** 전사 발화가 '수상하게 긴가' (끝이 늘어난 whisper 세그먼트) — 이런 발화는 시각을 믿지 않고 실측 소리를 쓴다 */
@@ -36,7 +37,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 interface Segment { i: number; in: number; out: number; len_s: number; role: string; kind: string; src: string[]; why: string }
 interface Bridge { start: number; end: number; len_s: number }
 interface Selection { segments?: Segment[]; narration_bridges?: Bridge[] }
-interface VBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; dur_s: number; wav: string; chars_t?: { c: string; s: number; e: number }[] | null; speech?: [number, number][] | null; _prefer?: "head" | "tail" }
+interface VBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; lines?: string[] | null; dur_s: number; wav: string; chars_t?: { c: string; s: number; e: number }[] | null; speech?: [number, number][] | null; _prefer?: "head" | "tail" }
 interface Utt { start: number; end: number; text: string; i?: number }
 interface Scene { start: number; end: number; what: string }
 
@@ -431,9 +432,28 @@ export const subtitle: StepHandler = {
     }
     // 나레 큐
     const vmap = new Map(vblocks.map((b) => [b.n, b]));
+    // ── 줄 나눔의 주인은 집필자다 (규격 「자막.줄나눔_주체」 = script, 2026-08-17 결정 B안) ──────
+    //   script.json 블록의 lines[] 를 그대로 쓴다. 없거나 어긋나면 규칙 점수화(A안)로 폴백한다.
+    const scriptBlocks = (payload.script as { blocks?: { n: number; lines?: string[] | null }[] } | undefined)?.blocks ?? [];
+    const scriptLines = new Map<number, string[]>();
+    for (const sb of scriptBlocks) if (Array.isArray(sb.lines) && sb.lines.length) scriptLines.set(sb.n, sb.lines.map((x) => String(x).trim()).filter(Boolean));
+    const lineSource = new Map<number, "집필" | "폴백">();
+    const narLines = (b: VBlock, maxLen: number, minFrag: number, warn: string[], src: Map<number, "집필" | "폴백">): string[] => {
+      const flat = (s: string) => s.replace(/\s+/g, " ").trim();
+      const cand = (Array.isArray(b.lines) && b.lines.length ? b.lines.map((x) => String(x).trim()).filter(Boolean) : scriptLines.get(b.n)) ?? null;
+      if (cand && cand.length) {
+        const 이어붙임 = flat(cand.join(" ")), 본문 = flat(b.text);
+        const 넘침 = cand.filter((l) => l.length > maxLen);
+        if (이어붙임 !== 본문) warn.push(`나레 ${b.n}: 집필 줄을 이어 붙인 것이 본문과 다르다 — 폴백 분할을 쓴다. (줄: 「${이어붙임.slice(0, 30)}…」 / 본문: 「${본문.slice(0, 30)}…」)`);
+        else if (넘침.length) warn.push(`나레 ${b.n}: 집필 줄 ${넘침.length}개가 한 줄 상한 ${maxLen}자를 넘는다 — 폴백 분할을 쓴다. (「${넘침[0]}」 ${넘침[0].length}자)`);
+        else { src.set(b.n, "집필"); return cand; }
+      }
+      src.set(b.n, "폴백");
+      return 규칙분할(b.text, maxLen, minFrag);
+    };
     for (const n of nars) {
       const b = vmap.get(n.n)!;
-      const lines = splitNarLines(b.text, A["G-자막_한줄_최대자수"].나레);
+      const lines = narLines(b, A["G-자막_한줄_최대자수"].나레, SUB.줄_조각_최소자수 ?? 4, warnings, lineSource);
       const times = narCueTimes(b.text, lines, b.dur_s, b.chars_t ?? null);
       // R1(2026-08-17): 나레 큐는 **음성 밖으로 나가지 않는다**. 최소 길이는 뒤로 밀지 말고 **앞으로 당겨** 채우고,
       //   그래도 모자라면 앞 큐와 합친다(짧아도 소리 있는 동안만). 근거: 8:59~9:07 사례 — 최소 길이를 뒤로 밀어
@@ -487,8 +507,11 @@ export const subtitle: StepHandler = {
             const share = segs.length === 1 ? 1 : ((y - x) / segs.reduce((acc2, [p, q]) => acc2 + (q - p), 0));
             let cut = k === segs.length - 1 ? txt.length : Math.min(txt.length, ci + Math.max(1, Math.round(txt.length * share)));
             if (k < segs.length - 1) {
-              const sp2 = txt.lastIndexOf(" ", cut);                      // 어절 경계로만 자른다
-              cut = sp2 > ci ? sp2 : txt.length;                          // 경계가 없으면 이 조각이 줄 전체를 가진다
+              // 어절 경계로만 자르되 **줄바꿈 규칙이 허락하는 자리**를 고른다(2026-08-17) — 집필자가 나눈 줄을
+              //   덩어리 경계에서 또 쪼갤 때 「하루 이백 | 달러」 처럼 명사구를 가르던 일을 막는다.
+              //   쓸 만한 자리가 없으면 쪼개지 않고 이 조각이 줄 전체를 가진다.
+              const 자리 = 좋은자리(txt.slice(ci), Math.max(1, cut - ci), 8, SUB.줄_조각_최소자수 ?? 4);
+              cut = 자리 !== null ? ci + 자리 : txt.length;
             }
             const t2 = txt.slice(ci, cut).trim(); ci = cut;
             if (!t2) return;
@@ -748,6 +771,21 @@ export const subtitle: StepHandler = {
     const maxLineDlg = Math.max(0, ...cues.filter((c) => c.lane === "dlg").map((c) => c.text.length));
 
     const gates: { id: string; pass: boolean; hard: boolean; detail: string; fix?: string }[] = [];
+    // ── G-줄바꿈 (2026-08-17) — 줄이 한국어 구조를 자르지 않았는가. 규칙: 설계/한국어_줄바꿈규칙.md ──
+    //   확정(ⓑ 조사·의존명사로 시작 · ⓒ 짧은 조각 · ⓔ 어절 중간)은 hard, 의심(ⓐ 명사구 절단 · ⓓ 수식어 분리)은 경고.
+    const 줄위반: ReturnType<typeof 줄검사> = [];
+    for (const n of nars) {
+      const mine = cues.filter((c) => c.lane === "nar" && c.ref === `n${n.n}`).sort((a, b) => a.t0 - b.t0);
+      if (mine.length < 2) continue;
+      줄위반.push(...줄검사(mine.map((c) => c.text), { 조각_최소자수: SUB.줄_조각_최소자수 ?? 4, ref: `n${n.n}`, t0s: mine.map((c) => c.t0) }));
+    }
+    const 줄확정 = 확정(줄위반), 줄의심 = 의심(줄위반);
+    const 집필수 = [...lineSource.values()].filter((v) => v === "집필").length;
+    const 보기 = (v: typeof 줄위반) => v.slice(0, 3).map((x) => `${x.패턴} ${x.ref}${x.t0 !== undefined ? ` ${x.t0}s` : ""} 「${x.앞줄 ?? ""}」|「${x.줄}」(${x.이유})`).join(" · ");
+    if (줄의심.length) warnings.push(`줄바꿈 의심(ⓐ·ⓓ, 품사 정보 없이는 확정 불가) ${줄의심.length}건: ${보기(줄의심)}`);
+    gates.push({ id: "G-줄바꿈", pass: 줄확정.length <= (A["G-줄바꿈"]?.확정위반_max ?? 0), hard: true,
+      detail: `나레 ${nars.length}블록(집필 줄 ${집필수} · 폴백 분할 ${nars.length - 집필수}) — 확정 위반 ⓑⓒⓔ ${줄확정.length}건${줄확정.length ? ` — ${보기(줄확정)}` : ""} · 의심 ⓐⓓ ${줄의심.length}건${줄의심.length ? ` — ${보기(줄의심)}` : ""}`,
+      fix: "그 줄 쌍의 분할점을 「설계/한국어_줄바꿈규칙.md」 §2 우선순위에서 **한 칸 위 자리**로 옮긴다 — 줄 나눔의 주인은 script 단계의 집필자다(규격 「자막.줄나눔_주체」). script.json 그 블록의 lines[] 를 고쳐라. 옮길 자리가 없으면 문장을 줄여 한 줄에 들어가게 한다(상한은 정답지 「G-자막_한줄_최대자수.나레」)." });
     gates.push({ id: "G-자막(한 줄 자수)", pass: !hard.some((h) => /자 > /.test(h)), hard: true, detail: `나레 최대 ${maxLineNar}/${A["G-자막_한줄_최대자수"].나레} · 대사 최대 ${maxLineDlg}/${A["G-자막_한줄_최대자수"].대사}`, fix: "초과 큐 목록을 보고 각각 축약(대사) 또는 분할(나레 — splitNarLines 가 어절로 나누므로 한 어절이 상한을 넘는 경우만 본문을 고친다)" });
     gates.push({ id: "G-자막(같은 레인 겹침)", pass: overlapsLeft <= (A["G-자막_겹침_max"].value ?? 0), hard: true, detail: `겹침 ${overlapsLeft} (앞 큐 끝을 잘라 ${overlapsFixed}건 해소)` });
     gates.push({ id: "G-교차겹침(나레×대사 자막)", pass: crossS <= (A["G-교차겹침_max"]?.value ?? 0), hard: true, detail: `겹침 ${crossN}건 · ${crossS}s (허용 ${A["G-교차겹침_max"]?.value ?? 0}s) · 대사 큐 잘림 ${dlgTrimmed.length} · 버림 ${dlgDropped.length}`, fix: "나레 음성이 나오는 동안은 나레 자막 우선 — 겹치는 대사 큐의 시작/끝을 나레 큐 밖으로 밀고(큐_사이_최소간격), 통째로 덮이거나 남은 길이가 큐_최소길이 미만이면 그 대사 큐를 버린다. 버린 대사가 전체 대사 큐의 5%를 넘으면 나레 배치(placeOver)를 대사 틈 쪽으로 다시 잡는다." });

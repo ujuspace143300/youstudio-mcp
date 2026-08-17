@@ -408,10 +408,28 @@ const CARRY_SC = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/
   ok(res.isError === true && sc?.status === "error" && /블록 1: 금지 표현/.test(m) && /블록 2: 평서체/.test(m) && /블록 3: (쉼표|마침표|나레 레지스터)/.test(m) && /블록 4: `\.\.\?`/.test(m) && /블록 5: \d+자 > 문장 상한 40자/.test(m), "script②(불통) → 어느 블록이 왜인지 + 수리 지침", m.slice(0, 160));
 }
 
+// 24-b) script ① — 줄 나눔 책임과 규칙 전문을 내려보낸다 (2026-08-17 B안)
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼", payload: CARRY_SC } });
+  const sc = res.structuredContent;
+  const ins = (sc?.instructions ?? []).join(" ");
+  ok(sc?.status === "need_input" && /lines/.test(ins) && /줄 나눔도 집필자의 일/.test(ins) && typeof sc?.line_break_guide === "string" && /금지 패턴/.test(sc.line_break_guide) && sc?.sub_limits?.나레_한줄_최대자수 > 0, "script① → 줄 나눔 지시 + line_break_guide(규칙 전문) + sub_limits", `guide ${String(sc?.line_break_guide ?? "").length}자 · 상한 ${sc?.sub_limits?.나레_한줄_최대자수}`);
+}
+// 24-c) script ② 줄 나눔 불통 — 조사로 시작하는 줄 · 이어붙임 불일치 · 자수 초과
+{
+  const bad = { blocks: [
+    { pos: { kind: "over", seg: 1 }, text: "당장 쥐어 주는 현금에 청년은 선 안에 섭니다", lines: ["당장 쥐어 주는 현금에 청년은 선", "안에 섭니다"], intent: "x" },
+    { pos: { kind: "over", seg: 3 }, text: "그렇게 그는.. 처음으로 선 밖으로 나섰습니다..!", lines: ["그렇게 그는..", "처음으로 선 밖으로"], intent: "x" },
+  ] };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "script", preset: "영화롱폼", payload: { ...CARRY_SC, script: bad } } });
+  const sc = res.structuredContent;
+  const msg = sc?.message ?? "";
+  ok(res.isError === true && /줄바꿈 ⓑ/.test(msg) && /안에/.test(msg) && /이어 붙인 것이 본문과 다르다/.test(msg), "script②(줄 나눔 위반) → 반려: ⓑ 조사·의존명사로 시작 + 이어붙임 불일치", msg.slice(0, 150));
+}
 // 25) script ② 통과 — 지무비체 블록 (G-턴비 대역 안)
 {
   const good = { blocks: [
-    { pos: { kind: "over", seg: 1 }, text: "계단 앞에서 시답잖은 농담이나 주고받던.. 청년 하나가 있었습니다", intent: "훅 — 익명 인물" },
+    { pos: { kind: "over", seg: 1 }, text: "계단 앞에서 시답잖은 농담이나 주고받던.. 청년 하나가 있었습니다", lines: ["계단 앞에서 시답잖은", "농담이나 주고받던..", "청년 하나가 있었습니다"], intent: "훅 — 익명 인물" },
     { pos: { kind: "bridge", bridge: 0 }, text: "친구들의 놀림은 이어졌고.. 그날도 그런 하루로 끝날 것 같았죠", intent: "이음" },
     { pos: { kind: "before", seg: 2 }, text: "허나 그때.. 정장 차림의 남자가 다가옵니다", intent: "표지어" },
     { pos: { kind: "over", seg: 3 }, text: "네모 칸에서 시작한 하루가.. 어느새 평생이 되어 있었죠", intent: "시각 사실 — 노화" },
@@ -423,7 +441,7 @@ const CARRY_SC = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/
   const m = sc?.metrics ?? {};
   ok(m.block_count === 5 && m.avg_chars > 0 && m.dialogue_s === 20 && typeof m.nar_share_est === "number" && typeof m.nar_dialogue_ratio_est === "number" && /추정/.test(m.note ?? ""), "script② → metrics(블록 수·평균 자수·나레 시간점유·나레:대사 추정 비율, 추정 표시)", JSON.stringify(m));
   const wf = sc?.write_files?.[0];
-  ok(wf?.path === "C:/youstudio_work/sample/script/script.json" && wf?.content?.blocks?.length === 5 && wf.content.blocks[0].pieces === 2, "script② → write_files script.json(블록·조각 수)", wf?.path);
+  ok(wf?.path === "C:/youstudio_work/sample/script/script.json" && wf?.content?.blocks?.length === 5 && wf.content.blocks[0].pieces === 2 && wf.content.blocks[0].lines?.length === 3 && wf.content.blocks[1].lines === null, "script② → write_files script.json(블록·조각 수 · 집필 줄 lines[] 그대로 · 안 준 블록은 null)", wf?.path);
   ok(sc?.gates?.some((g) => /나레 시간점유/.test(g.id) && g.hard === true && g.pass === true) && sc?.gates?.some((g) => /G-턴비/.test(g.id) && g.hard === false) && sc?.carry?.includes("script_path"), "script② → 나레 시간점유(G27) hard 통과 · G-턴비 soft · carry script_path", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
 }
 
@@ -531,6 +549,8 @@ const CARRY_SUB = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x"
   ok(sc?.metrics?.overlaps === 0 && sc?.gates?.some((g) => /겹침/.test(g.id) && g.pass) && sc?.gates?.some((g) => /죽은시간/.test(g.id) && g.hard), "subtitle② → 게이트(겹침 0 · 죽은시간 hard)", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
   ok(sc?.gates?.some((g) => g.id === "G-대사선행" && g.hard), "subtitle② → G-대사선행 게이트 존재(hard)", JSON.stringify(sc?.gates?.find((g) => g.id === "G-대사선행")?.detail ?? ""));
   ok(sc?.gates?.some((g) => /G-교차겹침/.test(g.id) && g.pass && g.hard) && sc?.gates?.some((g) => /G-자막음성일치/.test(g.id) && g.pass && g.hard), "subtitle② → 새 게이트 2개(G-교차겹침·G-자막음성일치) hard 통과", JSON.stringify(sc?.gates?.map((g) => g.id)));
+  const lb = sc?.gates?.find((g) => g.id === "G-줄바꿈");
+  ok(lb?.pass === true && lb?.hard === true && /집필 줄|폴백 분할/.test(lb?.detail ?? "") && typeof lb?.fix === "string", "subtitle② → G-줄바꿈(확정 ⓑⓒⓔ hard · 의심 ⓐⓓ 경고 · 수리 지침)", (lb?.detail ?? "").slice(0, 90));
   const srt = sc?.write_files?.find((w) => /subtitle\.srt$/.test(w.path))?.content ?? "";
   ok(/^1\n\d\d:\d\d:\d\d,\d{3} --> /.test(srt) && /– 저요\?/.test(srt) && sc?.write_files?.length === 4, "subtitle② → SRT 3종+timeline (합본 대사 접두 –)", srt.slice(0, 60).replace(/\n/g, "\\n"));
   ok(typeof sc?.metrics?.dead_ratio === "number" && sc?.metrics?.hold_s === 74.3 && sc?.metrics?.added_time_s > 0, "subtitle② → metrics(죽은 시간 비율·홀드 제외·추가 시간)", JSON.stringify({ dead: sc?.metrics?.dead_ratio, hold: sc?.metrics?.hold_s, added: sc?.metrics?.added_time_s }));

@@ -34,7 +34,7 @@ function join(root: string, ...parts: string[]): string {
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-interface ScriptBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; intent?: string; chars: number; est_s?: number }
+interface ScriptBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; lines?: string[] | null; intent?: string; chars: number; est_s?: number }
 interface ScriptDoc { blocks?: ScriptBlock[]; metrics?: { dialogue_s?: number; total_chars?: number; nar_est_s?: number; nar_share_est?: number }; warnings?: string[] }
 
 /** 문구 대조용 정규화 — 공백·문장부호를 지운다(ASR 은 마침표·띄어쓰기를 다르게 쓴다) */
@@ -143,7 +143,7 @@ export const voice: StepHandler = {
       const chars_t = al && Array.isArray(al.characters) && Array.isArray(al.character_start_times_seconds) && Array.isArray(al.character_end_times_seconds)
         ? al.characters.map((c, i) => ({ c, s: r3(al.character_start_times_seconds![i]), e: r3(al.character_end_times_seconds![i]) }))
         : null;
-      return { n: b.n, pos: b.pos, text: b.text, chars, bytes, dur_s: dur, sec_per_char: chars > 0 ? r3(dur / chars) : null, est_s: b.est_s ?? r3(chars * N.자당초_추정), wav: join(voiceDir, `${bname(b.n)}.wav`), chars_t, speech: null as [number, number][] | null };
+      return { n: b.n, pos: b.pos, text: b.text, lines: b.lines ?? null, chars, bytes, dur_s: dur, sec_per_char: chars > 0 ? r3(dur / chars) : null, est_s: b.est_s ?? r3(chars * N.자당초_추정), wav: join(voiceDir, `${bname(b.n)}.wav`), chars_t, speech: null as [number, number][] | null };
     });
     // 발성 구간 실측 파싱 (payload.speech_raw = {b01: "<ffmpeg stderr>", …}). 없으면 null — subtitle 이 chars_t 만 쓴다(경고)
     const sraw = (payload.speech_raw ?? null) as Record<string, string> | null;

@@ -13,6 +13,8 @@
 import spec from "../../../스타일/영화롱폼/규격.json";
 import answer from "../../../스타일/영화롱폼/정답지.json";
 import guideMd from "../../../스타일/영화롱폼/나레이션.md";
+import 줄바꿈Md from "../../../설계/한국어_줄바꿈규칙.md";
+import { 줄검사, 확정, 의심, 규칙분할 } from "../lib/줄바꿈.js";
 import { base, reject } from "../response.js";
 import type { StepHandler } from "./types.js";
 
@@ -31,6 +33,9 @@ interface ScriptAnswer {
 }
 const N = (spec as unknown as { 나레이션: NarSpec })["나레이션"];
 const A = (answer as unknown as { 대본: ScriptAnswer })["대본"];
+// 자막 줄 나눔 검사에 쓰는 값 — 자수 상한은 정답지 「자막」, 조각 최소는 규격 「자막」
+const SUBA = (answer as unknown as { 자막: { "G-자막_한줄_최대자수": { 나레: number; 대사: number } } })["자막"];
+const SUBSPEC = (spec as unknown as { 자막: { 줄_조각_최소자수?: number } })["자막"];
 
 function join(root: string, ...parts: string[]): string {
   return [root.replace(/[\/]+$/, ""), ...parts].join("/");
@@ -43,7 +48,7 @@ interface Segment { i: number; in: number; out: number; len_s: number; role: str
 interface Bridge { start: number; end: number; len_s: number; events: { n: number; summary: string; importance: number }[]; note?: string }
 interface Selection { segments?: Segment[]; narration_bridges?: Bridge[]; metrics?: Record<string, unknown> }
 interface Pos { kind: "over" | "before" | "after" | "bridge"; seg?: number; bridge?: number }
-interface Block { pos: Pos; text: string; intent?: string }
+interface Block { pos: Pos; text: string; intent?: string; lines?: string[] }   // lines = 자막 줄 나눔 (집필자 몫 — 규격 「자막.줄나눔_주체」)
 
 // ── 어미 분류 (문장 끝 기준) ─────────────────────────────────────────────
 type EndingClass = "습니다계" | "죠계" | "요계" | "의문형" | "평서체" | "기타";
@@ -101,14 +106,17 @@ export const script: StepHandler = {
           "① guide(나레이션.md 전문)를 읽는다. 숫자 대역은 answer_bands(정답지 「대본」), 금지 목록은 rules(규격 「나레이션」)에 있다.",
           "② material 의 구간(segments)·브리지(bridges)·시각 사실(visual_facts·scenes·ending)·사건(events)만 근거로 쓴다. 여기 없는 사건·이름·대사는 만들지 않는다.",
           "③ 블록 형식: { pos: {kind:'over'|'before'|'after'|'bridge', seg:<구간 i> | bridge:<브리지 k>}, text:'한 문장(조각은 .. 로 이어 붙임)', intent:'이 블록이 하는 일 한 줄' }. 원본대사 구간(role 원본대사)에는 before/after 로 짧게, 나레이션덮기·시각몽타주 구간에는 over 로, 브리지에는 bridge 로.",
+          "③-2 **자막 줄 나눔도 집필자의 일이다** — 블록마다 `lines: ['첫 줄', '둘째 줄', …]` 를 함께 준다. 규칙은 line_break_guide(설계/한국어_줄바꿈규칙.md) 전문: 한 줄은 sub_limits.나레_한줄_최대자수 자 이하, 이어 붙이면 text 와 **글자 하나까지 같아야** 하고, 금지 패턴 ⓐ~ⓔ(명사구 절단·조사로 시작하는 줄·3자 이하 조각·수식어 분리·어절 중간)를 피한다. 좋은 자리가 없으면 **문장을 줄여** 줄이 들어가게 한다.",
           "④ payload.script = { blocks: [...] } 를 carry 값과 함께 실어 script 를 다시 부른다. 서버가 기계 검사(hard/soft)를 하고 불통이면 어느 블록이 왜인지 돌려준다 — 고쳐서 다시 부른다.",
         ],
-        then_call_with: ["step: 'script'", "payload: { …carry, selection, visual, facts, brief, utterance_spans, script: { blocks: [ {pos, text, intent}, … ] } }"],
+        then_call_with: ["step: 'script'", "payload: { …carry, selection, visual, facts, brief, utterance_spans, script: { blocks: [ {pos, text, intent, lines}, … ] } }"],
         jobs_kind: null, jobs: [], measure: [],
         carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "selection", "visual", "facts", "brief", "utterance_spans"],
         source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, selection_path: payload.selection_path,
         selection, visual, facts, brief, utterance_spans: spans,
         guide: guideMd,
+        line_break_guide: 줄바꿈Md,
+        sub_limits: { 나레_한줄_최대자수: SUBA["G-자막_한줄_최대자수"].나레, 줄_조각_최소자수: SUBSPEC.줄_조각_최소자수 ?? 4 },
         rules: N,
         answer_bands: A,
         material,
@@ -223,6 +231,30 @@ export const script: StepHandler = {
     gates.push({ id: "미완결 문장 비율(soft)", pass: incomplete / sentTotal >= (A.미완결_문장_비율.min ?? 0.7), hard: false, detail: `조각 2개 이상 문장 ${incomplete}/${sentTotal} = ${r3(incomplete / sentTotal)} (하한 ${A.미완결_문장_비율.min})` });
     const eb = A.어미_배합 as unknown as { 요계_max: number; 의문형_max: number };
     gates.push({ id: "어미 배합(soft)", pass: (distRatio["요계"] ?? 0) <= eb.요계_max + 0.05 && (distRatio["의문형"] ?? 0) <= eb.의문형_max + 0.05, hard: false, detail: JSON.stringify(distRatio) });
+    // ── 자막 줄 나눔 검사 (2026-08-17, 규칙: 설계/한국어_줄바꿈규칙.md) ─────────────────
+    //   집필자가 준 lines[] 를 여기서 바로 검사한다 — 자막 단계까지 가서야 알면 되돌아오는 비용이 크다.
+    const 줄상한 = SUBA["G-자막_한줄_최대자수"].나레, 조각최소 = SUBSPEC.줄_조각_최소자수 ?? 4;
+    const flat = (x: string) => x.replace(/\s+/g, " ").trim();
+    const 줄정보: { n: number; lines: string[] | null; 출처: "집필" | "없음" }[] = [];
+    for (const b of blocks) {
+      const raw = (sc.blocks[b.n - 1] as Block | undefined)?.lines;
+      const cand = Array.isArray(raw) ? raw.map((x) => String(x).trim()).filter(Boolean) : null;
+      const label = `블록 ${b.n}`;
+      if (!cand || !cand.length) {
+        줄정보.push({ n: b.n, lines: null, 출처: "없음" });
+        if (b.chars > 줄상한) soft.push(`${label}: lines[] 가 없다 — 자막 단계가 규칙 점수화로 자동 분할한다(폴백). 의미 단위로 나누고 싶으면 lines 를 실어라.`);
+        continue;
+      }
+      if (flat(cand.join(" ")) !== flat(b.text)) hard.push(`${label}: lines 를 이어 붙인 것이 본문과 다르다 — 줄만 나누고 글자는 바꾸지 않는다. 「${flat(cand.join(" ")).slice(0, 40)}」 ≠ 「${flat(b.text).slice(0, 40)}」`);
+      for (const l of cand) if (l.length > 줄상한) hard.push(`${label}: 줄 ${l.length}자 > ${줄상한}자 — 「${l}」`);
+      const v = 줄검사(cand, { 조각_최소자수: 조각최소, ref: `블록 ${b.n}` });
+      for (const x of 확정(v)) hard.push(`${label}: 줄바꿈 ${x.패턴} — 「${x.앞줄 ?? ""}」 | 「${x.줄}」 (${x.이유}) — 설계/한국어_줄바꿈규칙.md §2 우선순위에서 한 칸 위 자리로 옮겨라`);
+      for (const x of 의심(v)) soft.push(`${label}: 줄바꿈 ${x.패턴} 의심 — 「${x.앞줄 ?? ""}」 | 「${x.줄}」 (${x.이유})`);
+      줄정보.push({ n: b.n, lines: cand, 출처: "집필" });
+    }
+    const 줄있음 = 줄정보.filter((x) => x.lines).length;
+    gates.push({ id: "G-줄바꿈(집필)", pass: true, hard: false, detail: `lines[] 를 준 블록 ${줄있음}/${blocks.length} · 확정 위반은 위 hard 목록, 의심은 warnings`, fix: "설계/한국어_줄바꿈규칙.md §2 우선순위에서 한 칸 위 자리로 옮긴다. 옮길 자리가 없으면 문장을 줄인다." });
+
     for (const g of gates) if (g.pass === false && !g.hard) soft.push(`[soft] ${g.id}: ${g.detail}`);
     if (uncoveredNonDialog.length) soft.push(`나레 없는 나레이션덮기/시각몽타주 구간: ${uncoveredNonDialog.join(", ")} — 화면만 흐르는 자리다. 의도된 정적 구간이 아니면 over 블록을 붙여라.`);
     if (uncoveredBridges.length) soft.push(`나레 없는 브리지: ${uncoveredBridges.join(", ")} — 앞뒤가 안 이어진다.`);
@@ -246,7 +278,7 @@ export const script: StepHandler = {
       selection: payload.selection_path ?? null,
       metrics: { block_count: count, avg_chars: avgChars, total_chars: totalChars, nar_est_s: narEst, dialogue_s: dlgS, dialogue_utterances: dlgUtt, nar_share_est: narShare, nar_dialogue_ratio_est: turnRatio, block_ratio_n_over_d: blockRatio, incomplete_ratio: r3(incomplete / sentTotal), ending_dist: distRatio, sec_per_char_est: N.자당초_추정, note: "나레 시간은 자수×자당초 추정 — voice 실측으로 재검" },
       gates, warnings: soft,
-      blocks: blocks.map((b) => ({ n: b.n, pos: b.pos, text: b.text, intent: b.intent, chars: b.chars, pieces: b.pieces.length, ending: b.ending, est_s: b.est_s })),
+      blocks: blocks.map((b) => ({ n: b.n, pos: b.pos, text: b.text, lines: 줄정보.find((x) => x.n === b.n)?.lines ?? null, intent: b.intent, chars: b.chars, pieces: b.pieces.length, ending: b.ending, est_s: b.est_s })),
     };
     return base("script", preset, {
       status: "execute",
