@@ -22,14 +22,24 @@ async function call(step, payload) {
 const r1 = await call("export", carry);
 console.log("①", r1.status, "|", r1.message);
 if (r1.status !== "execute") process.exit(2);
+// do[] 는 **저장소 루트에서** 실행한다 — 조립 스크립트 경로가 저장소 기준(규격 조립.조립기)이다
+const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "../..");
 const measured = {};
+const stdouts = {};
 for (const d of r1.do) {
-  fs.mkdirSync(path.dirname(d.argv.at(-1)), { recursive: true });
-  const out = execFileSync(d.argv[0], d.argv.slice(1), { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
-  if (d.name === "mix_probe") measured.mix_probe = JSON.parse(out);
-  console.log("do", d.name, "ok", d.name === "mix_probe" ? out.trim().replace(/\s+/g, " ") : "");
+  const last = d.argv.at(-1);
+  if (/[\\/]/.test(last)) fs.mkdirSync(path.dirname(last), { recursive: true });
+  console.log("do", d.name, "…");
+  stdouts[d.name] = execFileSync(d.argv[0], d.argv.slice(1), { cwd: REPO, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 }
-const r2 = await call("export", { ...carry, mix_probe: measured.mix_probe });
+// measure 는 서버가 시킨 대로만 읽는다 (이름을 코드에 박지 않는다)
+for (const m of r1.measure ?? []) {
+  const name = m.from.replace(/^job:/, "");
+  if (m.unit === "json_stdout") measured[m.as] = JSON.parse(stdouts[name]);
+  else measured[m.as] = stdouts[name];
+  console.log("measure", m.as, "←", name, JSON.stringify(measured[m.as]).slice(0, 160));
+}
+const r2 = await call("export", { ...carry, ...measured });
 console.log("②", r2.status, "|", r2.message);
 if (r2.status === "error") { console.log(r2.instructions?.join("\n")); process.exit(2); }
 for (const wf of r2.write_files ?? []) { fs.mkdirSync(path.dirname(wf.path), { recursive: true }); fs.writeFileSync(wf.path, typeof wf.content === "string" ? wf.content : JSON.stringify(wf.content, null, 2), "utf8"); console.log("wrote", wf.path, fs.statSync(wf.path).size, "B"); }

@@ -565,10 +565,30 @@ const CARRY_EX = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x",
   const mix = sc?.do?.find((d) => d.name === "narration_mix");
   ok(sc?.status === "execute" && sc?.next_step === "export" && mix?.argv?.[0] === "ffmpeg" && /adelay=1000\|1000/.test(mix.argv.join(" ")) && /amix=inputs=2/.test(mix.argv.join(" ")) && /apad=whole_dur=30/.test(mix.argv.join(" ")), "export① → 나레 믹스 ffmpeg(adelay 실측 t0 · amix · apad 총장)", mix?.argv?.slice(-3).join(" "));
   ok(sc?.measure?.[0]?.as === "mix_probe" && sc?.do?.some((d) => d.name === "mix_probe"), "export① → mix_probe measure", "");
+  const asm = sc?.do?.find((d) => d.name === "prproj_assemble");
+  const a = (asm?.argv ?? []).join(" ");
+  ok(sc?.do?.length === 3 && asm?.argv?.[0] === "python" && /조립_prproj\.py/.test(a) && /--timeline C:\/youstudio_work\/sample\/subtitle\/timeline\.json/.test(a) && /--out .*sample\/render\/샘플_2024\.prproj/.test(a) && /--json/.test(a) && sc?.measure?.some((m) => m.as === "prproj_report" && m.from === "job:prproj_assemble" && m.unit === "json_stdout"), "export① → prproj 조립 job(argv 저장소 기준 경로 · timeline/voice 파일 경로 · --json) + prproj_report measure", a.slice(0, 120));
+  ok(/저장소 루트에서/.test((sc?.instructions ?? []).join(" ")), "export① → 지시: do[] 는 저장소 루트에서 실행", "");
 }
-// 34) export ② — XML · SRT · manifest · 게이트 전체 재검사 → done
+// 33-b) export ① timeline_path 없음 → 반려(조립기는 payload 사본이 아니라 디스크 파일을 읽는다)
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: { format: { duration: "30.000000", size: "1440044" } } } } });
+  const { timeline_path: _drop, ...noPath } = CARRY_EX;
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: noPath } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /timeline_path/.test(sc?.message ?? ""), "export①(timeline_path 없음) → 반려 + 수리 지침", (sc?.message ?? "").slice(0, 80));
+}
+// 조립기(서버/runner/조립_prproj.py --json)가 돌려주는 자기검증 요약 — 픽스처
+const PRPROJ_FIX = {
+  pass: true, out: "C:/youstudio_work/sample/render/샘플_2024.prproj", report: "C:/youstudio_work/sample/render/샘플_2024.prproj.report.json",
+  donor: "도너/볼케이노_FullTime_v26_b05_ppro-v45.prproj", total_s: 30,
+  counts: { V1: 3, A1: 2, A3: 1, A2: 2, V2: 3, V3: 4, V4: 0, links: 3 },
+  checks: [{ check: "ObjectID 유일", pass: true, detail: "중복 0" }, { check: "댕글링 참조 0", pass: true, detail: "없음" }, { check: "timeline.json 대조(자막 문구·시각 · 컷/나레 시각)", pass: true, detail: "불일치 0" }],
+  failed: [],
+};
+const MIX_OK = { format: { duration: "30.000000", size: "1440044" } };
+// 34) export ② — prproj(본선) · XML · SRT · manifest · 게이트 전체 재검사 → done
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: MIX_OK, prproj_report: PRPROJ_FIX } } });
   const sc = res.structuredContent;
   ok(sc?.status === "done" && sc?.next_step === null, "export② → status=done, next_step=null", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 80)}`);
   const xml = sc?.write_files?.find((w) => /\.xml$/.test(w.path))?.content ?? "";
@@ -581,16 +601,39 @@ const CARRY_EX = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x",
   ok(Array.isArray(man?.프리미어_후속) && man.프리미어_후속[0]?.위치_px?.y === 840 && man.프리미어_후속[1]?.위치_px?.y === 980 && man.프리미어_후속[0]?.위치_px?.x === 960 && man.프리미어_후속[1]?.origin_y === 0.4074, "export② → manifest.프리미어_후속(자막 목표 px V3 y=840 · V2 y=980 + origin_y, 규격 자막.위치)", JSON.stringify(man?.프리미어_후속?.map((r) => r.위치_px)));
   ok(man?.counts?.cuts === 3 && man?.counts?.cues === 7 && man?.fonts?.나레?.패밀리 === "Source Han Serif K" && Array.isArray(man?.gates) && man.gates.every((g) => g.pass !== false) && man?.sequence?.total_s === 30, "export② → manifest(재료·총 길이·게이트 전부 통과·폰트)", JSON.stringify(man?.gates?.map((g) => [g.step, g.pass])));
   ok(sc?.write_files?.length === 5 && sc?.write_files?.some((w) => /subtitle_dlg\.srt$/.test(w.path)), "export② → write_files 5개(XML·SRT 3종·manifest)", JSON.stringify(sc?.write_files?.map((w) => w.path.split("/").pop())));
+  const g = (id) => sc?.gates?.find((x) => x.id === id);
+  ok(g("G-prproj자기검증")?.pass === true && g("G-prproj요소수 = 타임라인 실측")?.pass === true && typeof g("G-prproj자기검증")?.fix === "string", "export② → prproj 게이트 2개 통과(수리 지침 포함)", g("G-prproj요소수 = 타임라인 실측")?.detail);
+  ok(man?.산출물?.본선 === PRPROJ_FIX.out && /prproj/.test(man?.산출물?.종류 ?? "") && man?.materials?.prproj === PRPROJ_FIX.out && /더블클릭/.test((sc?.instructions ?? []).join(" ")), "export② → manifest.산출물 = .prproj 본선 + XML 은 폴백 · 지시는 '더블클릭'", JSON.stringify(man?.산출물));
+}
+// 34-b) export ② 조립 결과 없음 → 반려
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: MIX_OK } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /prproj_report/.test(sc?.message ?? "" + (sc?.instructions ?? []).join(" ")) || /자기검증 결과/.test(sc?.message ?? ""), "export②(prproj_report 없음) → 반려", (sc?.message ?? "").slice(0, 70));
+}
+// 34-c) export ② 조립 자기검증 불통 → hard_fail (게이트가 조립기 판정을 그대로 물려받는다)
+{
+  const bad = { ...PRPROJ_FIX, pass: false, checks: [...PRPROJ_FIX.checks, { check: "댕글링 참조 0", pass: false, detail: "끊긴 참조 3" }], failed: ["댕글링 참조 0"] };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: MIX_OK, prproj_report: bad } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /G-prproj자기검증/.test(sc?.message ?? ""), "export②(조립 자기검증 불통) → hard_fail", (sc?.message ?? "").slice(0, 110));
+}
+// 34-d) export ② 조립 요소 수 ≠ 타임라인 → hard_fail
+{
+  const bad = { ...PRPROJ_FIX, counts: { ...PRPROJ_FIX.counts, V2: 2 } };
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: MIX_OK, prproj_report: bad } } });
+  const sc = res.structuredContent;
+  ok(res.isError === true && /G-prproj요소수/.test(sc?.message ?? "") && /2≠3/.test(sc?.message ?? ""), "export②(조립 요소 수 불일치) → hard_fail", (sc?.message ?? "").slice(0, 110));
 }
 // 35) export ② 믹스 길이 불일치 → hard_fail
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: { format: { duration: "12.0" } } } } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, mix_probe: { format: { duration: "12.0" } }, prproj_report: PRPROJ_FIX } } });
   const sc = res.structuredContent;
   ok(res.isError === true && /믹스 길이 12s 가 타임라인 총장 30s/.test(sc?.message ?? ""), "export②(믹스 길이 불일치) → hard_fail + 수리 지침", (sc?.message ?? "").slice(0, 100));
 }
 // 36) export ② 최종 재검사 불통 (죽은 시간 — 큐 없음)
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, timeline: { ...TL_FIX, cues: [] }, mix_probe: { format: { duration: "30.0" } } } } });
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "export", preset: "영화롱폼", payload: { ...CARRY_EX, timeline: { ...TL_FIX, cues: [] }, mix_probe: { format: { duration: "30.0" } }, prproj_report: PRPROJ_FIX } } });
   const sc = res.structuredContent;
   ok(res.isError === true && /최종 재검사 불통/.test(sc?.message ?? "") && /G-죽은시간/.test(sc?.message ?? ""), "export②(재검사 불통) → 어느 단계 게이트인지 + 돌아가라", (sc?.message ?? "").slice(0, 120));
 }

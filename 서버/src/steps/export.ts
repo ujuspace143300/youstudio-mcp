@@ -15,7 +15,9 @@ import type { StepHandler } from "./types.js";
 import type { ArgvJob } from "../schema.js";
 
 interface SubSpec { 폰트: Record<string, { 표시명: string; 패밀리: string; PS명: string; xml명?: string }>; 크기_px: Record<string, number>; 위치: Record<string, { origin_x: number; origin_y: number; 목표_px: { x: number; y: number } } | boolean | string>; 색: Record<string, { r: number; g: number; b: number }>; 나레_한줄_최대자수: number; 대사_한줄_최대자수: number }
-interface AsmSpec { 덕킹_레벨: number; 덕킹_방식?: string; 죽은시간_홀드_제외_역할: string[]; 내보내기: { 형식: string; 시퀀스_이름: string; 해상도: { width: number; height: number }; 타임베이스: number; ntsc: boolean; 트랙: Record<string, string> } }
+interface AsmSpec { 덕킹_레벨: number; 덕킹_방식?: string; 죽은시간_홀드_제외_역할: string[]; 산출물?: string; 조립기?: string; 도너?: { 파일: string }; 내보내기: { 형식: string; 시퀀스_이름: string; 해상도: { width: number; height: number }; 타임베이스: number; ntsc: boolean; 트랙: Record<string, string> } }
+/** 조립 스크립트가 --json 으로 돌려주는 자기검증 요약 */
+interface PrprojReport { pass?: boolean; out?: string; report?: string; donor?: string; total_s?: number; counts?: Record<string, number>; checks?: { check: string; pass: boolean; detail: string }[]; failed?: string[] }
 const SUB = (spec as unknown as { 자막: SubSpec })["자막"];
 const ASM = (spec as unknown as { 조립: AsmSpec })["조립"];
 const AJ = (answer as unknown as { 자막: { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-자막_겹침_max": { value: number }; "G-죽은시간_max": { value: number } }; 대본: { 나레_시간점유: { min: number; max: number } }; 구간선택: { "G-반복": { 컷_반복_비율_max: { value: number } } } })["자막"];
@@ -61,6 +63,10 @@ export const exportStep: StepHandler = {
     const totalS = tl.total_s;
     const mixPath = join(renderDir, "narration_mix.wav");
     const nars = [...tl.narration].sort((a, b) => a.t0 - b.t0);
+    // 본선 산출물 = .prproj (규격 조립.산출물). "xml" 이면 FCP XML 만 내보내는 폴백 — 부산물(XML·SRT·믹스·manifest)은 어느 쪽이든 만든다
+    const wantPrproj = (ASM.산출물 ?? "prproj") === "prproj";
+    const prprojPath = join(renderDir, `${slug}.prproj`);
+    const prprojReportPath = join(renderDir, `${slug}.prproj.report.json`);
 
     // ── ① 나레이션 믹스다운 ───────────────────────────────────────────────
     if (payload.mix_probe === undefined) {
@@ -71,12 +77,26 @@ export const exportStep: StepHandler = {
       const fc = `${filters.join(";")};${mixIn}amix=inputs=${nars.length}:normalize=0:dropout_transition=0,apad=whole_dur=${totalS}[out]`;
       const mix: ArgvJob = { name: "narration_mix", argv: ["ffmpeg", "-y", "-v", "error", ...inputs, "-filter_complex", fc, "-map", "[out]", "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", "-t", String(totalS), mixPath], note: `나레 블록 ${nars.length}개를 실측 t0 에 놓아 한 트랙으로 (길이 = 타임라인 총장 ${totalS}s)` };
       const probe: ArgvJob = { name: "mix_probe", argv: ["ffprobe", "-v", "error", "-print_format", "json", "-show_entries", "format=duration,size", mixPath], note: "믹스 길이 확인" };
+      const doJobs: ArgvJob[] = [mix, probe];
+      const measures: { as: string; from: string; unit: "json_stdout" }[] = [{ as: "mix_probe", from: "job:mix_probe", unit: "json_stdout" }];
+      // prproj 조립 (규격 조립.산출물 = prproj) — 도너 사본을 우리 컷·나레·자막으로 갈아끼워 **완성 프로젝트 파일**을 만든다
+      if (wantPrproj) {
+        if (typeof payload.timeline_path !== "string" || typeof payload.voice_path !== "string") {
+          return reject("export", preset, "prproj 조립에 필요한 파일 경로가 없다 (payload.timeline_path · payload.voice_path)", "subtitle·voice 가 남긴 timeline.json·voice.json 의 **경로**를 carry 그대로 실어라. 조립 스크립트는 payload 사본이 아니라 디스크의 그 파일을 읽는다. 조립을 건너뛰려면 규격 「조립.산출물」을 \"xml\" 로 바꾼다(폴백).");
+        }
+        doJobs.push({
+          name: "prproj_assemble",
+          argv: ["python", ASM.조립기 ?? "서버/runner/조립_prproj.py", "--timeline", payload.timeline_path, "--voice", payload.voice_path, "--out", prprojPath, "--report", prprojReportPath, "--json"],
+          note: `도너(${ASM.도너?.파일 ?? "규격 조립.도너.파일"}) 사본 → 완성 prproj. **저장소 루트에서** 실행한다(스크립트가 자기 위치로 규격·도너를 찾는다). 자기검증에 실패하면 종료코드 1`,
+        });
+        measures.push({ as: "prproj_report", from: "job:prproj_assemble", unit: "json_stdout" });
+      }
       return base("export", preset, {
         status: "execute", next_step: "export",
-        message: `내보내기 준비: 나레 ${nars.length}블록 믹스다운 → ${mixPath}. 결과를 payload.mix_probe 에 실어 export 를 다시 부르라.`,
-        instructions: ["① do[] 의 ffmpeg 두 개를 그대로 실행한다 (믹스 → 확인).", "② measure 대로 mix_probe 를 payload 에 넣고 carry 값과 함께 export 를 다시 부른다."],
-        then_call_with: ["step: 'export'", "payload: { …carry, timeline, voice, script, brief, transcript_metrics, mix_probe }"],
-        do: [mix, probe], jobs_kind: null, jobs: [], measure: [{ as: "mix_probe", from: "job:mix_probe", unit: "json_stdout" }],
+        message: `내보내기 준비: 나레 ${nars.length}블록 믹스다운 → ${mixPath}${wantPrproj ? ` · prproj 조립 → ${prprojPath}` : " (prproj 조립 없음 — 규격 조립.산출물 = xml 폴백)"}. 결과를 payload.mix_probe${wantPrproj ? " · payload.prproj_report" : ""} 에 실어 export 를 다시 부르라.`,
+        instructions: [`① do[] 를 **저장소 루트에서** 순서대로 그대로 실행한다 (믹스 → 확인${wantPrproj ? " → prproj 조립" : ""}).`, "② measure 대로 값을 payload 에 넣고 carry 값과 함께 export 를 다시 부른다.", ...(wantPrproj ? ["③ prproj_assemble 이 종료코드 1 이면 자기검증에서 걸린 것이다 — 표준오류의 [X] 줄을 그대로 사람에게 보이고 멈춘다."] : [])],
+        then_call_with: ["step: 'export'", `payload: { …carry, timeline, voice, script, brief, transcript_metrics, mix_probe${wantPrproj ? ", prproj_report" : ""} }`],
+        do: doJobs, jobs_kind: null, jobs: [], measure: measures,
         carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "voice_path", "timeline_path", "timeline", "voice", "script", "brief", "transcript_metrics"],
         source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, selection_path: payload.selection_path, script_path: payload.script_path, voice_path: payload.voice_path, timeline_path: payload.timeline_path,
         timeline: tl, voice, script, brief, transcript_metrics: transcript,
@@ -184,7 +204,7 @@ export const exportStep: StepHandler = {
     const allCues = [...tl.cues].sort((a, b) => a.t0 - b.t0);
 
     // ── 게이트 전체 재검사 (최종 산출물에서 독립 계산) ──────────────────────
-    const gates: { step: string; id: string; pass: boolean | null; hard: boolean; detail: string }[] = [];
+    const gates: { step: string; id: string; pass: boolean | null; hard: boolean; detail: string; fix?: string }[] = [];   // fix = 수리 지침(HARNESS §5) — 붙일 수 있으면 붙인다
     gates.push({ step: "probe", id: "오디오 트랙", pass: ps.audio === true, hard: true, detail: `audio=${ps.audio}` });
     gates.push({ step: "transcript", id: "발화 0건 아님", pass: (transcript?.utterance_count ?? 0) > 0, hard: true, detail: `발화 ${transcript?.utterance_count ?? "?"}` });
     const evs = brief?.events ?? [];
@@ -219,6 +239,24 @@ export const exportStep: StepHandler = {
     // export 자체: XML 요소 수 = 실측 수
     const duckN = pics.filter((p) => p.audio === "duck").length;
     gates.push({ step: "export", id: "XML 요소 수 = 타임라인 실측", pass: true, hard: true, detail: `V1 컷 ${pics.length} · V2 대사 자막 ${dlgCues.length} · V3 나레 자막 ${narCues.length} · A1 원본 소리 ${separateDuck ? pics.length - duckN : pics.length} · A2 나레 ${nars.length}${separateDuck ? ` · A3 덕킹 컷 소리 ${duckN}` : ""} · 믹스 ${r3(mixDur)}s` });
+    // export: prproj 자기검증 — 조립기가 완성본을 **다시 읽어** 잰 결과를 그대로 게이트로 삼는다 (계단 4)
+    const pr = payload.prproj_report as PrprojReport | undefined;
+    if (wantPrproj) {
+      if (!pr) {
+        return reject("export", preset, "본선 산출물 prproj 의 자기검증 결과(payload.prproj_report)가 없다", "① 이 지시한 do[] 의 prproj_assemble 을 **저장소 루트에서** 실행하고, 그 표준출력(JSON)을 payload.prproj_report 에 실어 export 를 다시 부르라. 조립을 건너뛰려면 규격 「조립.산출물」을 \"xml\" 로 바꾼다(폴백).");
+      }
+      const checks = pr.checks ?? [];
+      const badChecks = checks.filter((c) => !c.pass);
+      gates.push({ step: "export", id: "G-prproj자기검증", pass: pr.pass === true && badChecks.length === 0, hard: true,
+        detail: `조립기 검사 ${checks.length}개 중 불통 ${badChecks.length}${badChecks.length ? ` — ${badChecks.map((c) => `${c.check}(${c.detail})`).join(" / ")}` : " (ID 유일·댕글링 0·트랙 수·겹침 0·경로 실존·블롭 재파싱·gzip 왕복 + 나레 길이·자막 문구·timeline 대조)"}`,
+        fix: "조립기가 스스로 잡은 것이다 — 표준오류의 [X] 줄과 report.json 의 timeline_mismatch 를 본다. 도너가 바뀌었으면 규격 「조립.도너」의 견본 ID 를, 트랙 수가 어긋나면 timeline.json 을 먼저 고친다. 급하면 규격 「조립.산출물」을 \"xml\" 로 돌려 폴백으로 내보낸다." });
+      const c = pr.counts ?? {};
+      const want: [string, number, number][] = [["V1 컷", c.V1 ?? -1, pics.length], ["A2 나레", c.A2 ?? -1, nars.length], ["V2 대사 자막", c.V2 ?? -1, dlgCues.length], ["V3 나레 자막", c.V3 ?? -1, narCues.length]];
+      const off = want.filter(([, got, exp]) => got !== exp);
+      gates.push({ step: "export", id: "G-prproj요소수 = 타임라인 실측", pass: off.length === 0, hard: true,
+        detail: off.length ? off.map(([n, got, exp]) => `${n} ${got}≠${exp}`).join(" · ") : want.map(([n, got]) => `${n} ${got}`).join(" · ") + ` · A1 ${c.A1 ?? "?"} · A3 ${c.A3 ?? "?"} · V4 ${c.V4 ?? 0}`,
+        fix: "조립기가 읽은 timeline.json 과 export 에 실린 payload.timeline 이 다른 판이다. subtitle 을 다시 돌려 timeline.json 을 새로 쓰고, 같은 파일 경로를 timeline_path 로 실어 다시 부르라." });
+    }
     const failed = gates.filter((g) => g.hard && g.pass === false);
     if (failed.length) {
       return reject("export", preset, `최종 재검사 불통 ${failed.length}건 — ${failed.map((g) => `[${g.step}] ${g.id}: ${g.detail}`).join(" / ")}`, "불통 단계로 돌아가 그 단계의 수리 지침대로 고친 뒤 이후 단계를 다시 돌리고 export 를 다시 부르라. 최종 산출물은 중간 파일을 신뢰하지 않고 다시 잰다.");
@@ -228,7 +266,10 @@ export const exportStep: StepHandler = {
     const manifest = {
       title, source: source.path, created: new Date().toISOString().slice(0, 10),
       format: ASM.내보내기.형식, sequence: { name: seqName, width: W, height: H, timebase: tb, ntsc, fps: r3(fps), total_s: totalS, total_frames: totalF, tracks: { ...ASM.내보내기.트랙, ...(separateDuck ? { A3: "덕킹 컷 원본 소리(볼륨 낮춤·필요시 음소거)" } : {}) } },
+      산출물: wantPrproj ? { 본선: prprojPath, 종류: "프리미어 프로젝트(.prproj) — 더블클릭으로 연다", 자기검증: prprojReportPath, 도너: pr?.donor ?? ASM.도너?.파일 ?? null, 폴백: join(renderDir, `${slug}.xml`) }
+                          : { 본선: join(renderDir, `${slug}.xml`), 종류: "FCP XML v5 — 새 빈 프로젝트에 가져오기 (규격 조립.산출물 = xml 폴백)", 자기검증: null, 도너: null, 폴백: null },
       materials: {
+        prproj: wantPrproj ? prprojPath : null,
         xml: join(renderDir, `${slug}.xml`), narration_mix_wav: mixPath, narration_block_wavs: nars.map((n) => n.wav),
         srt: { all: join(renderDir, "subtitle.srt"), narration: join(renderDir, "subtitle_nar.srt"), dialogue: join(renderDir, "subtitle_dlg.srt") },
         source_video: source.path, timeline: payload.timeline_path ?? null,
@@ -237,7 +278,8 @@ export const exportStep: StepHandler = {
       fonts: fontsUsed,
       gates,
       metrics: { total_s: totalS, source_ratio: r3(totalS / ps.duration_s), narration_s: r3(narTotal), dialogue_s: dlgS, nar_share: share, dead_ratio: deadRatio, reuse_ratio: reuseRatio, mix_duration_s: r3(mixDur), sec_per_char: voice.metrics?.sec_per_char_measured ?? null },
-      notes: ["타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다 (XML 폰트 이름은 규격 자막.폰트.xml명 = PS 명, 2026-08-16 확정)", separateDuck ? "연장·브리지 컷의 원본 소리는 A3 트랙에 따로 두었다 — 나레와 겹치면 A3 볼륨을 내리거나 음소거" : "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "자막 위치: Text 제너레이터 origin 파라미터(중앙 기준 비율, 규격 자막.위치)로 자동 배치 — 2026-08-16 시험5b 로 좌표계 확정. 임포트 뒤 나레 y≈840·대사 y≈980 인지 확인만"],
+      notes: [wantPrproj ? "본선 산출물은 .prproj — 더블클릭으로 연다(가져오기 아님). 도너 사본에 우리 컷·나레·자막을 갈아끼운 것이라 자막 서식·위치가 도너 그대로다. XML·SRT·믹스는 부산물(폴백·검산용)" : "규격 조립.산출물 = xml — FCP XML 폴백만 내보냈다",
+              "타이밍은 subtitle/timeline.json 실측 그대로(초→프레임 반올림)", "산돌구름이 켜져 있어야 폰트가 이름으로 잡힌다 (XML 폰트 이름은 규격 자막.폰트.xml명 = PS 명, 2026-08-16 확정)", separateDuck ? "연장·브리지 컷의 원본 소리는 A3 트랙에 따로 두었다 — 나레와 겹치면 A3 볼륨을 내리거나 음소거" : "연장·브리지 컷의 원본 소리는 Audio Levels 로 낮춰 두었다 — 프리미어가 안 읽으면 수동", "자막 위치: Text 제너레이터 origin 파라미터(중앙 기준 비율, 규격 자막.위치)로 자동 배치 — 2026-08-16 시험5b 로 좌표계 확정. 임포트 뒤 나레 y≈840·대사 y≈980 인지 확인만"],
       프리미어_후속: [
         { 트랙: "V3 나레 자막", 방법: "확인만 — origin 으로 자동 배치됨. 어긋나면 V3 클립 전부 선택 → Essential Graphics 정렬 및 변형에서 아래 값으로", 위치_px: (SUB.위치.나레 as { 목표_px: { x: number; y: number } }).목표_px, origin_y: (SUB.위치.나레 as { origin_y: number }).origin_y, 정렬: "가운데", 폰트: `${SUB.폰트.나레.패밀리} (${SUB.폰트.나레.xml명 ?? SUB.폰트.나레.PS명})`, 크기_px: SUB.크기_px.나레 },
         { 트랙: "V2 대사 자막", 방법: "확인만 — origin 으로 자동 배치됨. 어긋나면 V2 클립 전부 선택 → Essential Graphics 정렬 및 변형에서 아래 값으로", 위치_px: (SUB.위치.대사 as { 목표_px: { x: number; y: number } }).목표_px, origin_y: (SUB.위치.대사 as { origin_y: number }).origin_y, 정렬: "가운데", 폰트: `${SUB.폰트.대사.패밀리} (${SUB.폰트.대사.xml명 ?? SUB.폰트.대사.PS명})`, 크기_px: SUB.크기_px.대사 },
@@ -246,8 +288,16 @@ export const exportStep: StepHandler = {
     };
     return base("export", preset, {
       status: "done", next_step: null,
-      message: `내보내기 완료: ${seqName} — 컷 ${pics.length} · 나레 ${nars.length} · 자막 ${allCues.length} · 총 ${totalS}s. 게이트 ${gates.length}개 전부 통과. render/ 에 XML·SRT 3종·나레이션 믹스·manifest.`,
-      instructions: [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: **반드시 새 빈 프로젝트**를 만들어 파일 > 가져오기로 XML 을 연다 (같은 소재가 이미 있는 프로젝트에 재임포트하면 오디오 트랙이 조용히 빠진다 — 2026-08-16 실측, 진단일지.md 8절). 시퀀스 하나가 생긴다. 자막 위치는 origin 파라미터로 자동 배치된다 — 나레 y≈840·대사 y≈980 인지 확인만(어긋나면 manifest.프리미어_후속). 순서는 서버 README."],
+      message: wantPrproj
+        ? `내보내기 완료: ${seqName} — 컷 ${pics.length} · 나레 ${nars.length} · 자막 ${allCues.length} · 총 ${totalS}s. 게이트 ${gates.length}개 전부 통과(prproj 자기검증 포함). **본선 산출물 ${prprojPath}** — 더블클릭으로 열면 전부 제자리. XML·SRT 3종·나레 믹스·manifest 는 부산물.`
+        : `내보내기 완료: ${seqName} — 컷 ${pics.length} · 나레 ${nars.length} · 자막 ${allCues.length} · 총 ${totalS}s. 게이트 ${gates.length}개 전부 통과. render/ 에 XML·SRT 3종·나레이션 믹스·manifest (규격 조립.산출물 = xml 폴백).`,
+      instructions: wantPrproj
+        ? [`① write_files 5개를 그대로 쓴다 (${renderDir}). prproj 는 ① 단계에서 이미 만들어졌다.`,
+           "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.",
+           `③ 사람에게: **${prprojPath} 를 더블클릭**하면 프리미어가 열린다. 가져오기(import) 하지 않는다 — 프로젝트 파일 자체가 산출물이다. 열리면 시퀀스 하나에 컷·원본 소리·덕킹·나레·자막이 전부 올라와 있다.`,
+           "④ 폰트는 산돌구름이 켜져 있어야 이름으로 잡힌다. 자막 위치·서식은 도너 견본 그대로라 후속 작업이 없다(XML 폴백일 때만 manifest.프리미어_후속 을 본다).",
+           "⑤ XML 폴백이 필요하면(도너가 깨졌거나 프리미어 버전이 바뀌었을 때) 규격 「조립.산출물」을 \"xml\" 로 바꾸고 export 를 다시 돌린다."]
+        : [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: **반드시 새 빈 프로젝트**를 만들어 파일 > 가져오기로 XML 을 연다 (같은 소재가 이미 있는 프로젝트에 재임포트하면 오디오 트랙이 조용히 빠진다 — 2026-08-16 실측, 진단일지.md 8절). 시퀀스 하나가 생긴다. 자막 위치는 origin 파라미터로 자동 배치된다 — 나레 y≈840·대사 y≈980 인지 확인만(어긋나면 manifest.프리미어_후속). 순서는 서버 README."],
       then_call_with: [], jobs_kind: null, jobs: [], measure: [],
       write_files: [
         { path: join(renderDir, `${slug}.xml`), content: xml, note: "FCP XML v5 — 프리미어 파일 > 가져오기" },

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """도너/prproj_lib.py — prproj(gzip+XML 오브젝트 그래프) 다루는 최소 도구.
-설계/참고_prproj구조.md 의 규칙만 구현한다. 계단 3 실험용 — 통과하면 서버(export)로 옮긴다.
+설계/참고_prproj구조.md 의 규칙만 구현한다. **서버/runner/조립_prproj.py 가 쓰는 라이브러리**(2026-08-17 계단 4).
+도너/치환_*.py(보관용 체인)도 같은 것을 쓴다 — 한 벌만 둔다.
 
 - load/save: gzip ↔ XML 문자열 (레벨 9, mtime 0)
 - Doc: 루트 블록(\t<Tag ObjectID|ObjectUID="…"> … \t</Tag>) 단위로 get/replace/remove/append

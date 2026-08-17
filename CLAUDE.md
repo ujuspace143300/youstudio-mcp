@@ -36,6 +36,7 @@ youstudio-mcp/
 ├── CLAUDE.md               이 파일
 ├── 서버/                   MCP 서버 (TypeScript · Cloudflare Workers). 실행·테스트법은 서버/README.md
 │   └── runner/             단계별 실행 스크립트 — 서버가 지시하고 이것이 실행한다 (키는 환경변수에서만)
+│                           조립_prproj.py = 도너 사본 → 완성 .prproj (본선 산출물, 규격 「조립.조립기」)
 ├── 설계/
 │   ├── 단계와게이트.md       범위·판정 위치·대역 체계·확장 계획 (단계 목록은 단계상세.md 를 가리킴)
 │   ├── 단계상세.md          8단계 명세 — 입력·출력·지표(metrics)·게이트·수리 지침

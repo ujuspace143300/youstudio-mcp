@@ -30,9 +30,9 @@
 | 5 | `script` | 구간을 잇는 나레이션 집필 (대화 안 `need_input`) + 기계 검사 | ✅ |
 | 6 | `voice` | TTS(ElevenLabs eleven_v3) · 실측 길이로 슬롯 확정 · 자당초 실측 → 우리실측 | ✅ |
 | 7 | `subtitle` | 컷 타임라인 · 대사 번역 · 자막 큐(글자별 실측) · 무음 컷 · 죽은 시간 게이트 | ✅ |
-| 8 | `export` | FCP XML v5 + SRT 3종 + 나레이션 믹스 + manifest · 1~7 게이트 전체 재검사 | ✅ |
+| 8 | `export` | **완성 .prproj**(도너 사본 치환·조립) + FCP XML v5 + SRT 3종 + 나레이션 믹스 + manifest · 1~7 게이트 전체 재검사 + prproj 자기검증 | ✅ |
 
-첫 시험 소재(단편 15.5분)로 **`setup`~`export` 전 단계**를 실호출까지 통과했다 (마일스톤 `v0.1-select` → `v0.2-script` → `v0.3-voice` → `v0.4-subtitle` → `v0.5-export`). 프리미어 실제 임포트 검증까지 완료(`v0.6-import`: 자막 origin 좌표계·폰트 PS 명·A3 덕킹 트랙·새 빈 프로젝트 규칙). **다음 본선 = 산출물을 .prproj 로**(열면 전부 제자리, 볼케이노 방식 — `설계/prproj생성_설계안.md`, 계단식·사람 확인). FCP XML 은 폴백으로 유지. 2차 목표 `render`(완성 mp4).
+첫 시험 소재(단편 15.5분)로 **`setup`~`export` 전 단계**를 실호출까지 통과했다 (마일스톤 `v0.1-select` → `v0.2-script` → `v0.3-voice` → `v0.4-subtitle` → `v0.5-export`). 프리미어 실제 임포트 검증까지 완료(`v0.6-import`: 자막 origin 좌표계·폰트 PS 명·A3 덕킹 트랙·새 빈 프로젝트 규칙). **산출물은 `.prproj`**(열면 전부 제자리, 볼케이노 방식) — 계단 0~4 를 사람 확인과 함께 밟아 `v0.7-prproj` 로 완주했다(`설계/prproj생성_설계안.md`). 조립기는 `서버/runner/조립_prproj.py`, 규격 「조립.산출물」을 `xml` 로 바꾸면 FCP XML 폴백. 2차 목표 `render`(완성 mp4).
 
 ## 실행·테스트
 
