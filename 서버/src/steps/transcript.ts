@@ -100,7 +100,7 @@ export const transcript: StepHandler = {
       return base("transcript", preset, {
         status: "execute",
         next_step: "transcript",
-        message: `전사 지시: 오디오를 ${T.오디오추출.샘플레이트_hz}Hz 모노 ${T.오디오추출.확장자} 로 뽑고 Groq ${T.모델} 에 보내라. 결과(verbose_json)를 payload.asr 에 실어 transcript 를 다시 부르라.`,
+        message: `전사 지시: 오디오를 ${T.오디오추출.샘플레이트_hz}Hz 모노 ${T.오디오추출.확장자} 로 뽑고 ${T.제공자} ${T.모델} 에 보내라. 결과(${T.응답형식})를 payload.asr 에 실어 transcript 를 다시 부르라.`,
         instructions: [
           `① do[] 의 extract_audio 를 그대로 실행해 ${audioPath} 를 만든다.`,
           `② do[] 의 audio_size 로 크기를 잰다. ${T.파일상한_mb}MB(규격.json 전사.파일상한_mb)를 넘으면 여기서 멈추고 사람에게 보고한다 — 장편 분할 전사는 미정이다.`,
