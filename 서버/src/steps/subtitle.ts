@@ -599,7 +599,10 @@ export const subtitle: StepHandler = {
           cur = Math.max(cur, n[1] + gapS);
         }
         if (hi > cur) free.push([cur, hi]);
-        const best = free.filter(([x, y]) => y - x >= minCut).sort((p, q) => (q[1] - q[0]) - (p[1] - p[0]))[0];
+        // 자리 고르기: **원래 큐 구간과 가장 많이 겹치는** 창(말이 나오는 자리)을 먼저 — 같으면 긴 창.
+        //   전에는 무조건 긴 창을 골라, 꼬리를 늘리면 자막이 말 뒤로 밀려 커버리지가 되레 줄었다(2026-08-17 실측).
+        const ov0 = ([x, y]: [number, number]) => Math.max(0, Math.min(d.t1, y) - Math.max(d.t0, x));
+        const best = free.filter(([x, y]) => y - x >= minCut).sort((p, q) => (ov0(q) - ov0(p)) || ((q[1] - q[0]) - (p[1] - p[0])))[0];
         if (!best) { drop.add(String(d.ref)); dlgDropped.push(`${d.ref} ${d.t0}~${d.t1} 「${d.text}」 (나레 자막을 피할 ${minCut}s 자리가 없다)`); continue; }
         const t0 = r3(best[0]), t1 = r3(Math.min(best[1], Math.max(best[0] + minS, Math.min(d.t1, best[1]))));
         if (Math.abs(t0 - d.t0) > 1e-6 || Math.abs(t1 - d.t1) > 1e-6) dlgTrimmed.push(`${d.ref} ${d.t0}~${d.t1} → ${t0}~${t1} 「${d.text}」`);

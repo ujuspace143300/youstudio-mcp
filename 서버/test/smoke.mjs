@@ -511,6 +511,7 @@ const TR = [{ id: "d001", ko: "야 마이크 너네 삼촌 발 전문의지" }, 
 {
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: { ...CARRY_SUB, translations: TR } } });
   const sc = res.structuredContent;
+  if (process.env.DBG === "1") { const D = sc?.diagnostics ?? {}; console.log("DBG status", sc?.status, "metrics", JSON.stringify(sc?.metrics ?? D.metrics)); console.log("DBG dropped", JSON.stringify(D.dlg_dropped ?? [])); console.log("DBG dead", JSON.stringify((D.dead_spans_top ?? []).slice(0, 5))); }
   ok(sc?.status === "execute" && sc?.next_step === "export", "subtitle② → execute, next_step=export", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 100)}`);
   const tl = sc?.write_files?.find((w) => /timeline\.json$/.test(w.path))?.content;
   const pics = tl?.picture ?? [];
