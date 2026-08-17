@@ -29,8 +29,8 @@
    "media_dur_s": 3.84,
    "voice_dur_s": 3.84,
    "rate": 24000,
-   "item": 7997,
-   "media_uid": "444494ba-0b62-4fb7-9c7d-b4cd508aaeca"
+   "item": 7991,
+   "media_uid": "bc1a87e9-bd54-4e30-8116-5293fcdfddf5"
   },
   {
    "n": 2,
@@ -43,8 +43,8 @@
    "media_dur_s": 5.04,
    "voice_dur_s": 5.04,
    "rate": 24000,
-   "item": 8015,
-   "media_uid": "e7405a8f-9633-4e9b-a854-e707289bcc4d"
+   "item": 8009,
+   "media_uid": "03568e27-a481-4b0d-883f-59ee880a583e"
   },
   {
    "n": 3,
@@ -57,8 +57,8 @@
    "media_dur_s": 3.12,
    "voice_dur_s": 3.12,
    "rate": 24000,
-   "item": 8033,
-   "media_uid": "c976d98a-47e8-418d-bd66-2b0358e913f7"
+   "item": 8027,
+   "media_uid": "08c2015a-4791-4bae-b1fb-348a21c73a8d"
   },
   {
    "n": 4,
@@ -71,8 +71,8 @@
    "media_dur_s": 4.48,
    "voice_dur_s": 4.48,
    "rate": 24000,
-   "item": 8051,
-   "media_uid": "12d7257d-42b7-4282-9557-c22674e2f680"
+   "item": 8045,
+   "media_uid": "9348e4f2-b4a0-4d33-b623-48e20fd0eb84"
   },
   {
    "n": 5,
@@ -85,8 +85,8 @@
    "media_dur_s": 4.8,
    "voice_dur_s": 4.8,
    "rate": 24000,
-   "item": 8069,
-   "media_uid": "7a2a1a1a-6d22-4c81-bc47-74342cbb8ade"
+   "item": 8063,
+   "media_uid": "4e978d56-9740-4dc8-b14c-9e09c5326535"
   },
   {
    "n": 6,
@@ -99,8 +99,8 @@
    "media_dur_s": 2.8,
    "voice_dur_s": 2.8,
    "rate": 24000,
-   "item": 8087,
-   "media_uid": "cd70f990-29a7-4129-bbb3-7270d1b2c62a"
+   "item": 8081,
+   "media_uid": "0281d8a1-f97d-4ca7-a8d2-d34cef16350a"
   },
   {
    "n": 7,
@@ -113,8 +113,8 @@
    "media_dur_s": 4.4,
    "voice_dur_s": 4.4,
    "rate": 24000,
-   "item": 8105,
-   "media_uid": "4e69c98c-0baa-4902-bb69-e4de02baf0e9"
+   "item": 8099,
+   "media_uid": "f2f19a42-38a4-42d8-be91-c2d3ea25ec9c"
   },
   {
    "n": 8,
@@ -127,8 +127,8 @@
    "media_dur_s": 4.64,
    "voice_dur_s": 4.64,
    "rate": 24000,
-   "item": 8123,
-   "media_uid": "227a0ee1-cb7d-493a-b48d-a8eb1823ebf4"
+   "item": 8117,
+   "media_uid": "ee109e34-c0a8-4d9a-a054-e84b16d433b4"
   },
   {
    "n": 9,
@@ -141,8 +141,8 @@
    "media_dur_s": 4.0,
    "voice_dur_s": 4,
    "rate": 24000,
-   "item": 8141,
-   "media_uid": "334845f9-7eb2-476e-8a7b-0d575b784ee5"
+   "item": 8135,
+   "media_uid": "639d5af9-51e3-4452-bd0d-2ccb5456f777"
   },
   {
    "n": 10,
@@ -155,8 +155,8 @@
    "media_dur_s": 3.68,
    "voice_dur_s": 3.68,
    "rate": 24000,
-   "item": 8159,
-   "media_uid": "71fc49de-9480-483a-9b35-44c812969f5b"
+   "item": 8153,
+   "media_uid": "8338c571-fb62-4c21-ab4f-f2ffc454bc2c"
   },
   {
    "n": 11,
@@ -169,8 +169,8 @@
    "media_dur_s": 4.08,
    "voice_dur_s": 4.08,
    "rate": 24000,
-   "item": 8177,
-   "media_uid": "2685e9ab-73f3-4d80-855c-f7d402386d80"
+   "item": 8171,
+   "media_uid": "ef2063dc-da51-426b-b4b6-98a8970a2e01"
   },
   {
    "n": 12,
@@ -183,218 +183,218 @@
    "media_dur_s": 4.08,
    "voice_dur_s": 4.08,
    "rate": 24000,
-   "item": 8195,
-   "media_uid": "8bf036f3-30a2-4cc2-90d4-dba7404c9bc0"
+   "item": 8189,
+   "media_uid": "5944b3b5-9de7-47cf-91dd-cc11959bac13"
   },
   {
    "n": 13,
    "wav": "b13.wav",
    "t0_s": 248.028,
-   "t1_s": 251.788,
+   "t1_s": 252.348,
    "start_ticks": 63005991048000,
-   "end_ticks": 63959503608000,
-   "clip_len_s": 3.7538,
-   "media_dur_s": 3.76,
-   "voice_dur_s": 3.76,
+   "end_ticks": 64097233200000,
+   "clip_len_s": 4.296,
+   "media_dur_s": 4.32,
+   "voice_dur_s": 4.32,
    "rate": 24000,
-   "item": 8213,
-   "media_uid": "62399942-1589-4a99-af29-e815bb8b2b72"
+   "item": 8207,
+   "media_uid": "8973d5ad-385e-4200-a58d-3dbeea0f7669"
   },
   {
    "n": 14,
    "wav": "b14.wav",
-   "t0_s": 271.769,
-   "t1_s": 276.809,
-   "start_ticks": 69034309344000,
-   "end_ticks": 70305659424000,
-   "clip_len_s": 5.005,
-   "media_dur_s": 5.04,
-   "voice_dur_s": 5.04,
+   "t0_s": 272.329,
+   "t1_s": 276.169,
+   "start_ticks": 69172038936000,
+   "end_ticks": 70146740664000,
+   "clip_len_s": 3.8372,
+   "media_dur_s": 3.84,
+   "voice_dur_s": 3.84,
    "rate": 24000,
-   "item": 8231,
-   "media_uid": "87dda458-4820-46ca-a96c-2e2d205c3abd"
+   "item": 8225,
+   "media_uid": "d61a8441-bfef-4314-97d4-6d3b5b06625c"
   },
   {
    "n": 15,
    "wav": "b15.wav",
-   "t0_s": 284.771,
-   "t1_s": 288.211,
-   "start_ticks": 72339819552000,
-   "end_ticks": 73208575440000,
-   "clip_len_s": 3.4201,
-   "media_dur_s": 3.44,
-   "voice_dur_s": 3.44,
+   "t0_s": 284.025,
+   "t1_s": 287.785,
+   "start_ticks": 72149117040000,
+   "end_ticks": 73102629600000,
+   "clip_len_s": 3.7538,
+   "media_dur_s": 3.76,
+   "voice_dur_s": 3.76,
    "rate": 24000,
-   "item": 8249,
-   "media_uid": "271532ec-71a7-480d-96b7-45c5a4493296"
+   "item": 8243,
+   "media_uid": "e79892f7-5c6a-4c92-bb17-1409d20423fb"
   },
   {
    "n": 16,
    "wav": "b16.wav",
-   "t0_s": 330.485,
-   "t1_s": 334.645,
-   "start_ticks": 83951483616000,
-   "end_ticks": 85000347432000,
-   "clip_len_s": 4.1291,
-   "media_dur_s": 4.16,
-   "voice_dur_s": 4.16,
-   "rate": 24000,
-   "item": 8267,
-   "media_uid": "69c08488-8579-4349-8f0c-4536c501aa2b"
-  },
-  {
-   "n": 17,
-   "wav": "b17.wav",
-   "t0_s": 352.865,
-   "t1_s": 357.265,
-   "start_ticks": 89630180640000,
-   "end_ticks": 90742611960000,
-   "clip_len_s": 4.3794,
-   "media_dur_s": 4.4,
-   "voice_dur_s": 4.4,
-   "rate": 24000,
-   "item": 8285,
-   "media_uid": "4cf56202-c832-477a-af22-45a3f1c1f355"
-  },
-  {
-   "n": 18,
-   "wav": "b18.wav",
-   "t0_s": 380.445,
-   "t1_s": 384.685,
-   "start_ticks": 96643795248000,
-   "end_ticks": 97713848232000,
-   "clip_len_s": 4.2125,
-   "media_dur_s": 4.24,
-   "voice_dur_s": 4.24,
-   "rate": 24000,
-   "item": 8303,
-   "media_uid": "d08d6ed8-828e-4e9d-b9a9-2f5cd6a0fbaa"
-  },
-  {
-   "n": 19,
-   "wav": "b19.wav",
-   "t0_s": 435.413,
-   "t1_s": 440.853,
-   "start_ticks": 110596862376000,
-   "end_ticks": 111974158296000,
-   "clip_len_s": 5.4221,
-   "media_dur_s": 5.44,
-   "voice_dur_s": 5.44,
-   "rate": 24000,
-   "item": 8321,
-   "media_uid": "96da7ac5-b120-4b4d-8ddf-785f7b017afb"
-  },
-  {
-   "n": 20,
-   "wav": "b20.wav",
-   "t0_s": 441.253,
-   "t1_s": 444.613,
-   "start_ticks": 112080104136000,
-   "end_ticks": 112927670856000,
-   "clip_len_s": 3.3367,
-   "media_dur_s": 3.36,
-   "voice_dur_s": 3.36,
-   "rate": 24000,
-   "item": 8339,
-   "media_uid": "4408ea03-1df2-4f57-a774-6799bfa28385"
-  },
-  {
-   "n": 21,
-   "wav": "b21.wav",
-   "t0_s": 445.013,
-   "t1_s": 448.933,
-   "start_ticks": 113044211280000,
-   "end_ticks": 114029507592000,
-   "clip_len_s": 3.8789,
-   "media_dur_s": 3.92,
-   "voice_dur_s": 3.92,
-   "rate": 24000,
-   "item": 8357,
-   "media_uid": "0efa72b9-2465-4ff4-9c42-8d280e23385b"
-  },
-  {
-   "n": 22,
-   "wav": "b22.wav",
-   "t0_s": 469.054,
-   "t1_s": 473.214,
-   "start_ticks": 119146691664000,
-   "end_ticks": 120195555480000,
-   "clip_len_s": 4.1291,
-   "media_dur_s": 4.16,
-   "voice_dur_s": 4.16,
-   "rate": 24000,
-   "item": 8375,
-   "media_uid": "ebc23c27-acc4-40c9-9a77-9f74b582e59b"
-  },
-  {
-   "n": 23,
-   "wav": "b23.wav",
-   "t0_s": 474.014,
-   "t1_s": 478.734,
-   "start_ticks": 120407447160000,
-   "end_ticks": 121604635152000,
-   "clip_len_s": 4.713,
-   "media_dur_s": 4.72,
-   "voice_dur_s": 4.72,
-   "rate": 24000,
-   "item": 8393,
-   "media_uid": "36ee41c2-d8b7-4e3f-b5de-c1beeea61881"
-  },
-  {
-   "n": 24,
-   "wav": "b24.wav",
-   "t0_s": 490.458,
-   "t1_s": 493.498,
-   "start_ticks": 124581713256000,
-   "end_ticks": 125344523304000,
-   "clip_len_s": 3.003,
-   "media_dur_s": 3.04,
-   "voice_dur_s": 3.04,
-   "rate": 24000,
-   "item": 8411,
-   "media_uid": "397001e1-4f93-4b8e-bbaa-dc78794a54c7"
-  },
-  {
-   "n": 25,
-   "wav": "b25.wav",
-   "t0_s": 504.822,
-   "t1_s": 509.222,
-   "start_ticks": 128236844736000,
-   "end_ticks": 129349276056000,
-   "clip_len_s": 4.3794,
-   "media_dur_s": 4.4,
-   "voice_dur_s": 4.4,
-   "rate": 24000,
-   "item": 8429,
-   "media_uid": "c5114afd-ba5d-42fd-b3a7-753c38ed33f3"
-  },
-  {
-   "n": 26,
-   "wav": "b26.wav",
-   "t0_s": 520.546,
-   "t1_s": 525.586,
-   "start_ticks": 132231002904000,
-   "end_ticks": 133502352984000,
+   "t0_s": 329.405,
+   "t1_s": 334.445,
+   "start_ticks": 83676024432000,
+   "end_ticks": 84947374512000,
    "clip_len_s": 5.005,
    "media_dur_s": 5.04,
    "voice_dur_s": 5.04,
    "rate": 24000,
-   "item": 8447,
-   "media_uid": "6b433ee9-2ed6-4559-8d9e-e5049796e884"
+   "item": 8261,
+   "media_uid": "ff73a2ca-098b-4550-b213-d12d25a178bc"
+  },
+  {
+   "n": 17,
+   "wav": "b17.wav",
+   "t0_s": 352.705,
+   "t1_s": 356.145,
+   "start_ticks": 89587802304000,
+   "end_ticks": 90456558192000,
+   "clip_len_s": 3.4201,
+   "media_dur_s": 3.44,
+   "voice_dur_s": 3.44,
+   "rate": 24000,
+   "item": 8279,
+   "media_uid": "fbb9b1a0-55f0-4cd6-a380-24279b073158"
+  },
+  {
+   "n": 18,
+   "wav": "b18.wav",
+   "t0_s": 379.845,
+   "t1_s": 384.005,
+   "start_ticks": 96484876488000,
+   "end_ticks": 97533740304000,
+   "clip_len_s": 4.1291,
+   "media_dur_s": 4.16,
+   "voice_dur_s": 4.16,
+   "rate": 24000,
+   "item": 8297,
+   "media_uid": "65e67b28-05d6-4466-83a9-cbe3097395fe"
+  },
+  {
+   "n": 19,
+   "wav": "b19.wav",
+   "t0_s": 434.773,
+   "t1_s": 439.173,
+   "start_ticks": 110437943616000,
+   "end_ticks": 111550374936000,
+   "clip_len_s": 4.3794,
+   "media_dur_s": 4.4,
+   "voice_dur_s": 4.4,
+   "rate": 24000,
+   "item": 8315,
+   "media_uid": "039076ee-e840-46d5-9c85-6945689af9d7"
+  },
+  {
+   "n": 20,
+   "wav": "b20.wav",
+   "t0_s": 439.573,
+   "t1_s": 443.813,
+   "start_ticks": 111656320776000,
+   "end_ticks": 112726373760000,
+   "clip_len_s": 4.2125,
+   "media_dur_s": 4.24,
+   "voice_dur_s": 4.24,
+   "rate": 24000,
+   "item": 8333,
+   "media_uid": "85ec5c2c-c689-476b-8735-bdf163fc61d9"
+  },
+  {
+   "n": 21,
+   "wav": "b21.wav",
+   "t0_s": 444.213,
+   "t1_s": 449.653,
+   "start_ticks": 112832319600000,
+   "end_ticks": 114209615520000,
+   "clip_len_s": 5.4221,
+   "media_dur_s": 5.44,
+   "voice_dur_s": 5.44,
+   "rate": 24000,
+   "item": 8351,
+   "media_uid": "b1c88762-2de0-4504-b57e-f70bfba6014b"
+  },
+  {
+   "n": 22,
+   "wav": "b22.wav",
+   "t0_s": 469.774,
+   "t1_s": 473.134,
+   "start_ticks": 119326799592000,
+   "end_ticks": 120174366312000,
+   "clip_len_s": 3.3367,
+   "media_dur_s": 3.36,
+   "voice_dur_s": 3.36,
+   "rate": 24000,
+   "item": 8369,
+   "media_uid": "69e2eb7c-0d15-4a34-93c5-3dc786e9db15"
+  },
+  {
+   "n": 23,
+   "wav": "b23.wav",
+   "t0_s": 473.934,
+   "t1_s": 477.854,
+   "start_ticks": 120386257992000,
+   "end_ticks": 121371554304000,
+   "clip_len_s": 3.8789,
+   "media_dur_s": 3.92,
+   "voice_dur_s": 3.92,
+   "rate": 24000,
+   "item": 8387,
+   "media_uid": "6580ed58-532c-40c6-916a-bebe99f31373"
+  },
+  {
+   "n": 24,
+   "wav": "b24.wav",
+   "t0_s": 489.85,
+   "t1_s": 494.01,
+   "start_ticks": 124433389080000,
+   "end_ticks": 125482252896000,
+   "clip_len_s": 4.1291,
+   "media_dur_s": 4.16,
+   "voice_dur_s": 4.16,
+   "rate": 24000,
+   "item": 8405,
+   "media_uid": "acb638a7-d45b-4259-b1d2-ac6b3103dee1"
+  },
+  {
+   "n": 25,
+   "wav": "b25.wav",
+   "t0_s": 505.606,
+   "t1_s": 510.326,
+   "start_ticks": 128427547248000,
+   "end_ticks": 129624735240000,
+   "clip_len_s": 4.713,
+   "media_dur_s": 4.72,
+   "voice_dur_s": 4.72,
+   "rate": 24000,
+   "item": 8423,
+   "media_uid": "ed1aeec6-e330-4dca-aa99-3bc79c7eb271"
+  },
+  {
+   "n": 26,
+   "wav": "b26.wav",
+   "t0_s": 521.922,
+   "t1_s": 524.962,
+   "start_ticks": 132580624176000,
+   "end_ticks": 133343434224000,
+   "clip_len_s": 3.003,
+   "media_dur_s": 3.04,
+   "voice_dur_s": 3.04,
+   "rate": 24000,
+   "item": 8441,
+   "media_uid": "200ff9c7-7987-4043-acca-3351fe5264b9"
   },
   {
    "n": 27,
    "wav": "b27.wav",
-   "t0_s": 536.91,
-   "t1_s": 542.11,
-   "start_ticks": 136384079832000,
-   "end_ticks": 137697808248000,
-   "clip_len_s": 5.1718,
-   "media_dur_s": 5.2,
-   "voice_dur_s": 5.2,
+   "t0_s": 536.558,
+   "t1_s": 540.958,
+   "start_ticks": 136299323160000,
+   "end_ticks": 137411754480000,
+   "clip_len_s": 4.3794,
+   "media_dur_s": 4.4,
+   "voice_dur_s": 4.4,
    "rate": 24000,
-   "item": 8465,
-   "media_uid": "c8dd4a67-3847-4604-9c4a-7e35329580d7"
+   "item": 8459,
+   "media_uid": "79a3bd1b-e74f-4d32-bd3a-e94b7c5eac48"
   }
  ]
 }

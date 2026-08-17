@@ -23,6 +23,7 @@ interface VoiceSpec {
   출력형식: string; 샘플레이트_hz: number; voice_settings: Record<string, unknown>; 요청_최대자수: number;
 }
 const V = (spec as unknown as { 음성: VoiceSpec })["음성"];
+const VS = ((spec as unknown as { 음성: { 무음스캔?: { noise_dB: number; d_s: number } } })["음성"].무음스캔) ?? { noise_dB: -40, d_s: 0.2 };
 const N = (spec as unknown as { 나레이션: { 자당초_추정: number } })["나레이션"];
 const A = (answer as unknown as { 대본: { 나레_시간점유: { min: number; max: number } } })["대본"];
 
@@ -79,7 +80,14 @@ export const voice: StepHandler = {
         argv: ["ffmpeg", "-y", "-v", "error", "-f", "s16le", "-ar", String(V.샘플레이트_hz), "-ac", "1", "-i", join(voiceDir, `${bname(b.n)}.pcm`), join(voiceDir, `${bname(b.n)}.wav`)],
         note: "pcm(16bit 모노) → wav 감싸기. 인코딩 없음 — 길이 그대로",
       }));
+      for (const b of blocks) post.push({
+        name: `silence_${bname(b.n)}`,
+        argv: ["ffmpeg", "-v", "info", "-nostats", "-i", join(voiceDir, `${bname(b.n)}.wav`), "-af", `silencedetect=noise=${VS.noise_dB}dB:d=${VS.d_s}`, "-f", "null", "-"],
+        note: "발성 구간 실측(stderr 의 silence_start/end) — subtitle 이 자막 큐를 발성 안으로 클램프한다",
+      });
       const measure: MeasureRule[] = blocks.map((b) => ({ as: `voice_ts.${bname(b.n)}`, from: `job:${bname(b.n)}`, unit: "tts_timestamps" }));
+      // 발성 구간 실측 — 문자 정렬(chars_t)은 문장 사이 쉼을 글자에 붙여 늘린다(2026-08-17 진단). subtitle 이 이 실측으로 큐를 클램프한다
+      for (const b of blocks) measure.push({ as: `speech_raw.${bname(b.n)}`, from: `post:silence_${bname(b.n)}`, unit: "stderr" });
       const totalChars = blocks.reduce((a, b) => a + (b.chars ?? b.text.length), 0);
       return base("voice", preset, {
         status: "execute",
@@ -87,7 +95,7 @@ export const voice: StepHandler = {
         message: `TTS 지시: ${blocks.length}블록 · ${totalChars}자 → ${V.제공자}/${V.모델} 보이스 ${V.보이스_이름 ?? V.보이스_ID} (with-timestamps). 각 응답의 {audio_bytes, alignment} 를 payload.voice_ts 에 실어 voice 를 다시 부르라.`,
         instructions: [
           `① jobs 의 synthesize 를 블록 순서대로 보낸다. 키는 auth 대로 환경변수 ${V.키_환경변수} 에서 읽어 헤더 xi-api-key 에 붙인다. 응답은 JSON — audio_base64 를 디코드한 원시 pcm 을 out 경로에 저장한다. HTTP 200 이 아니면 그 블록은 실패다 — 본문의 detail 을 사람에게 보여주고 나머지는 계속한다.`,
-          "② post[] 의 ffmpeg 를 그대로 실행한다 (pcm → wav).",
+          "② post[] 의 ffmpeg 를 그대로 실행한다 (pcm → wav, 그다음 wav 마다 무음 스캔).",
           "③ measure(tts_timestamps) 대로 payload.voice_ts.bNN = {audio_bytes, alignment} 를 넣는다 (실패한 블록은 {audio_bytes:0}).",
           "④ carry 값(script 포함)과 함께 voice 를 다시 부른다.",
         ],
@@ -114,8 +122,26 @@ export const voice: StepHandler = {
       const chars_t = al && Array.isArray(al.characters) && Array.isArray(al.character_start_times_seconds) && Array.isArray(al.character_end_times_seconds)
         ? al.characters.map((c, i) => ({ c, s: r3(al.character_start_times_seconds![i]), e: r3(al.character_end_times_seconds![i]) }))
         : null;
-      return { n: b.n, pos: b.pos, text: b.text, chars, bytes, dur_s: dur, sec_per_char: chars > 0 ? r3(dur / chars) : null, est_s: b.est_s ?? r3(chars * N.자당초_추정), wav: join(voiceDir, `${bname(b.n)}.wav`), chars_t };
+      return { n: b.n, pos: b.pos, text: b.text, chars, bytes, dur_s: dur, sec_per_char: chars > 0 ? r3(dur / chars) : null, est_s: b.est_s ?? r3(chars * N.자당초_추정), wav: join(voiceDir, `${bname(b.n)}.wav`), chars_t, speech: null as [number, number][] | null };
     });
+    // 발성 구간 실측 파싱 (payload.speech_raw = {b01: "<ffmpeg stderr>", …}). 없으면 null — subtitle 이 chars_t 만 쓴다(경고)
+    const sraw = (payload.speech_raw ?? null) as Record<string, string> | null;
+    const speechOf = (n: number, dur: number): [number, number][] | null => {
+      const txt = sraw?.[bname(n)];
+      if (typeof txt !== "string" || !txt) return null;
+      const sil: [number, number][] = [];
+      let st: number | null = null;
+      for (const line of txt.split(/\r?\n/)) {
+        const a = /silence_start:\s*(-?[\d.]+)/.exec(line); if (a) st = Math.max(0, Number(a[1]));
+        const b = /silence_end:\s*([\d.]+)/.exec(line);
+        if (b && st !== null) { sil.push([r3(st), r3(Number(b[1]))]); st = null; }
+      }
+      if (st !== null) sil.push([r3(st), r3(dur)]);
+      const sp: [number, number][] = []; let cur = 0;
+      for (const [a, b] of sil.sort((x, y) => x[0] - y[0])) { if (a > cur + 0.001) sp.push([r3(cur), r3(a)]); cur = Math.max(cur, b); }
+      if (dur > cur + 0.001) sp.push([r3(cur), r3(dur)]);
+      return sp.length ? sp : null;
+    };
     const withTs = per.filter((p) => p.chars_t).length;
     if (failed.length > 0) {
       return reject(
@@ -124,6 +150,9 @@ export const voice: StepHandler = {
         `① 실패 블록의 HTTP 응답 detail 을 본다: 401 → 키(${V.키_환경변수}) 확인 · 402/quota → 잔여 문자 수 확인(/v1/user/subscription) · 400 voice_not_fine_tuned → 다른 보이스(규격 음성.보이스_후보) · 5xx → 잠시 뒤 재시도. ② 같은 jobs 중 실패한 것만 다시 보내고 payload.voice_bytes 를 채워 다시 부르라. 0 바이트 파일을 그대로 두고 넘어가지 않는다.`,
       );
     }
+    for (const p2 of per) p2.speech = speechOf(p2.n, p2.dur_s);
+    const withSpeech = per.filter((p2) => p2.speech).length;
+    const speechS = r3(per.reduce((a, p2) => a + (p2.speech ?? []).reduce((x, [u, v]) => x + (v - u), 0), 0));
     const totalS = r3(per.reduce((a, p) => a + p.dur_s, 0));
     const totalChars = per.reduce((a, p) => a + p.chars, 0);
     const spc = r3(totalS / totalChars);
@@ -137,6 +166,7 @@ export const voice: StepHandler = {
     const headroomChars = Math.round(headroomS / spc);
     const sharePass = shareMeasured === null ? null : shareMeasured >= lo && shareMeasured <= hi;
     const warnings: string[] = [];
+    if (withSpeech < per.length) warnings.push(`발성 구간 실측이 ${per.length - withSpeech}블록 없다 — subtitle 이 문자 정렬만 쓰게 되어 자막이 쉼 위에 뜰 수 있다(payload.speech_raw 확인).`);
     if (sharePass === false) warnings.push(`실측 나레 시간점유 ${shareMeasured} 가 대역 ${lo}~${hi} 밖 — ${shareMeasured! < lo ? `나레 ${r3(narMin - totalS)}s(≈${Math.round((narMin - totalS) / spc)}자)가 더 필요하다. script 로 돌아가 빈 위치를 채워라.` : `나레 ${r3(totalS - narMax)}s 를 덜어내라.`}`);
     const slowest = [...per].sort((a, b) => (b.sec_per_char ?? 0) - (a.sec_per_char ?? 0))[0];
     const fastest = [...per].sort((a, b) => (a.sec_per_char ?? 9) - (b.sec_per_char ?? 9))[0];
@@ -144,7 +174,7 @@ export const voice: StepHandler = {
     const voiceDoc = {
       source: source.path, title: source.title ?? null,
       tts: { provider: V.제공자, model: V.모델, voice_id: V.보이스_ID, voice_name: V.보이스_이름, output_format: V.출력형식, sample_rate_hz: V.샘플레이트_hz, voice_settings: V.voice_settings },
-      metrics: { block_count: per.length, blocks_with_timestamps: withTs, total_s: totalS, total_chars: totalChars, sec_per_char_measured: spc, sec_per_char_est: N.자당초_추정, est_total_s: estTotal, est_error_ratio: r3(estTotal / totalS), dialogue_s: dlgS, nar_share_measured: shareMeasured, nar_share_est: shareEst, headroom_s: headroomS, headroom_chars: headroomChars, slowest_block: { n: slowest.n, sec_per_char: slowest.sec_per_char }, fastest_block: { n: fastest.n, sec_per_char: fastest.sec_per_char } },
+      metrics: { block_count: per.length, blocks_with_timestamps: withTs, blocks_with_speech: withSpeech, speech_s: speechS, silence_in_wav_s: r3(totalS - speechS), total_s: totalS, total_chars: totalChars, sec_per_char_measured: spc, sec_per_char_est: N.자당초_추정, est_total_s: estTotal, est_error_ratio: r3(estTotal / totalS), dialogue_s: dlgS, nar_share_measured: shareMeasured, nar_share_est: shareEst, headroom_s: headroomS, headroom_chars: headroomChars, slowest_block: { n: slowest.n, sec_per_char: slowest.sec_per_char }, fastest_block: { n: fastest.n, sec_per_char: fastest.sec_per_char } },
       warnings,
       blocks: per,
     };

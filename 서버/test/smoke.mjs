@@ -448,17 +448,21 @@ const CARRY_V = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/y
     const j = sc?.jobs?.[0];
     ok(sc?.status === "execute" && sc?.jobs_kind === "synthesize" && sc?.jobs?.length === 2 && j?.provider === "elevenlabs" && j?.model === "eleven_v3" && /api\.elevenlabs\.io\/v1\/text-to-speech\/.+\?output_format=pcm_\d+/.test(j?.request?.url ?? ""), "voice①(보이스 있음) → synthesize job 블록수만큼(eleven_v3, pcm)", j?.request?.url);
     ok(j?.auth?.env === "ELEVENLABS_API_KEY" && /xi-api-key/.test(j?.auth?.header ?? "") && !/sk_1bf/.test(JSON.stringify(sc)), "voice① → auth env 만, 키 값 없음", JSON.stringify(j?.auth?.env));
-    ok(sc?.post?.length === 2 && sc.post[0].argv[0] === "ffmpeg" && sc.post[0].argv.includes("s16le") && sc?.measure?.[0]?.unit === "tts_timestamps" && sc?.measure?.[0]?.as === "voice_ts.b01" && /with-timestamps/.test(j?.request?.url ?? ""), "voice① → with-timestamps URL · post[] pcm→wav · measure tts_timestamps", JSON.stringify(sc?.measure?.[0]));
+    const silPost = (sc?.post ?? []).filter((x) => x.name?.startsWith("silence_")), silM = (sc?.measure ?? []).filter((m) => m.as?.startsWith("speech_raw."));
+    ok(sc?.post?.length === 4 && silPost.length === 2 && silPost[0].argv.join(" ").includes("silencedetect=noise=-40dB:d=0.2") && silM.length === 2 && silM[0].unit === "stderr" && sc.post[0].argv[0] === "ffmpeg" && sc.post[0].argv.includes("s16le") && sc?.measure?.[0]?.unit === "tts_timestamps" && sc?.measure?.[0]?.as === "voice_ts.b01" && /with-timestamps/.test(j?.request?.url ?? ""), "voice① → with-timestamps URL · post[] pcm→wav + 무음스캔 · measure tts_timestamps/stderr", JSON.stringify(sc?.measure?.[0]));
   }
 }
 
 // 28) voice ② 통과 — 바이트 → 실측 길이·자당초·시간점유 재계산·여유
 {
-  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28, alignment: { characters: ["계", "단"], character_start_times_seconds: [0, 0.2], character_end_times_seconds: [0.2, 0.4] } }, b02: { audio_bytes: 24000 * 2 * 5.5 } } } } });
+  const SIL_B01 = ["[silencedetect @ 0x1] silence_start: 2.2", "[silencedetect @ 0x1] silence_end: 3.7 | silence_duration: 1.5"].join(String.fromCharCode(10));
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28, alignment: { characters: ["계", "단"], character_start_times_seconds: [0, 0.2], character_end_times_seconds: [0.2, 0.4] } }, b02: { audio_bytes: 24000 * 2 * 5.5 } }, speech_raw: { b01: SIL_B01, b02: "" } } } });
   const sc = res.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "subtitle", "voice② → execute, next_step=subtitle", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 80)}`);
   const m = sc?.metrics ?? {};
   ok(m.block_count === 2 && m.total_s === 10.78 && m.sec_per_char_measured === 0.161 && m.sec_per_char_est === 0.122 && typeof m.nar_share_measured === "number" && typeof m.headroom_chars === "number", "voice② → metrics(총 길이·실측 자당초 vs 추정·시간점유 실측·여유 자수)", JSON.stringify(m));
+  { const vd = sc?.write_files?.find((w) => /voice\.json$/.test(w.path))?.content; const b1 = vd?.blocks?.find((b) => b.n === 1); const b2 = vd?.blocks?.find((b) => b.n === 2);
+    ok(Array.isArray(b1?.speech) && b1.speech.length === 2 && b1.speech[0][1] === 2.2 && b1.speech[1][0] === 3.7 && b2?.speech === null && vd?.metrics?.blocks_with_speech === 1 && (vd?.warnings ?? []).some((w) => /발성 구간 실측이 1블록 없다/.test(w)), "voice② → 발성 구간 실측 파싱(speech·metrics·경고)", JSON.stringify([b1?.speech, vd?.metrics?.blocks_with_speech])); }
   const wf = sc?.write_files?.[0];
   ok(wf?.path === "C:/youstudio_work/sample/voice/voice.json" && wf?.content?.blocks?.[0]?.dur_s === 5.28 && /b01\.wav$/.test(wf.content.blocks[0].wav) && wf.content.blocks[0].chars_t?.length === 2 && wf.content.blocks[1].chars_t === null && sc?.metrics?.blocks_with_timestamps === 1, "voice② → write_files voice.json(블록별 실측 길이·wav·글자별 시각)", "");
   ok(sc?.record_to_ours?.tts?.자당초?.value === 0.161 && sc?.record_to_ours?.tts?.자당초?.n === 2 && sc?.instructions?.some((l) => /우리실측\.json/.test(l)), "voice② → record_to_ours(우리실측.json tts.자당초) + 기록 지시", JSON.stringify(sc?.record_to_ours?.tts?.자당초?.value));
