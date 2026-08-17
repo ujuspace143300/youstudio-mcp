@@ -176,9 +176,9 @@ const PROBE_SUMMARY = { duration_s: 929.077, width: 1920, height: 1080, fps: 23.
   ok(ex?.argv?.[0] === "ffmpeg" && ex.argv.includes("16000") && ex.argv.includes("-ac") && ex.argv.at(-1) === "C:/youstudio_work/sample/transcript/audio.mp3", "transcript① → do[] ffmpeg 오디오 추출(16kHz 모노 mp3)", ex?.argv?.join(" "));
   ok(sc?.do?.some((d) => d.name === "audio_size" && d.argv[0] === "ffprobe"), "transcript① → do[] audio_size(ffprobe)", "");
   const j = sc?.jobs?.[0];
-  ok(sc?.jobs_kind === "transcribe" && j?.provider === "groq" && j?.model === "whisper-large-v3-turbo" && j?.request?.multipart?.response_format === "verbose_json" && j?.request?.multipart?.language === "en", "transcript① → transcribe job(Groq whisper-large-v3-turbo, verbose_json, lang)", JSON.stringify(j?.request?.multipart));
-  ok(j?.auth?.env === "GROQ_API_KEY" && !/gsk_/.test(JSON.stringify(sc)), "transcript① → auth 는 env 이름만, 응답에 키 값 없음", JSON.stringify(j?.auth));
-  ok(sc?.measure?.some((m) => m.as === "asr" && m.from === "job:groq_asr") && sc?.carry?.includes("probe_summary"), "transcript① → measure asr / carry", JSON.stringify(sc?.measure));
+  ok(sc?.jobs_kind === "transcribe" && j?.provider === "speechmatics" && String(j?.request?.multipart?.data_file ?? "").startsWith("@") && /"language":"en"/.test(String(j?.request?.multipart?.config ?? "")) && j?.batch?.transcript_url?.includes("format=json-v2") && j?.batch?.poll_s > 0, "transcript① → transcribe job(Speechmatics batch v2, 단어 시각, lang)", JSON.stringify(j?.request?.multipart));
+  ok(j?.auth?.env === "SPEECHMATICS_API_KEY" && !/gsk_/.test(JSON.stringify(sc)), "transcript① → auth 는 env 이름만, 응답에 키 값 없음", JSON.stringify(j?.auth));
+  ok(sc?.measure?.some((m) => m.as === "asr" && m.from === "job:asr") && sc?.carry?.includes("probe_summary"), "transcript① → measure asr / carry", JSON.stringify(sc?.measure));
   ok(sc?.instructions?.some((l) => /25MB/.test(l) && /분할 전사는 미정/.test(l)), "transcript① → 지시문에 파일 상한·분할 전사 미정", "");
   ok(sc?.do?.some((d) => d.name === "silence_scan" && d.argv.some((a) => /silencedetect=noise=-24dB:d=0\.4/.test(a))) && sc?.measure?.some((m) => m.as === "silences_raw" && m.unit === "stderr"), "transcript① → do[] silence_scan(무음 실측) · measure stderr", "");
 }
@@ -526,6 +526,7 @@ const TR = [{ id: "d001", ko: "야 마이크 너네 삼촌 발 전문의지" }, 
   let crossOv = 0; for (const n of narCues) for (const d of dlgCues) crossOv += Math.max(0, Math.min(n.t1, d.t1) - Math.max(n.t0, d.t0));
   ok(narInVoice && crossOv < 0.001 && tl?.metrics?.cross_overlap_s === 0 && (tl?.metrics?.dlg_cues_dropped ?? 0) >= 1, "subtitle② → 나레 큐 ⊆ 음성 구간 · 교차 겹침 0(대사 큐 잘림/버림)", `cross=${crossOv.toFixed(3)} dropped=${tl?.metrics?.dlg_cues_dropped} trimmed=${tl?.metrics?.dlg_cues_trimmed}`);
   ok(sc?.metrics?.overlaps === 0 && sc?.gates?.some((g) => /겹침/.test(g.id) && g.pass) && sc?.gates?.some((g) => /죽은시간/.test(g.id) && g.hard), "subtitle② → 게이트(겹침 0 · 죽은시간 hard)", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
+  ok(sc?.gates?.some((g) => g.id === "G-대사선행" && g.hard), "subtitle② → G-대사선행 게이트 존재(hard)", JSON.stringify(sc?.gates?.find((g) => g.id === "G-대사선행")?.detail ?? ""));
   ok(sc?.gates?.some((g) => /G-교차겹침/.test(g.id) && g.pass && g.hard) && sc?.gates?.some((g) => /G-자막음성일치/.test(g.id) && g.pass && g.hard), "subtitle② → 새 게이트 2개(G-교차겹침·G-자막음성일치) hard 통과", JSON.stringify(sc?.gates?.map((g) => g.id)));
   const srt = sc?.write_files?.find((w) => /subtitle\.srt$/.test(w.path))?.content ?? "";
   ok(/^1\n\d\d:\d\d:\d\d,\d{3} --> /.test(srt) && /– 저요\?/.test(srt) && sc?.write_files?.length === 4, "subtitle② → SRT 3종+timeline (합본 대사 접두 –)", srt.slice(0, 60).replace(/\n/g, "\\n"));

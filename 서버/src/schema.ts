@@ -69,7 +69,9 @@ export interface ArgvJob {
 /** 외부 전사 호출 한 건. 키 값은 절대 담지 않는다 — auth 는 "어디서 읽어라"만 */
 export interface TranscribeJob {
   name: string;
-  provider: "groq";
+  provider: "groq" | "speechmatics";
+  /** 비동기 배치 API 인가 (speechmatics: 제출 → 폴링 → 받기). runner 가 이 절차를 밟는다 */
+  batch?: { submit_url: string; status_url: string; transcript_url: string; poll_s: number; timeout_s: number };
   model: string;
   /** HTTP 요청 명세. runner 는 이대로 보낸다 */
   request: {

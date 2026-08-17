@@ -14,7 +14,8 @@ import { base, reject } from "../response.js";
 import type { StepHandler } from "./types.js";
 
 interface TranscribeSpec {
-  제공자: "groq";
+  제공자: "groq" | "speechmatics";
+  설정?: { type?: string; transcription_config?: Record<string, unknown> };
   모델: string;
   엔드포인트: string;
   키_환경변수: string;
@@ -36,7 +37,9 @@ function join(root: string, ...parts: string[]): string {
 
 /** whisper verbose_json 에서 우리가 읽는 칸 */
 interface AsrSegment { id?: number; start?: number; end?: number; text?: string; no_speech_prob?: number }
-interface AsrRaw { language?: string; duration?: number; text?: string; segments?: AsrSegment[] }
+interface AsrRaw { language?: string; duration?: number; text?: string; segments?: AsrSegment[];
+  /** Speechmatics json-v2 */ results?: { type?: string; start_time?: number; end_time?: number; attaches_to?: string; alternatives?: { content?: string }[] }[];
+  job?: { duration?: number; id?: string } }
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
@@ -79,14 +82,20 @@ export const transcript: StepHandler = {
 
     // ── ① 지시 ──────────────────────────────────────────────────────────
     if (payload.asr === undefined) {
-      const multipart: Record<string, string> = {
-        file: `@${audioPath}`,
-        model: T.모델,
-        response_format: T.응답형식,
-        "timestamp_granularities[]": T.타임스탬프단위,
-        temperature: String(T.온도),
-      };
-      if (source.lang) multipart.language = source.lang;
+      const isSM = T.제공자 === "speechmatics";
+      // Speechmatics(1순위) = 단어 단위 시각. 배치 v2: data_file + config 를 제출하고 폴링해서 json-v2 를 받는다.
+      // Groq(폴백 2순위) = 세그먼트 단위. 규격 「전사.폴백_사다리」
+      const smConfig = JSON.stringify({ ...(T.설정 ?? { type: "transcription" }), transcription_config: { ...((T.설정 ?? {}).transcription_config ?? {}), ...(source.lang ? { language: source.lang } : {}) } });
+      const multipart: Record<string, string> = isSM
+        ? { data_file: `@${audioPath}`, config: smConfig }
+        : {
+            file: `@${audioPath}`,
+            model: T.모델,
+            response_format: T.응답형식,
+            "timestamp_granularities[]": T.타임스탬프단위,
+            temperature: String(T.온도),
+            ...(source.lang ? { language: source.lang } : {}),
+          };
 
       return base("transcript", preset, {
         status: "execute",
@@ -95,7 +104,7 @@ export const transcript: StepHandler = {
         instructions: [
           `① do[] 의 extract_audio 를 그대로 실행해 ${audioPath} 를 만든다.`,
           `② do[] 의 audio_size 로 크기를 잰다. ${T.파일상한_mb}MB(규격.json 전사.파일상한_mb)를 넘으면 여기서 멈추고 사람에게 보고한다 — 장편 분할 전사는 미정이다.`,
-          `③ jobs 의 transcribe 를 그대로 보낸다. 키는 auth 대로 환경변수 ${T.키_환경변수} 에서 읽어 헤더에 붙인다. 키 값을 화면·파일·payload 에 쓰지 않는다. 응답 JSON 을 out 경로에 저장한다.`,
+          `③ jobs 의 transcribe 를 그대로 보낸다(배치면 batch 의 제출→폴링→받기 순서로). 키는 auth 대로 환경변수 ${T.키_환경변수} 에서 읽어 헤더에 붙인다. 키 값을 화면·파일·payload 에 쓰지 않는다. 응답 JSON 을 out 경로에 저장한다.`,
           "④ measure 대로 응답 JSON 을 payload.asr 에, 크기 JSON 을 payload.audio_bytes 에, silence_scan 의 stderr 전문을 payload.silences_raw 에 넣고, carry 값과 함께 transcript 를 다시 부른다.",
         ],
         then_call_with: [
@@ -131,21 +140,24 @@ export const transcript: StepHandler = {
         jobs_kind: "transcribe",
         jobs: [
           {
-            name: "groq_asr",
+            name: "asr",
             provider: T.제공자,
             model: T.모델,
             request: { method: "POST", url: T.엔드포인트, multipart },
+            ...(isSM ? { batch: { submit_url: T.엔드포인트, status_url: `${T.엔드포인트}/{id}`, transcript_url: `${T.엔드포인트}/{id}/transcript?format=json-v2`, poll_s: 10, timeout_s: 1800 } } : {}),
             auth: {
               env: T.키_환경변수,
               header: `Authorization: Bearer <${T.키_환경변수} 값>`,
               note: "서버는 키를 보관하지 않는다. runner 가 로컬 환경변수에서 읽어 붙인다.",
             },
             out: rawPath,
-            note: "verbose_json — segments[] 에 start·end·text",
+            note: isSM
+              ? "Speechmatics batch v2 — 제출 후 상태가 done 이 되면 json-v2 를 받는다. results[] 에 start_time·end_time·alternatives[0].content (단어 단위)"
+              : "verbose_json — segments[] 에 start·end·text (폴백: 단어 시각 없음)",
           },
         ],
         measure: [
-          { as: "asr", from: "job:groq_asr", unit: "json_stdout" },
+          { as: "asr", from: "job:asr", unit: "json_stdout" },
           { as: "audio_bytes", from: "job:audio_size", unit: "json_stdout" },
           { as: "silences_raw", from: "job:silence_scan", unit: "stderr" },
         ],
@@ -157,6 +169,27 @@ export const transcript: StepHandler = {
 
     // ── ② 결과 검사 ──────────────────────────────────────────────────────
     const raw = payload.asr as AsrRaw;
+    // Speechmatics(1순위) json-v2 → 단어 목록 + 발화(문장) 로 접는다. 단어 시각이 자막 시작·끝의 근거가 된다.
+    const smWords: { w: string; s: number; e: number }[] = Array.isArray(raw?.results)
+      ? raw.results.filter((r) => (r.type ?? "word") === "word" && typeof r.start_time === "number").map((r) => ({ w: String(r.alternatives?.[0]?.content ?? ""), s: r3(r.start_time as number), e: r3(r.end_time ?? r.start_time as number) })).filter((w) => w.w)
+      : [];
+    if (smWords.length && !Array.isArray(raw.segments)) {
+      // 문장 끝 부호(. ? !)나 큰 쉼(≥0.6s)에서 발화를 끊는다 — 시각은 언제나 단어 실측
+      const punct = Array.isArray(raw.results) ? raw.results.filter((r) => r.type === "punctuation") : [];
+      const endsAfter = new Set(punct.filter((p2) => /[.?!]/.test(String(p2.alternatives?.[0]?.content ?? ""))).map((p2) => r3(p2.start_time ?? 0)));
+      const segs: AsrSegment[] = [];
+      let cur: { s: number; e: number; ws: string[] } | null = null;
+      for (let i = 0; i < smWords.length; i++) {
+        const w = smWords[i];
+        if (!cur) cur = { s: w.s, e: w.e, ws: [w.w] };
+        else { cur.ws.push(w.w); cur.e = w.e; }
+        const nxt = smWords[i + 1];
+        const gap = nxt ? nxt.s - w.e : Infinity;
+        const sentenceEnd = [...endsAfter].some((t) => Math.abs(t - w.e) < 0.06);
+        if (!nxt || sentenceEnd || gap >= 0.6) { segs.push({ start: cur.s, end: cur.e, text: cur.ws.join(" ") }); cur = null; }
+      }
+      raw.segments = segs;
+    }
     if (typeof raw !== "object" || raw === null || !Array.isArray(raw.segments)) {
       return reject(
         "transcript", preset,
@@ -256,7 +289,8 @@ export const transcript: StepHandler = {
       source: source.path,
       title: source.title ?? null,
       lang: source.lang ?? langCode(raw.language) ?? null,
-      asr: { provider: T.제공자, model: T.모델, raw: rawPath },
+      asr: { provider: T.제공자, model: T.모델, raw: rawPath, timestamp_unit: smWords.length ? "word" : "segment", words_measured: smWords.length },
+      words: smWords,
       duration_s: durationS,
       utterance_count: utterances.length,
       speech_s: speechS,
