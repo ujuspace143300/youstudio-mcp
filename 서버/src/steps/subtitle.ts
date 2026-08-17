@@ -591,37 +591,17 @@ export const subtitle: StepHandler = {
       });
       cues.push(...mine);
     }
-    // ── 인접 대사 병합(2026-08-17, 규격 「자막.대사_병합」) ─────────────────
-    //   단어 실측으로 짧은 대사가 0.2~0.4s 간격으로 촘촘해지자 최소길이·꼬리가 서로 밀어내 큐가 버려졌다.
-    //   같은 컷 안에서 붙어 있는 대사는 한 큐로 합친다. **다른 발화끼리는 구분자를 넣는다**(다른 사람의 말일 수 있다).
-    let mergedDlg = 0;
-    if (SUB.대사_병합) {
-      const gapMax = SUB.대사_병합.간격_최대_s, sep = SUB.대사_병합.구분자;
-      const picOf = (t: number) => pics.find((p) => t >= p.t0 - 1e-6 && t < p.t1 + 1e-6);
-      const D = cues.filter((c) => c.lane === "dlg").sort((a, b) => a.t0 - b.t0);
-      const gone = new Set<Cue>();
-      for (let i = 1; i < D.length; i++) {
-        const prev = D[i - 1], cur = D[i];
-        if (gone.has(prev)) continue;
-        const merged = `${prev.text}${sep}${cur.text}`;
-        if (cur.t0 - prev.t1 > gapMax + 1e-6) continue;
-        if (merged.length > A["G-자막_한줄_최대자수"].대사) continue;
-        if (picOf(prev.t0) !== picOf(cur.t1)) continue;                  // 같은 컷 안에서만
-        prev.text = merged; prev.t1 = cur.t1; prev.src = `${prev.src ?? ""} | ${cur.src ?? ""}`.trim();
-        const ce = dlgSrcEnd.get(cur); if (ce !== undefined) dlgSrcEnd.set(prev, ce);
-        gone.add(cur); D[i] = prev; mergedDlg++;
-      }
-      if (gone.size) {
-        for (let i = cues.length - 1; i >= 0; i--) if (gone.has(cues[i])) cues.splice(i, 1);
-        warnings.push(`인접 대사 ${gone.size}건을 앞 큐와 합쳤다(간격 ≤${gapMax}s · 같은 컷 · 자수 안, 구분자 「${sep.trim()}」).`);
-      }
-    }
+    // 【강제 규칙 2026-08-17】 **한 큐 = 한 발화.** 화자가 다른 말을 한 줄에 합치지 않는다 —
+    //   인접 대사 병합 기능은 이 원칙으로 **폐기**했다(규격 「자막.대사_병합」도 삭제). 맞닿은 발화는
+    //   앞 큐 끝 = 뒤 큐 시작으로 이어 붙인다(겹침 0, 사이 간격 0).
+    const mergedDlg = 0;
+    const dlgGap = 0;                       // 대사끼리는 딱 붙인다(나레는 규격 큐_사이_최소간격 유지)
     // 대사 큐 꼬리 — 발화 뒤 규격만큼 남긴다 (다음 대사 큐 직전·큐 최대길이 안에서)
     {
       const D = cues.filter((c) => c.lane === "dlg").sort((a, b) => a.t0 - b.t0);
       for (let i = 0; i < D.length; i++) {
         const nextT0 = D[i + 1]?.t0 ?? Infinity;
-        const extended = Math.min(D[i].t1 + SUB.대사큐_꼬리_s, nextT0 - SUB.큐_사이_최소간격_s, D[i].t0 + SUB.큐_최대길이_s);
+        const extended = Math.min(D[i].t1 + SUB.대사큐_꼬리_s, nextT0 - dlgGap, D[i].t0 + SUB.큐_최대길이_s);
         D[i].t1 = r3(Math.max(D[i].t1, extended)); // 늘리기만 한다 (줄이지 않는다)
       }
     }
@@ -648,8 +628,9 @@ export const subtitle: StepHandler = {
       const L = cues.filter((c) => c.lane === lane);
       for (let i = 1; i < L.length; i++) if (L[i].t0 < L[i - 1].t1) {
       // 앞 큐 끝을 자르고, 그래도 겹치면(앞 큐가 너무 짧아짐) 뒤 큐 시작을 민다
-      L[i - 1].t1 = r3(Math.max(L[i - 1].t0 + 0.3, L[i].t0 - SUB.큐_사이_최소간격_s));
-      if (L[i].t0 < L[i - 1].t1) { L[i].t0 = r3(L[i - 1].t1 + SUB.큐_사이_최소간격_s); L[i].t1 = r3(Math.max(L[i].t1, L[i].t0 + 0.3)); }
+      const sep = lane === "dlg" ? 0 : SUB.큐_사이_최소간격_s;      // 대사는 딱 붙이고, 나레는 규격 간격
+      L[i - 1].t1 = r3(Math.max(L[i - 1].t0 + 0.3, L[i].t0 - sep));
+      if (L[i].t0 < L[i - 1].t1) { L[i].t0 = r3(L[i - 1].t1 + sep); L[i].t1 = r3(Math.max(L[i].t1, L[i].t0 + 0.3)); }
       overlapsFixed++;
     }
     }
@@ -673,7 +654,7 @@ export const subtitle: StepHandler = {
         for (const n of busy) {
           if (n[1] <= cur + 1e-6 || n[0] >= hi - 1e-6) continue;
           if (n[0] - gapS > cur) free.push([cur, n[0] - gapS]);
-          cur = Math.max(cur, n[1] + gapS);
+          cur = Math.max(cur, n[1] + gapS);   // 나레 큐는 간격을 둔다
         }
         if (hi > cur) free.push([cur, hi]);
         // 자리 고르기: **원래 큐 구간과 가장 많이 겹치는** 창(말이 나오는 자리)을 먼저 — 같으면 긴 창.
@@ -690,7 +671,7 @@ export const subtitle: StepHandler = {
         const L = D.filter((x) => !drop.has(String(x.ref))).sort((x, y) => x.t0 - y.t0);
         for (let i = 1; i < L.length; i++) {
           if (L[i].t0 < L[i - 1].t1 - 1e-6) {
-            const end = r3(L[i].t0 - gapS);
+            const end = r3(L[i].t0 - dlgGap);       // 딱 이어 붙인다(겹침 0)
             if (end - L[i - 1].t0 >= minCut) { dlgTrimmed.push(`${L[i - 1].ref} 끝 ${L[i - 1].t1} → ${end} (뒤 대사 큐와 겹침)`); L[i - 1].t1 = end; }
             else { drop.add(String(L[i - 1].ref)); dlgDropped.push(`${L[i - 1].ref} ${L[i - 1].t0}~${L[i - 1].t1} 「${L[i - 1].text}」 (앞뒤 큐 사이에 ${minCut}s 자리가 없다)`); }
           }
