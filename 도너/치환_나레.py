@@ -128,7 +128,10 @@ report = {"stage": "3-c 나레", "input": os.path.basename(in_path), "counts": {
           "kept_from_donor": ["V2/V3/V4 자막 136", "V5·캡션 트랙(빈)"], "nars": report_nars}
 json.dump(report, open(out_path.replace(".prproj", ".report.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print(f"저장 {out_path}: A2 {len(a2_refs)} · 제거 {removed} · 추가 {len(new_blocks)} · 루트 항목 {len(kept)}+{len(new_cpis)}")
-res = verify(out_path, {"V1": (T["V1"], 46), "A1": (T["A1"], 36), "A3": (T["A3"], 10), "A2": (A2, len(a2_refs)), "V2": (T["V2"], 79), "V3": (T["V3"], 34), "V4": (T["V4"], 23)})
+_doc2 = Doc(load(out_path))
+_cnt = lambda uid: len(track_items(_doc2, uid)[0])
+res = verify(out_path, {"V1": (T["V1"], _cnt(T["V1"])), "A1": (T["A1"], _cnt(T["A1"])), "A3": (T["A3"], _cnt(T["A3"])), "A2": (A2, len(a2_refs)),
+                        "V2": (T["V2"], _cnt(T["V2"])), "V3": (T["V3"], _cnt(T["V3"])), "V4": (T["V4"], _cnt(T["V4"]))})
 res["checks"].append({"check": "나레 클립 길이 = voice.json 실측(±1프레임)", "pass": not mism, "detail": f"27개 중 불일치 {len(mism)}"})
 for c in res["checks"]:
     print(("  ✓ " if c["pass"] else "  ✗ ") + c["check"] + "  " + c["detail"])

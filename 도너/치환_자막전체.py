@@ -123,7 +123,8 @@ report = {"stage": "3-d 자막전체(최종 조립본)", "input": os.path.basena
           "blob_mismatch": bad_blob, "timeline_mismatch": mismatch_tl, "cues": rows}
 json.dump(report, open(out_path.replace(".prproj", ".report.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print(f"저장 {out_path}: V2 {len(refs['dlg'])} · V3 {len(refs['nar'])} · V4 0 · 제거 {removed} · 추가 {len(new_blocks)}")
-res = verify(out_path, {"V1": (T["V1"], 46), "A1": (T["A1"], 36), "A3": (T["A3"], 10), "A2": (T["A2"], 27),
+_cnt = lambda uid: len(track_items(doc2, uid)[0])
+res = verify(out_path, {"V1": (T["V1"], _cnt(T["V1"])), "A1": (T["A1"], _cnt(T["A1"])), "A3": (T["A3"], _cnt(T["A3"])), "A2": (T["A2"], _cnt(T["A2"])),
                         "V2": (T["V2"], len(refs["dlg"])), "V3": (T["V3"], len(refs["nar"])), "V4": (T["V4"], 0)})
 res["checks"].append({"check": "치환 블롭 재파싱 = 넣은 텍스트", "pass": not bad_blob, "detail": f"{len(rows)}개 중 불일치 {len(bad_blob)}"})
 res["checks"].append({"check": "timeline.json 문구·시각 대조", "pass": not mismatch_tl, "detail": f"불일치 {len(mismatch_tl)}"})

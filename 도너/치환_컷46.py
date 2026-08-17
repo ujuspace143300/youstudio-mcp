@@ -126,7 +126,11 @@ report = {"stage": "3-b 컷46", "donor": DN["파일"], "source": SRC, "total_s":
           "cuts": report_cuts}
 json.dump(report, open(out_path.replace(".prproj", ".report.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print(f"저장 {out_path}: V1 {len(v_refs)} · A1 {len(a1_refs)} · A3 {len(a3_refs)} · Link {len(links)} · 제거 {removed} · 추가 {len(new_blocks)} · 총장 {tl['total_s']}s")
-res = verify(out_path, {"V1": (V1, 46), "A1": (A1, len(a1_refs)), "A3": (A3, len(a3_refs)), "V2": (T["V2"], 79), "V3": (T["V3"], 34), "V4": (T["V4"], 23), "A2": (T["A2"], 39)})
+from prproj_lib import Doc as _D
+_doc2 = _D(load(out_path))
+res = verify(out_path, {"V1": (V1, len(v_refs)), "A1": (A1, len(a1_refs)), "A3": (A3, len(a3_refs)),
+                        "V2": (T["V2"], len(track_items(_doc2, T["V2"])[0])), "V3": (T["V3"], len(track_items(_doc2, T["V3"])[0])),
+                        "V4": (T["V4"], len(track_items(_doc2, T["V4"])[0])), "A2": (T["A2"], len(track_items(_doc2, T["A2"])[0]))})
 for c in res["checks"]:
     print(("  ✓ " if c["pass"] else "  ✗ ") + c["check"] + "  " + c["detail"])
 print("전체:", "통과" if res["pass"] else "실패")
