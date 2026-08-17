@@ -16,7 +16,7 @@ import { base, reject } from "../response.js";
 import type { StepHandler } from "./types.js";
 import type { JudgeJob } from "../schema.js";
 
-interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 큐_최소길이_s: number; 잘린_대사큐_최소길이_s?: number; 큐_무음노출_상한_s?: number; 대사_병합?: { 간격_최대_s: number; 구분자: string }; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
+interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 큐_최소길이_s: number; 잘린_대사큐_최소길이_s?: number; 큐_무음노출_상한_s?: number; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
 interface AsmSpec { over_배치: Record<string, string>; before_after: Record<string, string>; 브리지_컷: { 사용: boolean; 패딩_s: number; 앵커: string }; 죽은시간_홀드_제외_역할: string[]; 덕킹_역할: string[]; 죽은시간_컷: { 사용: boolean; 임계_s: number; 앞_남김_s: number; 뒤_남김_s: number; 대상_역할: string[]; 보호_소리_최소_s?: number } }
 interface JudgeTextSpec { backend: string; 모델: string; 엔드포인트: string; 키_환경변수: string; 온도: number; thinkingBudget: number; maxOutputTokens: number; responseMimeType: string }
 interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-자막_겹침_max": { value: number }; "G-교차겹침_max"?: { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
@@ -592,7 +592,7 @@ export const subtitle: StepHandler = {
       cues.push(...mine);
     }
     // 【강제 규칙 2026-08-17】 **한 큐 = 한 발화.** 화자가 다른 말을 한 줄에 합치지 않는다 —
-    //   인접 대사 병합 기능은 이 원칙으로 **폐기**했다(규격 「자막.대사_병합」도 삭제). 맞닿은 발화는
+    //   인접 대사 병합 기능은 이 원칙으로 **폐기**했다(규격 키·타입 선언까지 제거). 맞닿은 발화는
     //   앞 큐 끝 = 뒤 큐 시작으로 이어 붙인다(겹침 0, 사이 간격 0).
     const mergedDlg = 0;
     const dlgGap = 0;                       // 대사끼리는 딱 붙인다(나레는 규격 큐_사이_최소간격 유지)
@@ -809,7 +809,7 @@ export const subtitle: StepHandler = {
       fix: "번역표(payload.translations)의 각 줄에 {id, ko, **en**} 을 실어라. id 는 시각 기반 키라 대사줄이 늘어도 그대로다 — 어긋나면 **영어 원문 기준으로 다시 매칭**해 번역표를 재구성한다. 들리는 말과 어긋나면 그 줄의 번역이 다른 대사의 것이다." });
     gates.push({ id: "G-대사커버율", pass: words.length === 0 || coverage >= covMin - 1e-6, hard: true,
       detail: words.length === 0 ? "단어 실측 없음 — 폴백 전사(세그먼트)에서는 커버율을 재지 않는다(규격 전사.폴백_사다리)" : `선택 구간 안 발화 ${r3(speechS)}s 중 나레 점유 ${r3(narOwnS)}s 를 뺀 ${r3(covDenom)}s 를 대사 자막이 ${r3(coveredS)}s 덮었다 → ${coverage} (≥${covMin})`,
-      fix: "빈 구간의 원인을 본다 — ① 버려진 큐(경고 목록)면 인접 대사 병합 조건(규격 자막.대사_병합)을 넓히거나 최소 길이를 낮춘다 ② 나레가 점유한 자리면 그 나레를 다른 틈으로 옮긴다 ③ 대사줄 자체가 없으면 컷 경계 처리를 확인한다(발화가 컷에 걸쳐 있을 때 안쪽만큼 넣는다)." });
+      fix: "빈 구간의 원인을 본다 — ① 버려진 큐(경고 목록)면 최소 길이를 낮추거나 그 자리의 나레를 옮긴다 — **대사끼리 합치지는 않는다**(한 큐 = 한 발화, 사용자 강제) ② 나레가 점유한 자리면 그 나레를 다른 틈으로 옮긴다 ③ 대사줄 자체가 없으면 컷 경계 처리를 확인한다(발화가 컷에 걸쳐 있을 때 안쪽만큼 넣는다)." });
     const tailMax = SUB.대사큐_꼬리_s + 1 / 24;
     const resid: number[] = []; const residBad: string[] = [];
     for (const c of dlgCues0) {

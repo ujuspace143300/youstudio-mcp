@@ -595,4 +595,54 @@ const CARRY_EX = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x",
   ok(res.isError === true && /최종 재검사 불통/.test(sc?.message ?? "") && /G-죽은시간/.test(sc?.message ?? ""), "export②(재검사 불통) → 어느 단계 게이트인지 + 돌아가라", (sc?.message ?? "").slice(0, 120));
 }
 
+// 37) 규격 키 ↔ 코드 대조 (2026-08-17 주간정비) — 설정을 바꿨는데 수치가 안 변하는 사고를 막는다
+{
+  const { readFileSync, readdirSync, statSync, existsSync } = await import("node:fs");
+  const root = new URL("../../", import.meta.url);
+  const spec = JSON.parse(readFileSync(new URL("스타일/영화롱폼/규격.json", root), "utf8"));
+  // 규격을 읽는 쪽 전부 — 서버(.ts) · 러너(.mjs) · 도너 스크립트(.py)
+  const files = [], tsFiles = [];
+  const 훑기 = (dir, exts, into) => { if (!existsSync(dir)) return; (function walk(u) { for (const e of readdirSync(u)) { if (statSync(new URL(e, u)).isDirectory()) walk(new URL(e + "/", u)); else if (exts.some((x) => e.endsWith(x))) into.push(new URL(e, u)); } })(dir); };
+  훑기(new URL("서버/src/", root), [".ts"], tsFiles);
+  files.push(...tsFiles);
+  훑기(new URL("서버/runner/", root), [".mjs"], files);
+  훑기(new URL("도너/", root), [".py"], files);
+  const src = files.map((f) => readFileSync(f, "utf8")).join("\n");
+
+  // 키 이름이 **토큰으로** 쓰였는지 본다(따옴표·점·대괄호 뒤 + 뒤에 글자 안 붙음) — 「임계」가 「임계_s」에 묻히지 않게
+  const 쓰임 = (k) => { const 글자 = (c) => c !== undefined && /[가-힣A-Za-z0-9_]/.test(c); let i = -1; while ((i = src.indexOf(k, i + 1)) !== -1) { const 앞 = src[i - 1], 뒤 = src[i + k.length]; if ((앞 === String.fromCharCode(34) || 앞 === "'" || 앞 === "." || 앞 === "[") && !글자(뒤)) return true; } return false; };
+
+  // 부모 키가 읽히면 그 아래는 값 통째로 넘어간다(예: 음성.voice_settings → API 로 그대로) — 자식까지 훑지 않는다
+  const 죽은키 = [];
+  (function walk(o, path, 부모읽힘) {
+    for (const [k, v] of Object.entries(o)) {
+      if (k.startsWith("_")) continue;
+      const full = path ? path + "." + k : k;
+      const 읽힘 = 부모읽힘 || 쓰임(k);
+      if (!읽힘) { 죽은키.push(full); continue; }               // 여기서 끊고 자식은 안 본다
+      if (v && typeof v === "object" && !Array.isArray(v)) walk(v, full, 읽힘);
+    }
+  })(spec, "", false);
+  ok(죽은키.length === 0, "규격 키 → 코드: 규격에 있는데 아무도 안 읽는 키 0개", 죽은키.join(" · "));
+
+  // 코드가 읽는데 규격에 없는 키 (예: 「임계」 vs 「임계_s」 오타 → 설정이 조용히 무시된다)
+  const 이름집합 = new Set();
+  // 배열 원소 안의 키까지 모은다(예: 음성.보이스_후보[].이름) — 코드 타입이 그 이름을 쓴다
+  (function walk(o) { if (Array.isArray(o)) { for (const v of o) if (v && typeof v === "object") walk(v); return; } for (const [k, v] of Object.entries(o)) { if (k.startsWith("_")) continue; 이름집합.add(k); if (v && typeof v === "object") walk(v); } })(spec);
+  // 코드가 선언한 규격 타입(interface *Spec)의 한글 속성 = 코드가 기대하는 규격 키
+  const 없는키 = [];
+  for (const f of tsFiles) {
+    const t = readFileSync(f, "utf8");
+    for (const m of t.matchAll(/interface\s+(\w*Spec)\s*\{/g)) {
+      let depth = 0, i = m.index + m[0].length - 1, end = i;
+      for (; end < t.length; end++) { if (t[end] === "{") depth++; else if (t[end] === "}") { depth--; if (!depth) break; } }
+      const body = t.slice(i, end);
+      for (const q of body.matchAll(/(?<![A-Za-z0-9_가-힣])([가-힣][가-힣A-Za-z0-9_]*)\s*\??\s*:/g)) {
+        if (!이름집합.has(q[1])) 없는키.push(f.href.split("/").pop() + " " + m[1] + ": " + q[1]);
+      }
+    }
+  }
+  ok(없는키.length === 0, "코드 → 규격 키: 코드 타입이 기대하는데 규격에 없는 키 0개", [...new Set(없는키)].join(" · "));
+}
+
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

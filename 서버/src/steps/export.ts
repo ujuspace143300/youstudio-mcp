@@ -247,7 +247,7 @@ export const exportStep: StepHandler = {
     return base("export", preset, {
       status: "done", next_step: null,
       message: `내보내기 완료: ${seqName} — 컷 ${pics.length} · 나레 ${nars.length} · 자막 ${allCues.length} · 총 ${totalS}s. 게이트 ${gates.length}개 전부 통과. render/ 에 XML·SRT 3종·나레이션 믹스·manifest.`,
-      instructions: [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: **반드시 새 빈 프로젝트**를 만들어 파일 > 가져오기로 XML 을 연다 (같은 소재가 이미 있는 프로젝트에 재임포트하면 오디오 트랙이 조용히 빠진다 — 2026-08-16 실측, 참고_export.md 8절). 시퀀스 하나가 생긴다. 자막 위치는 origin 파라미터로 자동 배치된다 — 나레 y≈840·대사 y≈980 인지 확인만(어긋나면 manifest.프리미어_후속). 순서는 서버 README."],
+      instructions: [`① write_files 5개를 그대로 쓴다 (${renderDir}).`, "② manifest.json 의 gates 표와 metrics 를 사람에게 보여준다.", "③ 프리미어: **반드시 새 빈 프로젝트**를 만들어 파일 > 가져오기로 XML 을 연다 (같은 소재가 이미 있는 프로젝트에 재임포트하면 오디오 트랙이 조용히 빠진다 — 2026-08-16 실측, 진단일지.md 8절). 시퀀스 하나가 생긴다. 자막 위치는 origin 파라미터로 자동 배치된다 — 나레 y≈840·대사 y≈980 인지 확인만(어긋나면 manifest.프리미어_후속). 순서는 서버 README."],
       then_call_with: [], jobs_kind: null, jobs: [], measure: [],
       write_files: [
         { path: join(renderDir, `${slug}.xml`), content: xml, note: "FCP XML v5 — 프리미어 파일 > 가져오기" },
