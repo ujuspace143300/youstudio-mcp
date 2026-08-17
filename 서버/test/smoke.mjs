@@ -478,9 +478,22 @@ const CARRY_V = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/y
   const SIL_B01 = ["[silencedetect @ 0x1] silence_start: 2.2", "[silencedetect @ 0x1] silence_end: 3.7 | silence_duration: 1.5"].join(String.fromCharCode(10));
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28, alignment: { characters: ["계", "단"], character_start_times_seconds: [0, 0.2], character_end_times_seconds: [0.2, 0.4] } }, b02: { audio_bytes: 24000 * 2 * 5.5 } }, speech_raw: { b01: SIL_B01, b02: "" } } } });
   { const sc2 = res.structuredContent;
-    ok(sc2?.status === "execute" && sc2?.next_step === "voice" && sc2?.jobs_kind === "transcribe" && sc2?.jobs?.length === 2 && /audio.transcriptions/.test(sc2?.jobs?.[0]?.request?.url ?? "") && String(sc2?.jobs?.[0]?.request?.multipart?.file ?? "").startsWith("@") && sc2?.jobs?.[0]?.auth?.env === "GROQ_API_KEY" && sc2?.measure?.[0]?.as === "asr_nar.b01", "voice②→③ 문구 대조 국면(ASR jobs·measure asr_nar)", JSON.stringify([sc2?.jobs_kind, sc2?.jobs?.length, sc2?.measure?.[0]?.as])); }
+    const cat = sc2?.do?.find((d) => d.name === "nar_concat");
+    const j0 = sc2?.jobs?.[0];
+    ok(sc2?.status === "execute" && sc2?.next_step === "voice" && sc2?.jobs_kind === "transcribe" && sc2?.jobs?.length === 1
+      && /nar_concat\.wav$/.test(cat?.argv?.at(-1) ?? "") && /adelay=/.test((cat?.argv ?? []).join(" "))
+      && j0?.provider === "speechmatics" && String(j0?.request?.multipart?.data_file ?? "").startsWith("@")
+      && /v2\/jobs/.test(j0?.batch?.submit_url ?? "") && j0?.auth?.env === "SPEECHMATICS_API_KEY"
+      && sc2?.measure?.[0]?.as === "asr_nar" && Array.isArray(sc2?.offsets) && sc2.offsets.length === 2 && sc2.offsets[1].off > 0,
+      "voice②→③ 단어 실측 국면(이어붙임 do[] + Speechmatics 배치 1콜 + 오프셋 표)", JSON.stringify([sc2?.jobs?.length, sc2?.measure?.[0]?.as, sc2?.offsets])); }
+  // 나레 전사(json-v2) 픽스처 — b01 은 0s 부터, b02 는 (5.28 + 1.0 무음) = 6.28s 부터
+  const SMW = (words, off) => words.map(([w, s2, e2]) => ({ type: "word", start_time: off + s2, end_time: off + e2, alternatives: [{ content: w }] }));
+  const ASR_NAR = { results: [
+    ...SMW([["계단", 0, 0.5], ["앞에서", 0.5, 1.0], ["발가락", 1.0, 1.5], ["얘기로", 1.5, 2.0], ["낄낄대던", 2.0, 2.6], ["보드", 2.9, 3.3], ["든", 3.3, 3.5], ["청년이", 3.5, 4.2], ["있죠", 4.2, 4.9]], 0),
+    ...SMW([["친구들의", 0, 0.6], ["놀림은", 0.6, 1.1], ["그날도", 1.1, 1.6], ["이어졌고", 1.6, 2.2], ["늘", 2.5, 2.7], ["그런", 2.7, 3.1], ["하루일", 3.1, 3.6], ["듯했습니다", 3.6, 4.4]], 6.28),
+  ] };
   const HEARD = { b01: "계단 앞에서 발가락 얘기로 낄낄대던 보드 든 청년이 있죠", b02: "친구들의 놀림은 그날도 이어졌고 늘 그런 하루일 듯했습니다" };
-  const res3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28, alignment: { characters: ["계", "단"], character_start_times_seconds: [0, 0.2], character_end_times_seconds: [0.2, 0.4] } }, b02: { audio_bytes: 24000 * 2 * 5.5 } }, speech_raw: { b01: SIL_B01, b02: "" }, asr_nar: { b01: { text: HEARD.b01 }, b02: { text: HEARD.b02 } } } } });
+  const res3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28, alignment: { characters: ["계", "단"], character_start_times_seconds: [0, 0.2], character_end_times_seconds: [0.2, 0.4] } }, b02: { audio_bytes: 24000 * 2 * 5.5 } }, speech_raw: { b01: SIL_B01, b02: "" }, asr_nar: ASR_NAR } } });
   const sc = res3.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "subtitle", "voice② → execute, next_step=subtitle", `${sc?.status}/${sc?.next_step} ${(sc?.message ?? "").slice(0, 80)}`);
   const m = sc?.metrics ?? {};
@@ -489,8 +502,9 @@ const CARRY_V = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/y
     ok(Array.isArray(b1?.speech) && b1.speech.length === 2 && b1.speech[0][1] === 2.2 && b1.speech[1][0] === 3.7 && b2?.speech === null && vd?.metrics?.blocks_with_speech === 1 && (vd?.warnings ?? []).some((w) => /발성 구간 실측이 1블록 없다/.test(w)), "voice② → 발성 구간 실측 파싱(speech·metrics·경고)", JSON.stringify([b1?.speech, vd?.metrics?.blocks_with_speech])); }
   const wf = sc?.write_files?.[0];
   ok(wf?.path === "C:/youstudio_work/sample/voice/voice.json" && wf?.content?.blocks?.[0]?.dur_s === 5.28 && /b01\.wav$/.test(wf.content.blocks[0].wav) && wf.content.blocks[0].chars_t?.length === 2 && wf.content.blocks[1].chars_t === null && sc?.metrics?.blocks_with_timestamps === 1, "voice② → write_files voice.json(블록별 실측 길이·wav·글자별 시각)", "");
+  ok((wf?.content?.blocks ?? []).every((b) => Array.isArray(b.words) && b.words.length > 0) && sc?.metrics?.words_total > 0 && wf.content.blocks[1].words[0].s < 1.0, "voice② → 블록마다 단어 실측 words[](이어붙임 좌표 → 블록 안 초로 환산)", JSON.stringify((wf?.content?.blocks ?? []).map((b) => [(b.words ?? []).length, (b.words ?? [])[0]?.s])));
   ok(sc?.record_to_ours?.tts?.자당초?.value === 0.161 && sc?.record_to_ours?.tts?.자당초?.n === 2 && sc?.instructions?.some((l) => /우리실측\.json/.test(l)), "voice② → record_to_ours(우리실측.json tts.자당초) + 기록 지시", JSON.stringify(sc?.record_to_ours?.tts?.자당초?.value));
-  { const bad = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28 }, b02: { audio_bytes: 24000 * 2 * 5.5 } }, speech_raw: { b01: SIL_B01, b02: "" }, asr_nar: { b01: { text: HEARD.b02 }, b02: { text: HEARD.b01 } } } } });
+  { const bad = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "voice", preset: "영화롱폼", payload: { ...CARRY_V, voice_ts: { b01: { audio_bytes: 24000 * 2 * 5.28 }, b02: { audio_bytes: 24000 * 2 * 5.5 } }, speech_raw: { b01: SIL_B01, b02: "" }, asr_nar: { results: [...ASR_NAR.results.filter((r) => r.start_time >= 6.28).map((r) => ({ ...r, start_time: r.start_time - 6.28, end_time: r.end_time - 6.28 })), ...ASR_NAR.results.filter((r) => r.start_time < 6.28).map((r) => ({ ...r, start_time: r.start_time + 6.28, end_time: r.end_time + 6.28 }))] } } } });
     const scb = bad.structuredContent;
     ok(scb?.status === "error" && /G-나레문구일치/.test(scb?.message ?? "") && /재사용 없이 새로 합성/.test((scb?.instructions ?? []).join(" ")) && !scb?.write_files?.length, "voice③(문구 어긋남) → hard_fail + 수리 지침(재합성·캐시 폐기)", (scb?.message ?? "").slice(0, 90)); }
 }

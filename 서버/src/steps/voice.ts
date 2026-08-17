@@ -24,6 +24,7 @@ interface VoiceSpec {
 }
 const V = (spec as unknown as { 음성: VoiceSpec })["음성"];
 const VS = ((spec as unknown as { 음성: { 무음스캔?: { noise_dB: number; d_s: number } } })["음성"].무음스캔) ?? { noise_dB: -40, d_s: 0.2 };
+const VW = (spec as unknown as { 음성: { 단어실측: { 제공자: string; 모델: string; 엔드포인트: string; 키_환경변수: string; 언어: string; 유사도_최소: number; 정렬_유사도_최소: number; 이어붙임_무음_s: number; 설정: Record<string, unknown> } } })["음성"]["단어실측"];
 const VC = (spec as unknown as { 음성: { 문구대조: { 제공자: "groq"; 모델: string; 엔드포인트: string; 키_환경변수: string; 언어: string; 유사도_최소: number } } })["음성"]["문구대조"];
 const N = (spec as unknown as { 나레이션: { 자당초_추정: number } })["나레이션"];
 const A = (answer as unknown as { 대본: { 나레_시간점유: { min: number; max: number } } })["대본"];
@@ -202,42 +203,77 @@ export const voice: StepHandler = {
     const today = new Date().toISOString().slice(0, 10); // 서버(UTC) 날짜 — 로컬과 하루 어긋날 수 있다. runner 가 기록할 때 로컬 날짜로 고쳐도 된다
     const recordToOurs = { tts: { 자당초: { value: spc, unit: "s/자(공백 1칸 정규화)", measure: `ElevenLabs ${V.모델} 보이스 ${V.보이스_이름 ?? V.보이스_ID} · ${per.length}블록 ${totalChars}자 → 실측 ${totalS}s (pcm 바이트 ÷ ${bytesPerSec})`, n: per.length, date: today, src: `${source.title ?? source.path} voice/voice.json` }, 블록당초: { value: r3(totalS / per.length), unit: "s/블록", measure: "같은 실측", n: per.length, date: today, src: "voice/voice.json" } } };
 
-    // ── ③ 문구 대조 국면 (G-나레문구일치) ────────────────────────────────
-    //   합성한 wav 를 ASR 로 되받아 블록 문구와 대조한다. 길이·정렬만 보던 검증의 구멍
-    //   (2026-08-17 회귀: 자막과 다른 말이 들렸는데 게이트가 전부 통과) 을 막는다.
-    const asrIn = (payload.asr_nar ?? null) as Record<string, { text?: string } | string> | null;
+    // ── ③ 단어 실측 국면 (2026-08-18) — 나레도 **단어 단위 실측**으로 (HARNESS 강제 규칙) ──
+    //   wav 27개를 사이 무음 1.0s 로 이어 붙여 **한 번** 전사한다(27콜 아님). 얻은 단어 시각으로
+    //   자막 큐를 놓고(subtitle), 같은 전사로 문구 일치도 판정한다 — Groq 27콜을 대체한다.
+    //   근거·설계: 설계/진단일지.md 22절. 글자 타임스탬프(chars_t)는 폴백으로만 남는다.
+    const gapS = VW.이어붙임_무음_s;
+    const concatPath = join(voiceDir, "nar_concat.wav");
+    const offsets: { n: number; off: number }[] = [];
+    {
+      let cum = 0;
+      for (const p2 of per) { offsets.push({ n: p2.n, off: r3(cum) }); cum = r3(cum + p2.dur_s + gapS); }
+    }
+    const concatTotal = r3(offsets.length ? offsets[offsets.length - 1].off + (per[per.length - 1].dur_s ?? 0) : 0);
+    const asrIn = (payload.asr_nar ?? null) as { results?: { type?: string; start_time?: number; end_time?: number; alternatives?: { content?: string }[] }[] } | null;
     if (!asrIn) {
+      const inputs: string[] = [];
+      const filters: string[] = [];
+      per.forEach((p2, i) => {
+        inputs.push("-i", p2.wav);
+        const ms = Math.round((offsets[i]?.off ?? 0) * 1000);
+        filters.push(`[${i}]adelay=${ms}|${ms}[a${i}]`);
+      });
+      const fc = `${filters.join(";")};${per.map((_, i) => `[a${i}]`).join("")}amix=inputs=${per.length}:normalize=0:dropout_transition=0,apad=whole_dur=${concatTotal}[out]`;
       return base("voice", preset, {
         status: "execute",
         next_step: "voice",
-        message: `TTS 합성·길이 검사 통과 (${per.length}블록 · ${totalS}s). 이제 **문구 대조**: wav 마다 ASR 로 실제 발화를 받아 블록 문구와 맞는지 본다(G-나레문구일치).`,
+        message: `TTS 합성·길이 검사 통과 (${per.length}블록 · ${totalS}s). 이제 **단어 실측**: wav 를 사이 ${gapS}s 무음으로 이어 붙여(${concatTotal}s) 한 번 전사한다 — 자막 큐를 단어에 맞추고 문구 일치도 같은 전사로 본다.`,
         instructions: [
-          "① jobs 의 ASR 요청을 하나씩 보낸다 (429 가 나면 응답의 대기 시간만큼 쉬었다가 다시 — 서두르지 마라).",
-          "② measure 대로 각 응답 JSON 을 payload.asr_nar 에 {b01: <응답>, …} 로 모은다.",
-          "③ carry 값과 voice_ts·speech_raw 를 그대로 다시 실어 voice 를 한 번 더 부른다.",
+          `① do[] 의 ffmpeg 를 실행해 ${concatPath} 를 만든다 (블록 ${per.length}개를 ${gapS}s 무음 간격으로 이어 붙인 것 — 합성이 아니라 이어 붙이기다).`,
+          "② jobs 의 Speechmatics 배치 전사 1건을 실행한다(제출 → 폴링 → json-v2).",
+          "③ measure 대로 응답 JSON 을 payload.asr_nar 에 담고, carry 값과 voice_ts·speech_raw 를 그대로 다시 실어 voice 를 한 번 더 부른다.",
         ],
         then_call_with: ["step: 'voice'", "payload: { …carry, voice_ts, speech_raw, asr_nar }"],
+        do: [{ name: "nar_concat", argv: ["ffmpeg", "-y", "-v", "error", ...inputs, "-filter_complex", fc, "-map", "[out]", "-ar", String(V.샘플레이트_hz), "-ac", "1", "-c:a", "pcm_s16le", "-t", String(concatTotal), concatPath], note: `나레 ${per.length}블록을 ${gapS}s 무음 간격으로 이어 붙인다(전사 1콜용). 오프셋 표는 응답 offsets 에 있다` }],
         jobs_kind: "transcribe",
-        jobs: per.map((p2) => ({
-          name: bname(p2.n),
-          provider: VC.제공자,
-          model: VC.모델,
-          request: { method: "POST" as const, url: VC.엔드포인트, multipart: { file: `@${p2.wav}`, model: VC.모델, language: VC.언어, response_format: "json" } },
-          auth: { env: VC.키_환경변수, header: `Authorization: Bearer <${VC.키_환경변수} 값>`, note: "서버는 키를 보관하지 않는다. runner 가 로컬 환경변수에서 읽어 붙인다." },
-          out: join(voiceDir, `asr_${bname(p2.n)}.json`),
-          note: `블록 ${p2.n} 이 실제로 무슨 말을 하는지 되받는다`,
-        })),
-        measure: per.map((p2) => ({ as: `asr_nar.${bname(p2.n)}`, from: `job:${bname(p2.n)}`, unit: "json_stdout" as const })),
+        jobs: [{
+          name: "asr_nar",
+          provider: VW.제공자 as "speechmatics",
+          model: VW.모델,
+          request: { method: "POST" as const, url: VW.엔드포인트, multipart: { data_file: `@${concatPath}`, config: JSON.stringify(VW.설정) } },
+          batch: { submit_url: VW.엔드포인트, status_url: `${VW.엔드포인트}/{id}`, transcript_url: `${VW.엔드포인트}/{id}/transcript?format=json-v2`, poll_s: 5, timeout_s: 900 },
+          auth: { env: VW.키_환경변수, header: `Authorization: Bearer <${VW.키_환경변수} 값>`, note: "서버는 키를 보관하지 않는다. runner 가 로컬 환경변수에서 읽어 붙인다." },
+          out: join(voiceDir, "asr_nar.json"),
+          note: "나레 전체를 한 번에 — results[] 의 start_time·end_time 이 우리가 쓸 단어 시각이다(이어붙임 좌표)",
+        }],
+        measure: [{ as: "asr_nar", from: "job:asr_nar", unit: "json_stdout" as const }],
         carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "script"],
         source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, selection_path: payload.selection_path, script_path: payload.script_path, script,
-        metrics: { block_count: per.length, total_s: totalS, blocks_with_speech: withSpeech },
+        metrics: { block_count: per.length, total_s: totalS, blocks_with_speech: withSpeech, concat_total_s: concatTotal, concat_gap_s: gapS },
+        offsets,
       });
+    }
+    // ── 단어 → 블록 배정 (이어붙임 좌표 − 오프셋 = 블록 안 초) ──────────────────
+    const smWords = (asrIn.results ?? [])
+      .filter((r) => (r.type ?? "word") === "word" && typeof r.start_time === "number")
+      .map((r) => ({ w: String(r.alternatives?.[0]?.content ?? "").trim(), s: r.start_time as number, e: (r.end_time ?? r.start_time) as number }))
+      .filter((w) => w.w.length > 0);
+    const blockWords = new Map<number, { w: string; s: number; e: number }[]>();
+    for (const { n, off } of offsets) {
+      const p2 = per.find((x) => x.n === n)!;
+      const lo = off - 0.15, hi = off + p2.dur_s + 0.15;                 // 블록 창(이어붙임 좌표) — 무음 간격이 있어 겹치지 않는다
+      // 단어 시각을 **블록 경계로 조인다** — ASR 은 마지막 단어의 끝을 이어붙임 무음까지 늘려 잡는다(실측 22/27블록 +0.5~1.0s).
+      //   무음은 우리가 넣은 것이므로 단어가 그 안까지 이어질 수 없다. 시작은 그대로 믿고 끝만 자른다.
+      blockWords.set(n, smWords.filter((w) => w.s >= lo && w.s < hi).map((w) => {
+        const s0 = Math.max(0, r3(w.s - off));
+        return { w: w.w, s: s0, e: Math.max(s0 + 0.02, Math.min(r3(w.e - off), p2.dur_s)) };
+      }));
     }
     const simMin = VC.유사도_최소;
     const simRows = per.map((p2) => {
-      const raw = asrIn[bname(p2.n)];
-      const heard = typeof raw === "string" ? raw : String((raw as { text?: string } | undefined)?.text ?? "");
-      return { n: p2.n, wav: bname(p2.n), sim: textSim(p2.text, heard), text: p2.text, heard };
+      const heard = (blockWords.get(p2.n) ?? []).map((w) => w.w).join(" ");   // 같은 전사로 판정 — Groq 27콜을 대체한다
+      return { n: p2.n, wav: bname(p2.n), sim: textSim(p2.text, heard), text: p2.text, heard, words: (blockWords.get(p2.n) ?? []).length };
     });
     const simBad = simRows.filter((r) => r.sim < simMin);
     const simMinSeen = simRows.length ? Math.min(...simRows.map((r) => r.sim)) : 0;
@@ -250,11 +286,19 @@ export const voice: StepHandler = {
       );
     }
     voiceDoc.metrics = { ...voiceDoc.metrics, text_match_min: simMinSeen, text_match_blocks: simRows.length } as typeof voiceDoc.metrics;
-    (voiceDoc as { blocks: { n: number; heard?: string; text_sim?: number }[] }).blocks.forEach((b2) => {
+    (voiceDoc as { blocks: { n: number; heard?: string; text_sim?: number; words?: { w: string; s: number; e: number }[] }[] }).blocks.forEach((b2) => {
       const row = simRows.find((r) => r.n === b2.n);
       if (row) { b2.heard = row.heard; b2.text_sim = row.sim; }
+      b2.words = blockWords.get(b2.n) ?? [];        // **자막 큐를 여기에 맞춘다**(블록 안 초)
     });
-    const gates = [{ id: "G-나레문구일치", pass: true, hard: true, detail: `${simRows.length}블록 전부 문구 일치 — 최저 유사도 ${simMinSeen} (기준 ${simMin})`, fix: "어긋나면 그 블록을 재사용 없이 재합성하고 러너 캐시를 비운다" }];
+    // 검산: 블록마다 단어가 있고, 마지막 단어 끝이 wav 길이를 넘지 않는가 (이어붙임 환산이 맞는지)
+    const wordsBad = per.filter((p2) => {
+      const ws = blockWords.get(p2.n) ?? [];
+      return ws.length === 0 || ws[0].s > p2.dur_s * 0.5;                      // 단어가 없거나, 첫 단어가 블록 후반에서 시작(환산이 어긋난 신호)
+    }).map((p2) => `블록 ${p2.n}(단어 ${(blockWords.get(p2.n) ?? []).length}개, 끝 ${(blockWords.get(p2.n) ?? []).slice(-1)[0]?.e ?? "-"}s / wav ${p2.dur_s}s)`);
+    if (wordsBad.length) warnings.push(`단어 실측 검산 불통 ${wordsBad.length}건 — ${wordsBad.slice(0, 5).join(" · ")}. 자막 단계가 그 블록만 글자 타임스탬프(chars_t)로 폴백한다(줄↔단어 정렬 유사도로 한 번 더 걸러진다).`);
+    voiceDoc.metrics = { ...voiceDoc.metrics, words_total: smWords.length, words_blocks: per.filter((p2) => (blockWords.get(p2.n) ?? []).length > 0).length, concat_total_s: concatTotal, concat_gap_s: gapS } as typeof voiceDoc.metrics;
+    const gates = [{ id: "G-나레문구일치", pass: true, hard: true, detail: `${simRows.length}블록 전부 문구 일치 — 최저 유사도 ${simMinSeen} (기준 ${simMin}) · 단어 실측 ${smWords.length}개(블록당 평균 ${r3(smWords.length / Math.max(1, simRows.length))}) · 판정 재료 = Speechmatics 1콜`, fix: "어긋나면 그 블록을 재사용 없이 재합성하고 러너 캐시를 비운다" }];
 
     return base("voice", preset, {
       status: "execute",

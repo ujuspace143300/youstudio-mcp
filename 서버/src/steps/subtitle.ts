@@ -14,13 +14,14 @@ import spec from "../../../스타일/영화롱폼/규격.json";
 import answer from "../../../스타일/영화롱폼/정답지.json";
 import { base, reject } from "../response.js";
 import { 규칙분할, 줄검사, 확정, 의심, 좋은자리 } from "../lib/줄바꿈.js";
+import { 줄에단어배정, 창안의단어, 유사도, type 실측단어 } from "../lib/단어정렬.js";
 import type { StepHandler } from "./types.js";
 import type { JudgeJob } from "../schema.js";
 
-interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 줄_조각_최소자수?: number; 줄나눔_주체?: string; 큐_최소길이_s: number; 잘린_대사큐_최소길이_s?: number; 큐_무음노출_상한_s?: number; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
+interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 줄_조각_최소자수?: number; 줄나눔_주체?: string; 나레큐_꼬리_s?: number; 나레_줄안_쉼_상한_s?: number; 큐_최소길이_s: number; 잘린_대사큐_최소길이_s?: number; 큐_무음노출_상한_s?: number; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
 interface AsmSpec { over_배치: Record<string, string>; before_after: Record<string, string>; 브리지_컷: { 사용: boolean; 패딩_s: number; 앵커: string }; 죽은시간_홀드_제외_역할: string[]; 덕킹_역할: string[]; 죽은시간_컷: { 사용: boolean; 임계_s: number; 앞_남김_s: number; 뒤_남김_s: number; 대상_역할: string[]; 보호_소리_최소_s?: number } }
 interface JudgeTextSpec { backend: string; 모델: string; 엔드포인트: string; 키_환경변수: string; 온도: number; thinkingBudget: number; maxOutputTokens: number; responseMimeType: string }
-interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-줄바꿈"?: { 확정위반_max: number }; "G-나레커버율"?: { min: number; "구멍_0_3s_max"?: number }; "G-자막_겹침_max": { value: number }; "G-교차겹침_max"?: { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
+interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-줄바꿈"?: { 확정위반_max: number }; "G-나레커버율"?: { min: number; "구멍_0_3s_max"?: number }; "G-나레단어일치"?: { min: number; 위반_max?: number }; "G-자막_겹침_max": { value: number }; "G-교차겹침_max"?: { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
 const SUB = (spec as unknown as { 자막: SubSpec })["자막"];
 const TRIG = (spec as unknown as { 전사: { 늘어난발화_규칙: { 트리거_단어당_s: number; 트리거_여유_s: number } } })["전사"]["늘어난발화_규칙"];
 /** 전사 발화가 '수상하게 긴가' (끝이 늘어난 whisper 세그먼트) — 이런 발화는 시각을 믿지 않고 실측 소리를 쓴다 */
@@ -37,7 +38,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 interface Segment { i: number; in: number; out: number; len_s: number; role: string; kind: string; src: string[]; why: string }
 interface Bridge { start: number; end: number; len_s: number }
 interface Selection { segments?: Segment[]; narration_bridges?: Bridge[] }
-interface VBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; lines?: string[] | null; dur_s: number; wav: string; chars_t?: { c: string; s: number; e: number }[] | null; speech?: [number, number][] | null; _prefer?: "head" | "tail" }
+interface VBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; lines?: string[] | null; words?: { w: string; s: number; e: number }[] | null; dur_s: number; wav: string; chars_t?: { c: string; s: number; e: number }[] | null; speech?: [number, number][] | null; _prefer?: "head" | "tail" }
 interface Utt { start: number; end: number; text: string; i?: number }
 interface Scene { start: number; end: number; what: string }
 
@@ -418,7 +419,11 @@ export const subtitle: StepHandler = {
     if (missing.length) hard.push(`번역 누락 ${missing.length}줄: ${missing.slice(0, 8).map((d) => d.id).join(", ")}${missing.length > 8 ? " …" : ""}`);
     const cues: Cue[] = [];
     const dlgSrcEnd = new Map<Cue, number>();
-    const narChunk = new Map<Cue, [number, number]>();   // 나레 큐 → 그 줄이 배정된 발성 덩어리(타임라인 시각)   // 큐의 **말 끝**(원본 시각) — 병합되면 뒤 대사의 끝으로 갱신된다(잔류 측정용)
+    const narChunk = new Map<Cue, [number, number]>();   // 나레 큐 → 그 줄이 배정된 발성 덩어리(타임라인 시각)
+    const narWordSpan = new Map<Cue, [number, number]>();  // 나레 큐 → 그 줄 **단어들의 실측 구간**(타임라인) — 게이트 축
+    const narWordBlocks = new Set<number>();               // 단어 실측으로 놓은 블록
+    const narLineSim = new Map<number, number>();           // 블록별 줄↔단어 정렬 유사도
+    const VWSIM = ((spec as unknown as { 음성?: { 단어실측?: { 정렬_유사도_최소?: number } } }).음성?.단어실측?.정렬_유사도_최소) ?? 0.6;   // 큐의 **말 끝**(원본 시각) — 병합되면 뒤 대사의 끝으로 갱신된다(잔류 측정용)
     // 대사 큐
     for (const d of dlgLines) {
       const ko = trMap.get(d.id) ?? "";
@@ -453,7 +458,67 @@ export const subtitle: StepHandler = {
     };
     for (const n of nars) {
       const b = vmap.get(n.n)!;
-      const lines = narLines(b, A["G-자막_한줄_최대자수"].나레, SUB.줄_조각_최소자수 ?? 4, warnings, lineSource);
+      let lines = narLines(b, A["G-자막_한줄_최대자수"].나레, SUB.줄_조각_최소자수 ?? 4, warnings, lineSource);
+      // ── 단어 실측 경로 (2026-08-18, 설계/진단일지.md 22절) ────────────────────────────
+      //   **큐 = 그 줄 단어들의 실측 구간.** 글자 수 비례 배분·덩어리 비례 배정은 폐기했다 —
+      //   쉼을 걸친 줄에서 추정이 무너져 「아직 말하지 않은 단어」가 미리 떴다(2:23·8:50 사고).
+      //   ASR 이 우리 TTS 를 조금 다르게 적을 수 있으므로 유사도가 낮으면 chars_t 로 폴백한다.
+      const wordsB = (Array.isArray(b.words) ? b.words : []) as 실측단어[];
+      if (wordsB.length) {
+        const 꼬리 = SUB.나레큐_꼬리_s ?? 0.2, 쉼상한 = SUB.나레_줄안_쉼_상한_s ?? 1.0, minS0 = SUB.큐_최소길이_s;
+        let 정렬 = 줄에단어배정(lines, wordsB);
+        // 줄 안 쉼이 상한을 넘으면 **줄바꿈 규칙에 맞는 어절 경계에서만** 쪼갠다(사용자 승인 2026-08-18)
+        for (let pass = 0; pass < 2; pass++) {
+          let 쪼갬 = false;
+          for (let i = 0; i < lines.length && !쪼갬; i++) {
+            const r = 정렬.ranges[i];
+            if (!r || r[1] <= r[0]) continue;
+            let worst = 0, at = -1;
+            for (let k = r[0]; k < r[1]; k++) { const g = wordsB[k + 1].s - wordsB[k].e; if (g > worst) { worst = g; at = k; } }
+            if (worst <= 쉼상한 + 1e-6 || at < 0) continue;
+            const 어절 = lines[i].split(/\s+/).filter(Boolean);
+            const 후보: { txt: [string, string]; sim: number }[] = [];
+            for (let c = 1; c < 어절.length; c++) {
+              const 앞 = 어절.slice(0, c).join(" "), 뒤 = 어절.slice(c).join(" ");
+              if (확정(줄검사([앞, 뒤], { 조각_최소자수: SUB.줄_조각_최소자수 ?? 4 })).length) continue;
+              const sim = (유사도(앞, wordsB.slice(r[0], at + 1).map((w) => w.w).join(" ")) + 유사도(뒤, wordsB.slice(at + 1, r[1] + 1).map((w) => w.w).join(" "))) / 2;
+              후보.push({ txt: [앞, 뒤], sim });
+            }
+            후보.sort((x, y) => y.sim - x.sim);
+            if (후보.length && 후보[0].sim >= 0.6) {
+              lines = [...lines.slice(0, i), 후보[0].txt[0], 후보[0].txt[1], ...lines.slice(i + 1)];
+              정렬 = 줄에단어배정(lines, wordsB);
+              warnings.push(`나레 ${n.n}: 줄 「${후보[0].txt.join(" ")}」 안에 ${r2(worst)}s 쉼이 있어(상한 ${쉼상한}s) 줄바꿈 규칙에 맞는 자리에서 두 줄로 쪼갰다.`);
+              쪼갬 = true;
+            } else {
+              warnings.push(`나레 ${n.n}: 줄 「${lines[i]}」 안에 ${r2(worst)}s 쉼이 있으나(상한 ${쉼상한}s) 규칙에 맞는 분할 자리가 없어 한 줄로 둔다 — 그 동안 자막은 유지된다.`);
+            }
+          }
+          if (!쪼갬) break;
+        }
+        const 온전 = 정렬.ranges.every((r) => !!r) && 정렬.sim >= (VWSIM);
+        if (온전) {
+          const mine2: Cue[] = [];
+          for (let i = 0; i < lines.length; i++) {
+            const r = 정렬.ranges[i] as [number, number];
+            const a0 = wordsB[r[0]].s, e0 = wordsB[r[1]].e;
+            const nextA = i + 1 < lines.length ? wordsB[(정렬.ranges[i + 1] as [number, number])[0]].s : b.dur_s;
+            let t1 = Math.min(e0 + 꼬리, nextA, b.dur_s);
+            if (t1 - a0 < minS0) t1 = Math.min(Math.max(t1, a0 + minS0), nextA, b.dur_s);
+            if (t1 <= a0 + 0.05) { warnings.push(`나레 ${n.n}: 줄 「${lines[i]}」 이 ${r2(Math.max(0, t1 - a0))}s 밖에 안 되어 버렸다(단어 실측).`); continue; }
+            if (t1 - a0 < minS0) warnings.push(`나레 ${n.n}: 줄 「${lines[i]}」 이 ${r2(t1 - a0)}s 로 최소 길이 ${minS0}s 미만이다 — 단어 실측을 우선했다.`);
+            const cue: Cue = { lane: "nar", t0: r3(n.t0 + a0), t1: r3(n.t0 + t1), text: lines[i], ref: `n${n.n}` };
+            narWordSpan.set(cue, [r3(n.t0 + a0), r3(n.t0 + e0)]);          // 이 줄 단어들의 실측 구간(게이트 축)
+            narChunk.set(cue, [r3(n.t0 + a0), r3(n.t0 + e0)]);
+            mine2.push(cue);
+          }
+          narWordBlocks.add(n.n);
+          narLineSim.set(n.n, 정렬.sim);
+          cues.push(...mine2);
+          continue;                                    // 폴백 경로(글자 타임스탬프·덩어리 배정)는 건너뛴다
+        }
+        warnings.push(`나레 ${n.n}: 줄↔단어 정렬 유사도 ${정렬.sim} < ${VWSIM} — 이 블록만 글자 타임스탬프(chars_t)로 폴백한다.`);
+      }
       const times = narCueTimes(b.text, lines, b.dur_s, b.chars_t ?? null);
       // R1(2026-08-17): 나레 큐는 **음성 밖으로 나가지 않는다**. 최소 길이는 뒤로 밀지 말고 **앞으로 당겨** 채우고,
       //   그래도 모자라면 앞 큐와 합친다(짧아도 소리 있는 동안만). 근거: 8:59~9:07 사례 — 최소 길이를 뒤로 밀어
@@ -754,6 +819,15 @@ export const subtitle: StepHandler = {
       for (const c of cues) {
         if (c.lane !== "nar" || c.ref !== `n${n.n}`) continue;
         if (c.t0 < n.t0 - epsF || c.t1 > vEnd + epsF) narOut.push(`n${n.n} 큐 ${c.t0}~${c.t1} ⊄ 음성 ${r3(n.t0)}~${r3(vEnd)} 「${c.text}」`);
+        // 축(2026-08-18): 단어 실측 블록은 **자기 줄 단어 구간**을 축으로 본다 —
+        //   자기 줄 단어 **사이** 쉼은 그 줄이 소리내는 중이므로 노출로 세지 않는다(사용자 결정).
+        const ws = narWordSpan.get(c);
+        if (ws) {
+          const quietW = r3(Math.max(0, (c.t1 - c.t0) - (Math.min(c.t1, ws[1]) - Math.max(c.t0, ws[0]))));
+          quietTotal += quietW; quietWorst = Math.max(quietWorst, quietW);
+          if (quietW > quietMax + 1e-6) narOut.push(`n${n.n} 큐 ${c.t0}~${c.t1} 이 자기 줄 단어 구간 ${ws[0]}~${ws[1]} 밖으로 ${quietW}s > ${quietMax}s 「${c.text}」`);
+          continue;
+        }
         if (!sp) continue;
         const a = c.t0 - n.t0, b2 = c.t1 - n.t0;
         const spk = sp.reduce((acc, [u, v]) => acc + Math.max(0, Math.min(b2, v) - Math.max(a, u)), 0);
@@ -815,7 +889,11 @@ export const subtitle: StepHandler = {
     const narHoles: { n: number; t0: number; t1: number; len: number }[] = [];
     for (const n of nars) {
       const vb = vmap.get(n.n);
-      const sp: [number, number][] = (vb?.speech && vb.speech.length ? vb.speech : [[0, vb?.dur_s ?? 0]]) as [number, number][];
+      // 축(2026-08-18): 단어 실측 블록은 **단어 구간의 합집합**, 폴백 블록은 발성 덩어리
+      const wl = (Array.isArray(vb?.words) ? vb!.words! : []) as { w: string; s: number; e: number }[];
+      const sp: [number, number][] = narWordBlocks.has(n.n) && wl.length
+        ? (() => { const out: [number, number][] = []; for (const w of wl) { const l = out[out.length - 1]; if (l && w.s - l[1] <= 0.001) l[1] = Math.max(l[1], w.e); else out.push([w.s, w.e]); } return out; })()
+        : ((vb?.speech && vb.speech.length ? vb.speech : [[0, vb?.dur_s ?? 0]]) as [number, number][]);
       const cs = cues.filter((c) => c.lane === "nar" && c.ref === `n${n.n}`).sort((a, b) => a.t0 - b.t0);
       for (const [u0, v0] of sp) {
         const u = n.t0 + u0, v = n.t0 + v0;
@@ -832,6 +910,24 @@ export const subtitle: StepHandler = {
     const narCov = narSpeechS > 0 ? r3(narCovS / narSpeechS) : 1;
     const narBig = narHoles.filter((h) => h.len >= 0.3);
     const NCA = A["G-나레커버율"] ?? { min: 0.98, 구멍_0_3s_max: 0 };
+    // ── G-나레단어일치 (2026-08-18) — 큐 창 안에서 **실제 발음된 단어**가 큐 텍스트와 같은가.
+    //   대사판 G-대사원문일치와 대칭. 「아직 말하지 않은 단어를 미리 띄우는」 사고를 직접 잡는다.
+    const wSims: number[] = [], wBad: string[] = [];
+    for (const c of cues) {
+      if (c.lane !== "nar") continue;
+      const nn = Number(String(c.ref ?? "n0").slice(1));
+      if (!narWordBlocks.has(nn)) continue;                    // 폴백 블록은 판정 재료가 없다
+      const nar0 = nars.find((x) => x.n === nn); const vb0 = vmap.get(nn);
+      if (!nar0 || !vb0 || !Array.isArray(vb0.words)) continue;
+      const heard = 창안의단어(vb0.words as 실측단어[], c.t0 - nar0.t0, c.t1 - nar0.t0).map((w) => w.w).join(" ");
+      const sim = 유사도(c.text, heard);
+      wSims.push(sim);
+      if (sim < (A["G-나레단어일치"]?.min ?? 0.7)) wBad.push(`${c.ref} ${c.t0}~${c.t1} 자막 「${c.text.slice(0, 16)}」 vs 그때 들리는 말 「${heard.slice(0, 16)}」 (유사 ${sim})`);
+    }
+    const wSimAvg = wSims.length ? r3(wSims.reduce((x, y) => x + y, 0) / wSims.length) : 0;
+    gates.push({ id: "G-나레단어일치", pass: wBad.length <= (A["G-나레단어일치"]?.위반_max ?? 0), hard: true,
+      detail: `단어 실측 큐 ${wSims.length}개 평균 유사도 ${wSimAvg} (기준 ${A["G-나레단어일치"]?.min ?? 0.7}) · 불일치 ${wBad.length}건${wBad.length ? ` — ${wBad.slice(0, 3).join(" · ")}` : ""}${narWordBlocks.size < nars.length ? ` · 폴백 블록 ${nars.length - narWordBlocks.size}개는 판정 제외` : ""}`,
+      fix: "큐 시각이 그 줄 단어의 실측 구간과 어긋난 것이다 — 줄↔단어 정렬(lib/단어정렬.ts)이 어긋났는지, 꼬리(규격 「자막.나레큐_꼬리_s」)가 다음 줄 단어를 삼켰는지 본다. 정렬 유사도가 낮아 폴백으로 내려간 블록이면 나레 wav 를 재합성하거나 그 블록 대본을 손본다(voice ③ 의 문구 유사도부터 확인)." });
     gates.push({ id: "G-나레커버율", pass: narCov >= (NCA.min ?? 0.98) - 1e-6 && narBig.length <= (NCA["구멍_0_3s_max"] ?? 0), hard: true,
       detail: `나레 발성 ${r3(narSpeechS)}s 중 자막이 ${r3(narCovS)}s 를 덮었다 → ${narCov} (≥${NCA.min ?? 0.98}) · 구멍 총 ${r3(narHoles.reduce((x, h) => x + h.len, 0))}s ${narHoles.length}곳(0.3s 이상 ${narBig.length}곳)${narBig.length ? ` — ${narBig.slice(0, 3).map((h) => `n${h.n} ${h.t0}~${h.t1}(${h.len}s)`).join(" · ")}` : ""}`,
       fix: "구멍 목록의 덩어리를 보라 — 그 덩어리에 배정된 큐를 **덩어리 시작·끝까지 늘린다**(R1 타일링). 배정된 큐가 아예 없으면 줄↔덩어리 배정이 어긋난 것이다(덩어리 수 > 줄 수) — script.json 그 블록의 lines[] 를 덩어리 수에 맞춰 나눈다. 소리와 자막의 시각 축이 다르다는 것을 잊지 마라(큐=문자 정렬 · 덩어리=무음 실측)." });
@@ -924,6 +1020,7 @@ export const subtitle: StepHandler = {
     const ratios: number[] = [];
     for (const c of cues) {
       if (c.lane !== "nar") continue;
+      if (narWordBlocks.has(Number(String(c.ref ?? "n0").slice(1)))) continue;   // 단어 실측 블록은 ⓑ 대상이 아니다(축이 단어다)
       const ch = narChunk.get(c);
       if (!ch) continue;
       const ov = Math.max(0, Math.min(c.t1, ch[1]) - Math.max(c.t0, ch[0]));
@@ -932,6 +1029,7 @@ export const subtitle: StepHandler = {
       if (ratio < 0.8) chunkBad.push(`${c.ref} 큐 ${c.t0}~${c.t1} 이 배정 덩어리 ${ch[0]}~${ch[1]} 와 ${ratio} 만 겹친다 「${c.text.slice(0, 18)}」`);
     }
     for (const n of nars) {
+      if (narWordBlocks.has(n.n)) continue;                                       // ⓒ 도 폴백 블록에만 — 커버율 게이트가 대신 본다
       const nb = vmap.get(n.n);
       if (!nb || !nb.speech || !nb.speech.length) continue;
       const mine2 = cues.filter((c) => c.lane === "nar" && c.ref === `n${n.n}`);
@@ -942,7 +1040,7 @@ export const subtitle: StepHandler = {
       }
     }
     const ratioAvg = ratios.length ? r3(ratios.reduce((x, y) => x + y, 0) / ratios.length) : 0;
-    gates.push({ id: "G-자막음성일치", pass: narOut.length === 0 && dlgOut.length === 0 && chunkBad.length === 0 && emptyRun.length === 0, hard: true, detail: `ⓐ 나레 큐 음성 밖/무음초과 ${narOut.length} · 대사 큐 발화 밖 ${dlgOut.length} · 무음 노출 총 ${quietTotal}s(최대 ${quietWorst}s ≤ ${quietMax}s) · ⓑ 자기 덩어리 겹침 평균 ${ratioAvg}(0.8 미만 ${chunkBad.length}건) · ⓒ 빈 발성 덩어리 ${emptyRun.length}건${chunkBad.length ? " — " + chunkBad.slice(0, 2).join(" · ") : ""}${emptyRun.length ? " — " + emptyRun.slice(0, 2).join(" · ") : ""}${narOut.length || dlgOut.length ? " — " + [...narOut, ...dlgOut].slice(0, 4).join(" · ") : ""}`, fix: "ⓑ 어긋나면 줄↔발성 덩어리 배정을 고친다 — 덩어리 경계를 걸친 줄은 **0.3s 미만 조각을 버리고** 큰 덩어리에 통째로 앉힌다. ⓒ 빈 덩어리가 있으면 그 덩어리에 놓일 줄이 앞 덩어리로 밀린 것이다. 나레: 큐를 **실측 발성 구간**(voice.json blocks[].speech)으로 클램프하고 최소 길이도 발성 안에서만 채운다. 실측이 없으면 voice ② 를 다시 돌린다. 큐 끝은 음성 끝(t0+wav)을 넘지 않는다. 최소 길이는 앞으로 당겨 채운다(모자라면 앞 큐와 병합) — 뒤로 미루지 않는다. 대사: 큐 시작 = 발화 시작, 끝 ≤ max(발화 끝, 시작+큐_최소길이)+대사큐_꼬리 안에 들어오는지 규격 값을 확인한다." });
+    gates.push({ id: "G-자막음성일치", pass: narOut.length === 0 && dlgOut.length === 0 && chunkBad.length === 0 && emptyRun.length === 0, hard: true, detail: `ⓐ 나레 큐 단어구간/음성 밖 ${narOut.length} · 대사 큐 발화 밖 ${dlgOut.length} · 무음 노출 총 ${quietTotal}s(최대 ${quietWorst}s ≤ ${quietMax}s) · 단어 실측 블록 ${narWordBlocks.size}/${nars.length} · ⓑⓒ(폴백 블록만) 겹침 평균 ${ratioAvg}·0.8 미만 ${chunkBad.length}건 · 빈 덩어리 ${emptyRun.length}건${chunkBad.length ? " — " + chunkBad.slice(0, 2).join(" · ") : ""}${emptyRun.length ? " — " + emptyRun.slice(0, 2).join(" · ") : ""}${narOut.length || dlgOut.length ? " — " + [...narOut, ...dlgOut].slice(0, 4).join(" · ") : ""}`, fix: "ⓑ 어긋나면 줄↔발성 덩어리 배정을 고친다 — 덩어리 경계를 걸친 줄은 **0.3s 미만 조각을 버리고** 큰 덩어리에 통째로 앉힌다. ⓒ 빈 덩어리가 있으면 그 덩어리에 놓일 줄이 앞 덩어리로 밀린 것이다. 나레: 큐를 **실측 발성 구간**(voice.json blocks[].speech)으로 클램프하고 최소 길이도 발성 안에서만 채운다. 실측이 없으면 voice ② 를 다시 돌린다. 큐 끝은 음성 끝(t0+wav)을 넘지 않는다. 최소 길이는 앞으로 당겨 채운다(모자라면 앞 큐와 병합) — 뒤로 미루지 않는다. 대사: 큐 시작 = 발화 시작, 끝 ≤ max(발화 끝, 시작+큐_최소길이)+대사큐_꼬리 안에 들어오는지 규격 값을 확인한다." });
     const deadPass = deadRatio <= (A["G-죽은시간_max"].value ?? 0.1);
     gates.push({ id: "G-죽은시간(홀드 제외)", pass: deadPass, hard: true, detail: `죽은 ${deadS}s / (총 ${totalT}s − 홀드 ${holdS}s = ${denom}s) = ${deadRatio} (≤${A["G-죽은시간_max"].value}). 죽은 구간 상위: ${deadSpans.slice(0, 5).map((d) => `${d.t0}~${d.t1}(${d.len}s)`).join(", ")}`, fix: deadPass ? undefined : `죽은 구간 상위 ${Math.min(5, deadSpans.length)}개 위치를 보고 script 로 돌아가 그 자리에 원인·의미 나레를 쓰거나(나레이션.md 2절), 그 구간을 자르거나 당겨 붙여라(규격 조립). 대사 역할인데 대사가 없는 자리면 select 의 역할을 시각몽타주(홀드)로 바꾼다.` });
     const soft: string[] = [...warnings];
@@ -954,7 +1052,7 @@ export const subtitle: StepHandler = {
     let narOverDlg = 0; for (const n of nars) for (const d of dlgLines) narOverDlg += Math.max(0, Math.min(n.t1, d.t1) - Math.max(n.t0, d.t0));
     narOverDlg = r3(narOverDlg);
 
-    const metrics = { nar_chunk_ratio_avg: ratioAvg, nar_chunk_bad: chunkBad.length, nar_empty_runs: emptyRun.length, dlg_coverage: coverage, dlg_residual_avg_s: residAvg, dlg_residual_max_s: residMax, dlg_merged: mergedDlg, dlg_lead_avg_s: leadAvg, dlg_lead_max_s: leadWorst, dlg_lead_over: leadBad.length, words_measured: words.length, nar_cue_quiet_s: quietTotal, nar_cue_quiet_max_s: quietWorst, nar_speech_measured_blocks: speechMeasured, cross_overlap_s: crossS, cross_overlap_n: crossN, dlg_cues_trimmed: dlgTrimmed.length, dlg_cues_dropped: dlgDropped.length, total_s: totalT, cuts: pics.length, narrations: nars.length, cue_count: cues.length, cues_nar: cues.filter((c) => c.lane === "nar").length, cues_dlg: cues.filter((c) => c.lane === "dlg").length, cues_per_min: r3(cues.length / (totalT / 60)), max_line_chars: { nar: maxLineNar, dlg: maxLineDlg }, overlaps: overlapsLeft, dead_ratio: deadRatio, dead_s: deadS, hold_s: holdS, max_no_sub_s: maxNoSub, cues_per_clip: cuesPerClip, nar_over_dialogue_s: narOverDlg, added_time_s: r3(totalT - segs.reduce((a, s) => a + (s.out - s.in), 0)), trimmed_silence_s: trimmedS, trim_cuts: trimCuts, silence_measured: silences.length > 0, source_ratio: r3(totalT / ps.duration_s) };
+    const metrics = { nar_word_blocks: narWordBlocks.size, nar_word_sim_avg: wSimAvg, nar_line_align_sim_min: narLineSim.size ? r3(Math.min(...narLineSim.values())) : null, nar_chunk_ratio_avg: ratioAvg, nar_chunk_bad: chunkBad.length, nar_empty_runs: emptyRun.length, dlg_coverage: coverage, dlg_residual_avg_s: residAvg, dlg_residual_max_s: residMax, dlg_merged: mergedDlg, dlg_lead_avg_s: leadAvg, dlg_lead_max_s: leadWorst, dlg_lead_over: leadBad.length, words_measured: words.length, nar_cue_quiet_s: quietTotal, nar_cue_quiet_max_s: quietWorst, nar_speech_measured_blocks: speechMeasured, cross_overlap_s: crossS, cross_overlap_n: crossN, dlg_cues_trimmed: dlgTrimmed.length, dlg_cues_dropped: dlgDropped.length, total_s: totalT, cuts: pics.length, narrations: nars.length, cue_count: cues.length, cues_nar: cues.filter((c) => c.lane === "nar").length, cues_dlg: cues.filter((c) => c.lane === "dlg").length, cues_per_min: r3(cues.length / (totalT / 60)), max_line_chars: { nar: maxLineNar, dlg: maxLineDlg }, overlaps: overlapsLeft, dead_ratio: deadRatio, dead_s: deadS, hold_s: holdS, max_no_sub_s: maxNoSub, cues_per_clip: cuesPerClip, nar_over_dialogue_s: narOverDlg, added_time_s: r3(totalT - segs.reduce((a, s) => a + (s.out - s.in), 0)), trimmed_silence_s: trimmedS, trim_cuts: trimCuts, silence_measured: silences.length > 0, source_ratio: r3(totalT / ps.duration_s) };
     // 죽은 구간 → 어느 컷(원본 시각)인지 대응 + 역할별 합계 (수리 지침에 위치를 준다)
     const picAt = (x: number) => pics.find((p) => x >= p.t0 - 1e-6 && x < p.t1 + 1e-6);
     const deadDiag = deadSpans.slice(0, 12).map((d) => { const p = picAt(d.t0); return { ...d, picture: p ? { k: p.k, kind: p.kind, role: p.role, seg: p.seg ?? null, src: `${r2(p.src_in + (d.t0 - p.t0))}~${r2(Math.min(p.src_out, p.src_in + (d.t1 - p.t0)))}` } : null }; });

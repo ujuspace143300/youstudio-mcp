@@ -88,27 +88,50 @@ for (const pj of (r1.post ?? [])) {
 }
 console.log("무음스캔", Object.keys(speech_raw).length, "블록");
 let r2 = await call("voice", { ...carry, voice_ts: measured.voice_ts, speech_raw });
-// ③ 문구 대조 국면 — 서버가 ASR jobs 를 주면 하나씩 보내고(429 는 대기 후 재시도) asr_nar 로 되돌려준다
+// ③ 단어 실측 국면 (2026-08-18) — do[] 로 wav 를 이어 붙이고, Speechmatics 배치 1콜로 단어 시각을 받는다.
+//   문구 일치도 같은 전사로 판정한다(옛 Groq 27콜 대체). 배치 흐름은 run_transcript_sm.mjs 와 같다.
 if (r2.status === "execute" && r2.jobs_kind === "transcribe") {
-  const asr_nar = {};
-  for (const job of r2.jobs) {
-    const apiKey = key(job.auth.env);
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const fd = new FormData();
-      for (const [k, v] of Object.entries(job.request.multipart)) {
-        if (typeof v === "string" && v.startsWith("@")) fd.append(k, new Blob([fs.readFileSync(v.slice(1))]), v.slice(1).split("/").pop());
-        else fd.append(k, v);
-      }
-      const resp = await fetch(job.request.url, { method: job.request.method, headers: { authorization: `Bearer ${apiKey}` }, body: fd });
-      if (resp.ok) { const j = await resp.json(); asr_nar[job.name] = j; fs.writeFileSync(job.out, JSON.stringify(j, null, 1), "utf8"); console.log(`asr ${job.name} | ${(j.text ?? "").trim().slice(0, 44)}`); break; }
-      const t = await resp.text();
-      const m = /try again in ([\d.]+)s/i.exec(t);
-      const wait = m ? Math.ceil(Number(m[1])) + 2 : 25;
-      console.log(`asr ${job.name} HTTP ${resp.status} — ${wait}s 대기 후 재시도`);
-      await new Promise((res) => setTimeout(res, wait * 1000));
-    }
+  for (const d of r2.do ?? []) {
+    fs.mkdirSync(path.dirname(d.argv.at(-1)), { recursive: true });
+    const res = spawnSync(d.argv[0], d.argv.slice(1), { encoding: "utf8" });
+    console.log("do", d.name, res.status === 0 ? "ok" : `실패 ${res.status} ${(res.stderr ?? "").slice(0, 200)}`);
+    if (res.status !== 0) process.exit(2);
   }
-  r2 = await call("voice", { ...carry, voice_ts: measured.voice_ts, speech_raw, asr_nar });
+  const job = r2.jobs[0];
+  // 전사 재사용: 같은 wav 묶음이면 다시 부르지 않는다(REUSE=1) — 외부 호출은 돈이다
+  if (process.env.REUSE === "1" && fs.existsSync(job.out)) {
+    const tr0 = rd(job.out);
+    const n0 = (tr0.results ?? []).filter((r) => (r.type ?? "word") === "word").length;
+    console.log(`나레 전사 재사용 ${job.out} (단어 ${n0}) — 새로 부르지 않는다`);
+    r2 = await call("voice", { ...carry, voice_ts: measured.voice_ts, speech_raw, asr_nar: tr0 });
+  } else {
+  const apiKey = key(job.auth.env);
+  const audio = job.request.multipart.data_file.slice(1);
+  const t0 = Date.now();
+  const fd = new FormData();
+  fd.append("data_file", new Blob([fs.readFileSync(audio)]), audio.split("/").pop());
+  fd.append("config", job.request.multipart.config);
+  let resp = await fetch(job.batch.submit_url, { method: "POST", headers: { authorization: `Bearer ${apiKey}` }, body: fd });
+  if (!resp.ok) { console.log("제출 실패", resp.status, (await resp.text()).slice(0, 300)); process.exit(2); }
+  const { id } = await resp.json();
+  console.log(`나레 전사 job ${id} — 오디오 ${(fs.statSync(audio).size / 48000).toFixed(1)}s · 폴링 시작`);
+  let done = false;
+  while (!done && (Date.now() - t0) / 1000 < job.batch.timeout_s) {
+    await new Promise((r) => setTimeout(r, job.batch.poll_s * 1000));
+    const st = await (await fetch(job.batch.status_url.replace("{id}", id), { headers: { authorization: `Bearer ${apiKey}` } })).json();
+    const s2 = st?.job?.status ?? st?.status;
+    console.log(`  ${Math.round((Date.now() - t0) / 1000)}s ${s2}`);
+    if (s2 === "done") done = true;
+    else if (s2 === "rejected" || s2 === "expired") { console.log("작업 실패", JSON.stringify(st).slice(0, 300)); process.exit(2); }
+  }
+  const tr = await (await fetch(job.batch.transcript_url.replace("{id}", id), { headers: { authorization: `Bearer ${apiKey}` } })).json();
+  const elapsed = Math.round((Date.now() - t0) / 1000);
+  fs.writeFileSync(job.out, JSON.stringify(tr, null, 1), "utf8");
+  const nWords = (tr.results ?? []).filter((r) => (r.type ?? "word") === "word").length;
+  console.log(`나레 전사 완료 ${elapsed}s · 단어 ${nWords} · 저장 ${job.out}`);
+  fs.writeFileSync(W + "/voice/_sm_nar_meta.json", JSON.stringify({ job_id: id, elapsed_s: elapsed, words: nWords, concat_s: r2.metrics?.concat_total_s ?? null, gap_s: r2.metrics?.concat_gap_s ?? null, offsets: r2.offsets ?? null, job_info: tr.job ?? null, metadata: tr.metadata ?? null }, null, 1), "utf8");
+  r2 = await call("voice", { ...carry, voice_ts: measured.voice_ts, speech_raw, asr_nar: tr });
+  }
 }
 console.log("②", r2.status, "|", r2.message);
 if (r2.status !== "execute") { console.log(r2.instructions?.join("\n")); process.exit(2); }
