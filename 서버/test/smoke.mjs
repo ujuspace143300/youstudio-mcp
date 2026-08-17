@@ -1,3 +1,5 @@
+const TR_KO = ["야 마이크 너네 삼촌 발 전문의지", "둘째 줄", "어 그런 생각 해본 적도 없는데", "넷째 줄", "다섯째 줄", "여섯째 줄", "저요?", "여덟째 줄", "잠깐 뭐 좀 도와줄 수 있어요?", "열째 줄", "50달러 드릴게요", "열두째 줄", "열셋째 줄"];
+let TR = [];   // subtitle① 응답의 대사줄(시각 기반 id + 영어)로 만든다
 /**
  * test/smoke.mjs — 서버가 살아 있고 MCP 로 말이 통하는지 보는 최소 검사.
  *
@@ -501,13 +503,13 @@ const CARRY_SUB = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x"
   const sc = res.structuredContent;
   ok(sc?.status === "need_input" && sc?.need_input?.keys?.includes("translations") && sc?.next_step === "subtitle", "subtitle① → need_input(translations)", `${sc?.status} ${(sc?.message ?? "").slice(0, 80)}`);
   const lines = sc?.material?.dialogue_lines ?? [];
-  ok(lines.length === 13 && lines.every((l) => /^d\d{3}$/.test(l.id)) && !lines.some((l) => /unrelated/.test(l.en)), "subtitle① → 번역 대상 = 대사 역할 구간 안 발화만(13줄, 시각몽타주·미선택 제외)", JSON.stringify(lines.map((l) => l.id)));
+  ok(lines.length === 13 && lines.every((l) => /^d\d{6}$/.test(l.id)) && !lines.some((l) => /unrelated/.test(l.en)), "subtitle① → 번역 대상 = 대사 역할 구간 안 발화만(13줄, 시각몽타주·미선택 제외)", JSON.stringify(lines.map((l) => l.id)));
+  TR = lines.map((l, i) => ({ id: l.id, ko: TR_KO[i] ?? `줄 ${i + 1}`, en: l.en }));
   ok(sc?.style_guide?.some((l) => /지무비 구어체/.test(l)) && sc?.style_guide?.some((l) => /29자/.test(l)), "subtitle① → 번역 문체 안내(지무비 구어체·29자)", "");
   const tp = sc?.material?.timeline_preview;
   ok(tp?.total_s > 26.3 + 20 + 74.3 && tp?.cuts >= 5, "subtitle① → 타임라인 총장 = 구간합 + 브리지 컷 + before 연장", JSON.stringify(tp));
 }
 // 31) subtitle ② 통과
-const TR = [{ id: "d001", ko: "야 마이크 너네 삼촌 발 전문의지" }, { id: "d002", ko: "둘째 줄" }, { id: "d003", ko: "어 그런 생각 해본 적도 없는데" }, { id: "d004", ko: "넷째 줄" }, { id: "d005", ko: "다섯째 줄" }, { id: "d006", ko: "여섯째 줄" }, { id: "d007", ko: "저요?" }, { id: "d008", ko: "여덟째 줄" }, { id: "d009", ko: "잠깐 뭐 좀 도와줄 수 있어요?" }, { id: "d010", ko: "열째 줄" }, { id: "d011", ko: "50달러 줄게요" }, { id: "d012", ko: "열두째 줄" }, { id: "d013", ko: "열셋째 줄" }];
 {
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: { ...CARRY_SUB, translations: TR } } });
   const sc = res.structuredContent;
@@ -535,10 +537,10 @@ const TR = [{ id: "d001", ko: "야 마이크 너네 삼촌 발 전문의지" }, 
 }
 // 32) subtitle ② 번역 초과·누락 → 반려
 {
-  const bad = [...TR.slice(2)].map((x) => ({ ...x })); bad.unshift({ id: "d001", ko: "야 마이크 너네 삼촌이 발 전문의라고 했지 맞지 진짜 그랬잖아 기억나" }, { id: "d002", ko: "둘째, 줄" }); bad.pop(); // d013 누락
+  const bad = [...TR.slice(2)].map((x) => ({ ...x })); bad.unshift({ ...TR[0], ko: "야 마이크 너네 삼촌이 발 전문의라고 했지 맞지 진짜 그랬잖아 기억나" }, { ...TR[1], ko: "둘째, 줄" }); bad.pop(); // 마지막 줄 누락
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: { ...CARRY_SUB, translations: bad } } });
   const sc = res.structuredContent;
-  ok(res.isError === true && /d001: 대사 \d+자 > 29자/.test(sc?.message ?? "") && /d002: 대사 자막에 마침표·쉼표 금지/.test(sc?.message ?? "") && /번역 누락 1줄: d013/.test(sc?.message ?? ""), "subtitle②(초과·구두점·누락) → 반려 + 어느 줄이 왜", (sc?.message ?? "").slice(0, 160));
+  ok(res.isError === true && /대사 \d+자 > 29자/.test(sc?.message ?? "") && /대사 자막에 마침표·쉼표 금지/.test(sc?.message ?? "") && /번역 누락 1줄/.test(sc?.message ?? ""), "subtitle②(초과·구두점·누락) → 반려 + 어느 줄이 왜", (sc?.message ?? "").slice(0, 160));
 }
 
 // 33) tools/call export ① — 나레 믹스 do[] + measure

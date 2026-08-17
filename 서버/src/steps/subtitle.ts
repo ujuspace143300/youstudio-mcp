@@ -327,7 +327,7 @@ export const subtitle: StepHandler = {
         if (b - a < 0.15) continue;
         const ws = wordSpan(a, b);                                   // 실측 단어 구간(원본 시각)
         const a2 = ws ? Math.max(a, ws[0]) : a, b2 = ws ? Math.min(b, Math.max(ws[1], ws[0] + 0.2)) : b;
-        dlgLines.push({ id: `d${String(dlgLines.length + 1).padStart(3, "0")}`, seg: p.seg!, t0: r3(p.t0 + (a2 - p.src_in)), t1: r3(p.t0 + (b2 - p.src_in)), src_start: r3(a2), src_end: r3(b2), en: u.text, word_t0: ws ? r3(p.t0 + (ws[0] - p.src_in)) : undefined });
+        dlgLines.push({ id: `d${String(Math.round(a2 * 1000)).padStart(6, "0")}`, seg: p.seg!, t0: r3(p.t0 + (a2 - p.src_in)), t1: r3(p.t0 + (b2 - p.src_in)), src_start: r3(a2), src_end: r3(b2), en: u.text, word_t0: ws ? r3(p.t0 + (ws[0] - p.src_in)) : undefined });
       }
     }
 
@@ -392,7 +392,26 @@ export const subtitle: StepHandler = {
     let tr = payload.translations as unknown;
     if (tr && typeof tr === "object" && !Array.isArray(tr) && Array.isArray((tr as { translations?: unknown }).translations)) tr = (tr as { translations: unknown }).translations;
     if (!Array.isArray(tr)) return reject("subtitle", preset, "payload.translations 가 배열이 아니다", "[{id, ko}] 배열을 실어 다시 부르라.");
-    const trMap = new Map<string, string>((tr as { id: string; ko: string }[]).map((x) => [x.id, String(x.ko ?? "").trim()]));
+    // 번역표는 {id, ko, en} — **id 뿐 아니라 영어 원문으로도 확인한다**(2026-08-17: id 가 순번이던 시절
+    //   줄이 하나 늘자 번역이 한 칸씩 밀려 자막이 다른 대사를 말했다. 이제 id 는 시각 기반이고, 영어까지 대조한다).
+    const trRows = tr as { id: string; ko: string; en?: string }[];
+    const trMap = new Map<string, string>(trRows.map((x) => [x.id, String(x.ko ?? "").trim()]));
+    const trEn = new Map<string, string>(trRows.filter((x) => x.en).map((x) => [x.id, String(x.en)]));
+    /** a 가 b 안에 얼마나 들어 있나 (0~1) — 병합·짧은 큐의 부분 일치를 인정한다 */
+    const enContain = (a: string, b: string) => {
+      const na = (a ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim(), nb = (b ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+      if (!na || !nb) return 0;
+      const dp: number[] = new Array(nb.length + 1).fill(0);
+      for (let i = 1; i <= na.length; i++) { let prev = 0; for (let j = 1; j <= nb.length; j++) { const tmp = dp[j]; dp[j] = na[i - 1] === nb[j - 1] ? prev + 1 : Math.max(dp[j], dp[j - 1]); prev = tmp; } }
+      return Math.round((dp[nb.length] / na.length) * 1000) / 1000;
+    };
+    const enSim = (a: string, b: string) => {
+      const na = (a ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim(), nb = (b ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+      if (!na || !nb) return 0;
+      const dp: number[] = new Array(nb.length + 1).fill(0);
+      for (let i = 1; i <= na.length; i++) { let prev = 0; for (let j = 1; j <= nb.length; j++) { const tmp = dp[j]; dp[j] = na[i - 1] === nb[j - 1] ? prev + 1 : Math.max(dp[j], dp[j - 1]); prev = tmp; } }
+      return Math.round((2 * dp[nb.length] / (na.length + nb.length)) * 1000) / 1000;
+    };
     const hard: string[] = [];
     const missing = dlgLines.filter((d) => !trMap.get(d.id));
     if (missing.length) hard.push(`번역 누락 ${missing.length}줄: ${missing.slice(0, 8).map((d) => d.id).join(", ")}${missing.length > 8 ? " …" : ""}`);
@@ -766,6 +785,35 @@ export const subtitle: StepHandler = {
     const covDenom = Math.max(0.001, speechS - narOwnS);
     const coverage = r3(Math.min(1, coveredS / covDenom));
     const covMin = (A as unknown as { "G-대사커버율"?: { min: number } })["G-대사커버율"]?.min ?? 0.95;
+    // G-대사원문일치 — 자막이 **그 순간 실제로 하는 말**의 번역인지 기계가 확인한다(나레 G-나레문구일치의 대사판)
+    const src2tlG = (x: number) => { const p = pics.find((q) => q.kind !== "bridge" && x >= q.src_in - 1e-6 && x <= q.src_out + 1e-6); return p ? p.t0 + (x - p.src_in) : null; };
+    const tl2srcG = (t: number) => { const p = pics.find((q) => q.kind !== "bridge" && t >= q.t0 - 1e-6 && t <= q.t1 + 1e-6); return p ? p.src_in + (t - p.t0) : null; };
+    const enMismatch: string[] = [], heardMismatch: string[] = [];
+    const simsA: number[] = [], simsB: number[] = [];
+    for (const c of cues.filter((x) => x.lane === "dlg")) {
+      const d = dlgLines.find((x) => x.id === c.ref);
+      if (!d) continue;
+      const tEn = trEn.get(String(c.ref ?? ""));
+      if (tEn !== undefined) {
+        const sa = enSim(tEn, d.en ?? ""); simsA.push(sa);
+        if (sa < 0.9) enMismatch.push(`${c.ref} 번역표 영어 「${tEn.slice(0, 24)}」 ≠ 대사줄 영어 「${d.en.slice(0, 24)}」 (유사 ${sa})`);
+      }
+      if (words.length) {
+        const a = tl2srcG(c.t0), b = tl2srcG(c.t1);
+        if (a === null || b === null) continue;
+        const heard = words.filter((w) => w.s >= a - 0.15 && w.e <= b + 0.15).map((w) => w.w).join(" ");
+        // 병합 큐는 원문이 여럿(cue.src 에 " | " 로 이어져 있다). **포함 정도**로 본다 —
+        //   "이 큐의 영어가 그 시간창에서 실제로 들리는가"(부분 일치 허용, 사용자 지시 2026-08-17)
+        const enRef = String(c.src ?? d.en ?? "").replace(/ \| /g, " ");
+        // 큐는 잘리거나(들리는 말 ⊂ 원문) 꼬리로 늘어날(원문 ⊂ 들리는 말) 수 있다 → 둘 중 큰 쪽으로 본다(부분 일치 허용)
+        const sb = Math.max(enContain(heard, enRef), enContain(enRef, heard)); simsB.push(sb);
+        if (heard && sb < 0.6) heardMismatch.push(`${c.ref} 「${c.text.slice(0, 18)}」 영어 「${enRef.slice(0, 22)}」 vs 들리는 말 「${heard.slice(0, 22)}」 (포함 ${sb})`);
+      }
+    }
+    const avg = (xs: number[]) => (xs.length ? r3(xs.reduce((x, y) => x + y, 0) / xs.length) : 0);
+    gates.push({ id: "G-대사원문일치", pass: enMismatch.length === 0 && heardMismatch.length === 0, hard: true,
+      detail: `번역표 영어↔대사줄 ${simsA.length}건 평균 ${avg(simsA)}(불일치 ${enMismatch.length}) · 대사줄 영어↔실측 단어 ${simsB.length}건 평균 ${avg(simsB)}(불일치 ${heardMismatch.length})${enMismatch.length ? " — " + enMismatch.slice(0, 3).join(" · ") : ""}${heardMismatch.length ? " — " + heardMismatch.slice(0, 3).join(" · ") : ""}`,
+      fix: "번역표(payload.translations)의 각 줄에 {id, ko, **en**} 을 실어라. id 는 시각 기반 키라 대사줄이 늘어도 그대로다 — 어긋나면 **영어 원문 기준으로 다시 매칭**해 번역표를 재구성한다. 들리는 말과 어긋나면 그 줄의 번역이 다른 대사의 것이다." });
     gates.push({ id: "G-대사커버율", pass: words.length === 0 || coverage >= covMin - 1e-6, hard: true,
       detail: words.length === 0 ? "단어 실측 없음 — 폴백 전사(세그먼트)에서는 커버율을 재지 않는다(규격 전사.폴백_사다리)" : `선택 구간 안 발화 ${r3(speechS)}s 중 나레 점유 ${r3(narOwnS)}s 를 뺀 ${r3(covDenom)}s 를 대사 자막이 ${r3(coveredS)}s 덮었다 → ${coverage} (≥${covMin})`,
       fix: "빈 구간의 원인을 본다 — ① 버려진 큐(경고 목록)면 인접 대사 병합 조건(규격 자막.대사_병합)을 넓히거나 최소 길이를 낮춘다 ② 나레가 점유한 자리면 그 나레를 다른 틈으로 옮긴다 ③ 대사줄 자체가 없으면 컷 경계 처리를 확인한다(발화가 컷에 걸쳐 있을 때 안쪽만큼 넣는다)." });
