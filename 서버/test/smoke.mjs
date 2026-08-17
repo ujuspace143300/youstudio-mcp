@@ -509,8 +509,13 @@ const TR = [{ id: "d001", ko: "야 마이크 너네 삼촌 발 전문의지" }, 
   ok(nars.length === 4 && n4 && /균등/.test(n4.anchor) && nars.find((n) => n.n === 1)?.anchor.includes("틈"), "subtitle② → over 배치(시각몽타주 균등 · 대사 역할은 틈)", JSON.stringify(nars.map((n) => [n.n, n.t0, n.anchor.slice(0, 20)])));
   const cues = tl?.cues ?? [];
   const narCues = cues.filter((c) => c.lane === "nar"), dlgCues = cues.filter((c) => c.lane === "dlg");
-  ok(dlgCues.length === 13 && narCues.length >= 8 && narCues.every((c) => c.text.length <= 18) && dlgCues.every((c) => c.text.length <= 29), "subtitle② → 큐(나레 ≤18자 조각·대사 ≤29자)", `nar=${narCues.length} dlg=${dlgCues.length}`);
+  ok(dlgCues.length === 12 && narCues.length >= 8 && narCues.every((c) => c.text.length <= 18) && dlgCues.every((c) => c.text.length <= 29), "subtitle② → 큐(나레 ≤18자 조각·대사 ≤29자, 나레와 겹친 대사 큐 1개는 버림)", `nar=${narCues.length} dlg=${dlgCues.length}`);
+  // R1/R3 (2026-08-17): 나레 큐는 음성 밖 금지 · 나레×대사 자막 동시 표시 금지
+  const narInVoice = narCues.every((c) => { const n = (tl?.narration ?? []).find((x) => `n${x.n}` === c.ref); return n && c.t0 >= n.t0 - 0.05 && c.t1 <= n.t1 + 0.05; });
+  let crossOv = 0; for (const n of narCues) for (const d of dlgCues) crossOv += Math.max(0, Math.min(n.t1, d.t1) - Math.max(n.t0, d.t0));
+  ok(narInVoice && crossOv < 0.001 && tl?.metrics?.cross_overlap_s === 0 && (tl?.metrics?.dlg_cues_dropped ?? 0) >= 1, "subtitle② → 나레 큐 ⊆ 음성 구간 · 교차 겹침 0(대사 큐 잘림/버림)", `cross=${crossOv.toFixed(3)} dropped=${tl?.metrics?.dlg_cues_dropped} trimmed=${tl?.metrics?.dlg_cues_trimmed}`);
   ok(sc?.metrics?.overlaps === 0 && sc?.gates?.some((g) => /겹침/.test(g.id) && g.pass) && sc?.gates?.some((g) => /죽은시간/.test(g.id) && g.hard), "subtitle② → 게이트(겹침 0 · 죽은시간 hard)", JSON.stringify(sc?.gates?.map((g) => [g.id, g.pass])));
+  ok(sc?.gates?.some((g) => /G-교차겹침/.test(g.id) && g.pass && g.hard) && sc?.gates?.some((g) => /G-자막음성일치/.test(g.id) && g.pass && g.hard), "subtitle② → 새 게이트 2개(G-교차겹침·G-자막음성일치) hard 통과", JSON.stringify(sc?.gates?.map((g) => g.id)));
   const srt = sc?.write_files?.find((w) => /subtitle\.srt$/.test(w.path))?.content ?? "";
   ok(/^1\n\d\d:\d\d:\d\d,\d{3} --> /.test(srt) && /– 저요\?/.test(srt) && sc?.write_files?.length === 4, "subtitle② → SRT 3종+timeline (합본 대사 접두 –)", srt.slice(0, 60).replace(/\n/g, "\\n"));
   ok(typeof sc?.metrics?.dead_ratio === "number" && sc?.metrics?.hold_s === 74.3 && sc?.metrics?.added_time_s > 0, "subtitle② → metrics(죽은 시간 비율·홀드 제외·추가 시간)", JSON.stringify({ dead: sc?.metrics?.dead_ratio, hold: sc?.metrics?.hold_s, added: sc?.metrics?.added_time_s }));
