@@ -404,7 +404,8 @@ export const subtitle: StepHandler = {
       if (!ko) continue;
       if (ko.length > A["G-자막_한줄_최대자수"].대사) hard.push(`${d.id}: 대사 ${ko.length}자 > ${A["G-자막_한줄_최대자수"].대사}자 — 「${ko}」 (원문: ${d.en})`);
       if (/[.,，]/.test(ko)) hard.push(`${d.id}: 대사 자막에 마침표·쉼표 금지 — 「${ko}」`);
-      const t1 = Math.min(Math.max(d.t1, d.t0 + SUB.큐_최소길이_s), d.t0 + SUB.큐_최대길이_s); // 늘어난 발화는 큐 상한으로 자른다
+      const minKeep = (SUB as unknown as { 짧은대사_최소길이_예외?: boolean }).짧은대사_최소길이_예외 ? d.t1 : Math.max(d.t1, d.t0 + SUB.큐_최소길이_s);
+      const t1 = Math.min(minKeep, d.t0 + SUB.큐_최대길이_s); // 늘어난 발화는 큐 상한으로 자른다
       cues.push({ lane: "dlg", t0: d.t0, t1: r3(t1), text: ko, src: d.en, ref: d.id });
       dlgSrcEnd.set(cues[cues.length - 1], d.src_end);
     }
