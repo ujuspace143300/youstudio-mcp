@@ -416,7 +416,8 @@ export const subtitle: StepHandler = {
     const missing = dlgLines.filter((d) => !trMap.get(d.id));
     if (missing.length) hard.push(`번역 누락 ${missing.length}줄: ${missing.slice(0, 8).map((d) => d.id).join(", ")}${missing.length > 8 ? " …" : ""}`);
     const cues: Cue[] = [];
-    const dlgSrcEnd = new Map<Cue, number>();   // 큐의 **말 끝**(원본 시각) — 병합되면 뒤 대사의 끝으로 갱신된다(잔류 측정용)
+    const dlgSrcEnd = new Map<Cue, number>();
+    const narChunk = new Map<Cue, [number, number]>();   // 나레 큐 → 그 줄이 배정된 발성 덩어리(타임라인 시각)   // 큐의 **말 끝**(원본 시각) — 병합되면 뒤 대사의 끝으로 갱신된다(잔류 측정용)
     // 대사 큐
     for (const d of dlgLines) {
       const ko = trMap.get(d.id) ?? "";
@@ -464,12 +465,19 @@ export const subtitle: StepHandler = {
         for (let li = 0; li < lines.length; li++) {
           const spA = cum, spB = cum + spTotal * (w[li] / wTot); cum = spB;
           // 이 줄의 발성 구간을 덩어리 경계에서 쪼갠다
-          const segs: [number, number][] = [];
+          let segs: [number, number][] = [];
           let accA = 0;
           for (const [u, v] of RUNS) {
             const len = v - u, rA = accA, rB = accA + len; accA = rB;
             const x = Math.max(spA, rA), y = Math.min(spB, rB);
             if (y - x > 0.05) segs.push([u + (x - rA), u + (y - rA)]);
+          }
+          // 덩어리 경계를 살짝 걸친 **미세 조각은 버린다**(2026-08-17 수리): 0.3s(최소 길이 절반) 미만 조각에
+          //   줄 전체가 들어가 「소리는 뒤 덩어리인데 자막은 앞 덩어리 끝」이 되던 사고(n19·n11·n23)를 막는다.
+          const tiny = Math.max(0.3, SUB.큐_최소길이_s / 2);
+          if (segs.length > 1) {
+            const big = segs.filter(([x, y]) => y - x >= tiny);
+            if (big.length) segs = big; else segs = [segs.reduce((m, sg) => (sg[1] - sg[0] > m[1] - m[0] ? sg : m), segs[0])];
           }
           if (!segs.length) { segs.push([toWall(spA), Math.max(toWall(spB), toWall(spA) + 0.05)]); }
           // 글자도 같은 비율로 나눈다 (어절 경계로 반올림)
@@ -543,11 +551,12 @@ export const subtitle: StepHandler = {
         }
         for (const pc of pieces) {
           let a = pc.a, e = pc.e;
+          const chunk: [number, number] = [pc.a, pc.e];        // 이 줄이 배정된 발성 조각(블록 안 시각)
           const prev = mine.length ? mine[mine.length - 1] : null;
           const gapS = SUB.큐_사이_최소간격_s, minS = SUB.큐_최소길이_s;
           if (e - a < minS) {
-            const seg = SP.find(([u, v]) => a >= u - 0.001 && a <= v + 0.001) ?? SP[0];
-            a = Math.max(seg[0], Math.min(a, e - minS));                             // ① 발성 안에서 앞으로 당긴다
+            // ① 앞으로 당기되 **자기 조각 시작**(배정된 덩어리) 이전으로는 가지 않는다
+            a = Math.max(chunk[0], Math.min(a, e - minS));
             if (prev) {
               const prevT0 = prev.t0 - n.t0, prevT1 = prev.t1 - n.t0;
               if (a < prevT1 + gapS) {
@@ -561,6 +570,7 @@ export const subtitle: StepHandler = {
           if (e - a < minS && prev && `${prev.text} ${pc.text}`.trim().length <= A["G-자막_한줄_최대자수"].나레
               && (pc.a - (prev.t1 - n.t0)) <= quietMax0 + 1e-6) {                    // ③ 앞 큐와 병합(자수·쉼 안에서만)
             prev.text = `${prev.text} ${pc.text}`.trim(); prev.t1 = r3(n.t0 + e);
+            { const pv = narChunk.get(prev); if (pv) narChunk.set(prev, [pv[0], r3(n.t0 + chunk[1])]); }
             warnings.push(`나레 ${n.n}: 끝줄 「${pc.text}」을 앞 큐와 합쳤다 — 음성이 ${r2(voiceEnd)}s 에서 끝나 최소 길이를 뒤로 밀 수 없다.`);
             continue;
           }
@@ -574,7 +584,9 @@ export const subtitle: StepHandler = {
             if (e - a < 0.12) { warnings.push(`나레 ${n.n}: 큐 「${pc.text}」을 놓을 자리가 없어 버렸다(발성 ${r2(Math.max(0, e - a))}s).`); continue; }
           }
           if (e - a < minS) warnings.push(`나레 ${n.n}: 큐 「${pc.text}」이 ${r2(e - a)}s 로 최소 길이 ${minS}s 미만이다 — 발성 구간을 넘지 않는 것을 우선했다.`);
-          mine.push({ lane: "nar", t0: r3(n.t0 + Math.max(0, a)), t1: r3(n.t0 + e), text: pc.text, ref: `n${n.n}` });
+          const cue: Cue = { lane: "nar", t0: r3(n.t0 + Math.max(0, a)), t1: r3(n.t0 + e), text: pc.text, ref: `n${n.n}` };
+          narChunk.set(cue, [r3(n.t0 + chunk[0]), r3(n.t0 + chunk[1])]);   // 게이트 v2 ⓑ 가 쓴다
+          mine.push(cue);
         }
       });
       cues.push(...mine);
@@ -836,7 +848,30 @@ export const subtitle: StepHandler = {
     gates.push({ id: "G-대사선행", pass: leadBad.length === 0, hard: true,
       detail: `대사 큐가 첫 단어보다 먼저 뜬 정도 — 평균 ${leadAvg}s · 최대 ${leadWorst}s (상한 ${leadMax}s) · 초과 ${leadBad.length}건 · 단어 실측 ${leadVals.length}/${leads.length}${leadBad.length ? " — " + leadBad.slice(0, 3).map((l) => `${l.ref} ${l.lead}s 「${l.text}」`).join(" · ") : ""}`,
       fix: "대사 큐 시작을 그 말의 **첫 단어 시작**(transcript.json words)으로 맞춘다. 단어 실측이 0이면 전사를 Speechmatics(규격 전사.제공자)로 다시 돌린다 — Groq 폴백은 세그먼트 단위라 자막이 말보다 앞선다." });
-    gates.push({ id: "G-자막음성일치", pass: narOut.length === 0 && dlgOut.length === 0, hard: true, detail: `나레 큐 음성 밖/무음초과 ${narOut.length} · 대사 큐 발화 밖 ${dlgOut.length} · 무음 노출 총 ${quietTotal}s(최대 ${quietWorst}s ≤ ${quietMax}s, 실측 블록 ${speechMeasured}/${nars.length})${narOut.length || dlgOut.length ? " — " + [...narOut, ...dlgOut].slice(0, 4).join(" · ") : ""}`, fix: "나레: 큐를 **실측 발성 구간**(voice.json blocks[].speech)으로 클램프하고 최소 길이도 발성 안에서만 채운다. 실측이 없으면 voice ② 를 다시 돌린다. 큐 끝은 음성 끝(t0+wav)을 넘지 않는다. 최소 길이는 앞으로 당겨 채운다(모자라면 앞 큐와 병합) — 뒤로 미루지 않는다. 대사: 큐 시작 = 발화 시작, 끝 ≤ max(발화 끝, 시작+큐_최소길이)+대사큐_꼬리 안에 들어오는지 규격 값을 확인한다." });
+    // v2 ⓑ 자기 줄 덩어리 겹침 · ⓒ 빈 덩어리 금지 (2026-08-17)
+    const chunkBad: string[] = [], emptyRun: string[] = [];
+    const ratios: number[] = [];
+    for (const c of cues) {
+      if (c.lane !== "nar") continue;
+      const ch = narChunk.get(c);
+      if (!ch) continue;
+      const ov = Math.max(0, Math.min(c.t1, ch[1]) - Math.max(c.t0, ch[0]));
+      const ratio = r3(ov / Math.max(0.001, c.t1 - c.t0));
+      ratios.push(ratio);
+      if (ratio < 0.8) chunkBad.push(`${c.ref} 큐 ${c.t0}~${c.t1} 이 배정 덩어리 ${ch[0]}~${ch[1]} 와 ${ratio} 만 겹친다 「${c.text.slice(0, 18)}」`);
+    }
+    for (const n of nars) {
+      const nb = vmap.get(n.n);
+      if (!nb || !nb.speech || !nb.speech.length) continue;
+      const mine2 = cues.filter((c) => c.lane === "nar" && c.ref === `n${n.n}`);
+      for (const [u, v] of nb.speech) {
+        if (v - u < 0.5) continue;
+        const a = n.t0 + u, b2 = n.t0 + v;
+        if (!mine2.some((c) => Math.min(c.t1, b2) - Math.max(c.t0, a) > 0.05)) emptyRun.push(`n${n.n} 발성 ${r3(a)}~${r3(b2)}(${r3(v - u)}s)에 자막이 없다`);
+      }
+    }
+    const ratioAvg = ratios.length ? r3(ratios.reduce((x, y) => x + y, 0) / ratios.length) : 0;
+    gates.push({ id: "G-자막음성일치", pass: narOut.length === 0 && dlgOut.length === 0 && chunkBad.length === 0 && emptyRun.length === 0, hard: true, detail: `ⓐ 나레 큐 음성 밖/무음초과 ${narOut.length} · 대사 큐 발화 밖 ${dlgOut.length} · 무음 노출 총 ${quietTotal}s(최대 ${quietWorst}s ≤ ${quietMax}s) · ⓑ 자기 덩어리 겹침 평균 ${ratioAvg}(0.8 미만 ${chunkBad.length}건) · ⓒ 빈 발성 덩어리 ${emptyRun.length}건${chunkBad.length ? " — " + chunkBad.slice(0, 2).join(" · ") : ""}${emptyRun.length ? " — " + emptyRun.slice(0, 2).join(" · ") : ""}${narOut.length || dlgOut.length ? " — " + [...narOut, ...dlgOut].slice(0, 4).join(" · ") : ""}`, fix: "ⓑ 어긋나면 줄↔발성 덩어리 배정을 고친다 — 덩어리 경계를 걸친 줄은 **0.3s 미만 조각을 버리고** 큰 덩어리에 통째로 앉힌다. ⓒ 빈 덩어리가 있으면 그 덩어리에 놓일 줄이 앞 덩어리로 밀린 것이다. 나레: 큐를 **실측 발성 구간**(voice.json blocks[].speech)으로 클램프하고 최소 길이도 발성 안에서만 채운다. 실측이 없으면 voice ② 를 다시 돌린다. 큐 끝은 음성 끝(t0+wav)을 넘지 않는다. 최소 길이는 앞으로 당겨 채운다(모자라면 앞 큐와 병합) — 뒤로 미루지 않는다. 대사: 큐 시작 = 발화 시작, 끝 ≤ max(발화 끝, 시작+큐_최소길이)+대사큐_꼬리 안에 들어오는지 규격 값을 확인한다." });
     const deadPass = deadRatio <= (A["G-죽은시간_max"].value ?? 0.1);
     gates.push({ id: "G-죽은시간(홀드 제외)", pass: deadPass, hard: true, detail: `죽은 ${deadS}s / (총 ${totalT}s − 홀드 ${holdS}s = ${denom}s) = ${deadRatio} (≤${A["G-죽은시간_max"].value}). 죽은 구간 상위: ${deadSpans.slice(0, 5).map((d) => `${d.t0}~${d.t1}(${d.len}s)`).join(", ")}`, fix: deadPass ? undefined : `죽은 구간 상위 ${Math.min(5, deadSpans.length)}개 위치를 보고 script 로 돌아가 그 자리에 원인·의미 나레를 쓰거나(나레이션.md 2절), 그 구간을 자르거나 당겨 붙여라(규격 조립). 대사 역할인데 대사가 없는 자리면 select 의 역할을 시각몽타주(홀드)로 바꾼다.` });
     const soft: string[] = [...warnings];
@@ -848,7 +883,7 @@ export const subtitle: StepHandler = {
     let narOverDlg = 0; for (const n of nars) for (const d of dlgLines) narOverDlg += Math.max(0, Math.min(n.t1, d.t1) - Math.max(n.t0, d.t0));
     narOverDlg = r3(narOverDlg);
 
-    const metrics = { dlg_coverage: coverage, dlg_residual_avg_s: residAvg, dlg_residual_max_s: residMax, dlg_merged: mergedDlg, dlg_lead_avg_s: leadAvg, dlg_lead_max_s: leadWorst, dlg_lead_over: leadBad.length, words_measured: words.length, nar_cue_quiet_s: quietTotal, nar_cue_quiet_max_s: quietWorst, nar_speech_measured_blocks: speechMeasured, cross_overlap_s: crossS, cross_overlap_n: crossN, dlg_cues_trimmed: dlgTrimmed.length, dlg_cues_dropped: dlgDropped.length, total_s: totalT, cuts: pics.length, narrations: nars.length, cue_count: cues.length, cues_nar: cues.filter((c) => c.lane === "nar").length, cues_dlg: cues.filter((c) => c.lane === "dlg").length, cues_per_min: r3(cues.length / (totalT / 60)), max_line_chars: { nar: maxLineNar, dlg: maxLineDlg }, overlaps: overlapsLeft, dead_ratio: deadRatio, dead_s: deadS, hold_s: holdS, max_no_sub_s: maxNoSub, cues_per_clip: cuesPerClip, nar_over_dialogue_s: narOverDlg, added_time_s: r3(totalT - segs.reduce((a, s) => a + (s.out - s.in), 0)), trimmed_silence_s: trimmedS, trim_cuts: trimCuts, silence_measured: silences.length > 0, source_ratio: r3(totalT / ps.duration_s) };
+    const metrics = { nar_chunk_ratio_avg: ratioAvg, nar_chunk_bad: chunkBad.length, nar_empty_runs: emptyRun.length, dlg_coverage: coverage, dlg_residual_avg_s: residAvg, dlg_residual_max_s: residMax, dlg_merged: mergedDlg, dlg_lead_avg_s: leadAvg, dlg_lead_max_s: leadWorst, dlg_lead_over: leadBad.length, words_measured: words.length, nar_cue_quiet_s: quietTotal, nar_cue_quiet_max_s: quietWorst, nar_speech_measured_blocks: speechMeasured, cross_overlap_s: crossS, cross_overlap_n: crossN, dlg_cues_trimmed: dlgTrimmed.length, dlg_cues_dropped: dlgDropped.length, total_s: totalT, cuts: pics.length, narrations: nars.length, cue_count: cues.length, cues_nar: cues.filter((c) => c.lane === "nar").length, cues_dlg: cues.filter((c) => c.lane === "dlg").length, cues_per_min: r3(cues.length / (totalT / 60)), max_line_chars: { nar: maxLineNar, dlg: maxLineDlg }, overlaps: overlapsLeft, dead_ratio: deadRatio, dead_s: deadS, hold_s: holdS, max_no_sub_s: maxNoSub, cues_per_clip: cuesPerClip, nar_over_dialogue_s: narOverDlg, added_time_s: r3(totalT - segs.reduce((a, s) => a + (s.out - s.in), 0)), trimmed_silence_s: trimmedS, trim_cuts: trimCuts, silence_measured: silences.length > 0, source_ratio: r3(totalT / ps.duration_s) };
     // 죽은 구간 → 어느 컷(원본 시각)인지 대응 + 역할별 합계 (수리 지침에 위치를 준다)
     const picAt = (x: number) => pics.find((p) => x >= p.t0 - 1e-6 && x < p.t1 + 1e-6);
     const deadDiag = deadSpans.slice(0, 12).map((d) => { const p = picAt(d.t0); return { ...d, picture: p ? { k: p.k, kind: p.kind, role: p.role, seg: p.seg ?? null, src: `${r2(p.src_in + (d.t0 - p.t0))}~${r2(Math.min(p.src_out, p.src_in + (d.t1 - p.t0)))}` } : null }; });
