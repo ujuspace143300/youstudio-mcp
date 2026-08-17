@@ -208,7 +208,8 @@ export const exportStep: StepHandler = {
     let ov = 0; for (const L of [narCues, dlgCues]) for (let i = 1; i < L.length; i++) if (L[i].t0 < L[i - 1].t1 - 1e-6) ov++;
     const holdIv = pics.filter((p) => ASM.죽은시간_홀드_제외_역할.includes(p.role)).map((p) => [p.t0, p.t1] as [number, number]);
     const holdS = holdIv.reduce((a, [x, y]) => a + (y - x), 0);
-    const union: [number, number][] = []; for (const [a, b] of allCues.map((c) => [c.t0, c.t1] as [number, number]).sort((x, y) => x[0] - y[0])) { const l = union[union.length - 1]; if (l && a <= l[1]) l[1] = Math.max(l[1], b); else union.push([a, b]); }
+    // 축 = 자막 큐 ∪ 나레 음성 구간 (subtitle 과 같은 축 — 2026-08-17 정정: 나레 안 쉼은 죽은 시간이 아니다)
+    const union: [number, number][] = []; for (const [a, b] of [...allCues.map((c) => [c.t0, c.t1] as [number, number]), ...nars.map((n) => [n.t0, n.t1] as [number, number])].sort((x, y) => x[0] - y[0])) { const l = union[union.length - 1]; if (l && a <= l[1]) l[1] = Math.max(l[1], b); else union.push([a, b]); }
     const inHold = (x: number, y: number) => holdIv.reduce((acc, [h0, h1]) => acc + Math.max(0, Math.min(y, h1) - Math.max(x, h0)), 0);
     const covered = union.reduce((a, [x, y]) => a + (y - x) - inHold(x, y), 0);
     const deadRatio = r3(Math.max(0, (totalS - holdS - covered)) / (totalS - holdS));

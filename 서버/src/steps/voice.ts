@@ -24,6 +24,7 @@ interface VoiceSpec {
 }
 const V = (spec as unknown as { 음성: VoiceSpec })["음성"];
 const VS = ((spec as unknown as { 음성: { 무음스캔?: { noise_dB: number; d_s: number } } })["음성"].무음스캔) ?? { noise_dB: -40, d_s: 0.2 };
+const VC = (spec as unknown as { 음성: { 문구대조: { 제공자: "groq"; 모델: string; 엔드포인트: string; 키_환경변수: string; 언어: string; 유사도_최소: number } } })["음성"]["문구대조"];
 const N = (spec as unknown as { 나레이션: { 자당초_추정: number } })["나레이션"];
 const A = (answer as unknown as { 대본: { 나레_시간점유: { min: number; max: number } } })["대본"];
 
@@ -35,6 +36,26 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
 
 interface ScriptBlock { n: number; pos: { kind: string; seg?: number; bridge?: number }; text: string; intent?: string; chars: number; est_s?: number }
 interface ScriptDoc { blocks?: ScriptBlock[]; metrics?: { dialogue_s?: number; total_chars?: number; nar_est_s?: number; nar_share_est?: number }; warnings?: string[] }
+
+/** 문구 대조용 정규화 — 공백·문장부호를 지운다(ASR 은 마침표·띄어쓰기를 다르게 쓴다) */
+function normText(t: string): string {
+  return (t ?? "").replace(/[^0-9A-Za-z\uac00-\ud7a3]/g, "");
+}
+/** 유사도 = 2×최장공통부분수열 ÷ (길이 합). 1 = 같음 */
+export function textSim(a: string, b: string): number {
+  const x = normText(a), y = normText(b);
+  if (!x.length || !y.length) return 0;
+  const dp: number[] = new Array(y.length + 1).fill(0);
+  for (let i = 1; i <= x.length; i++) {
+    let prev = 0;
+    for (let j = 1; j <= y.length; j++) {
+      const tmp = dp[j];
+      dp[j] = x[i - 1] === y[j - 1] ? prev + 1 : Math.max(dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return Math.round((2 * dp[y.length] / (x.length + y.length)) * 1000) / 1000;
+}
 
 export const voice: StepHandler = {
   name: "voice",
@@ -181,10 +202,65 @@ export const voice: StepHandler = {
     const today = new Date().toISOString().slice(0, 10); // 서버(UTC) 날짜 — 로컬과 하루 어긋날 수 있다. runner 가 기록할 때 로컬 날짜로 고쳐도 된다
     const recordToOurs = { tts: { 자당초: { value: spc, unit: "s/자(공백 1칸 정규화)", measure: `ElevenLabs ${V.모델} 보이스 ${V.보이스_이름 ?? V.보이스_ID} · ${per.length}블록 ${totalChars}자 → 실측 ${totalS}s (pcm 바이트 ÷ ${bytesPerSec})`, n: per.length, date: today, src: `${source.title ?? source.path} voice/voice.json` }, 블록당초: { value: r3(totalS / per.length), unit: "s/블록", measure: "같은 실측", n: per.length, date: today, src: "voice/voice.json" } } };
 
+    // ── ③ 문구 대조 국면 (G-나레문구일치) ────────────────────────────────
+    //   합성한 wav 를 ASR 로 되받아 블록 문구와 대조한다. 길이·정렬만 보던 검증의 구멍
+    //   (2026-08-17 회귀: 자막과 다른 말이 들렸는데 게이트가 전부 통과) 을 막는다.
+    const asrIn = (payload.asr_nar ?? null) as Record<string, { text?: string } | string> | null;
+    if (!asrIn) {
+      return base("voice", preset, {
+        status: "execute",
+        next_step: "voice",
+        message: `TTS 합성·길이 검사 통과 (${per.length}블록 · ${totalS}s). 이제 **문구 대조**: wav 마다 ASR 로 실제 발화를 받아 블록 문구와 맞는지 본다(G-나레문구일치).`,
+        instructions: [
+          "① jobs 의 ASR 요청을 하나씩 보낸다 (429 가 나면 응답의 대기 시간만큼 쉬었다가 다시 — 서두르지 마라).",
+          "② measure 대로 각 응답 JSON 을 payload.asr_nar 에 {b01: <응답>, …} 로 모은다.",
+          "③ carry 값과 voice_ts·speech_raw 를 그대로 다시 실어 voice 를 한 번 더 부른다.",
+        ],
+        then_call_with: ["step: 'voice'", "payload: { …carry, voice_ts, speech_raw, asr_nar }"],
+        jobs_kind: "transcribe",
+        jobs: per.map((p2) => ({
+          name: bname(p2.n),
+          provider: VC.제공자,
+          model: VC.모델,
+          request: { method: "POST" as const, url: VC.엔드포인트, multipart: { file: `@${p2.wav}`, model: VC.모델, language: VC.언어, response_format: "json" } },
+          auth: { env: VC.키_환경변수, header: `Authorization: Bearer <${VC.키_환경변수} 값>`, note: "서버는 키를 보관하지 않는다. runner 가 로컬 환경변수에서 읽어 붙인다." },
+          out: join(voiceDir, `asr_${bname(p2.n)}.json`),
+          note: `블록 ${p2.n} 이 실제로 무슨 말을 하는지 되받는다`,
+        })),
+        measure: per.map((p2) => ({ as: `asr_nar.${bname(p2.n)}`, from: `job:${bname(p2.n)}`, unit: "json_stdout" as const })),
+        carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "script"],
+        source, workdir, probe_summary: ps, transcript_path: payload.transcript_path, brief_path: payload.brief_path, selection_path: payload.selection_path, script_path: payload.script_path, script,
+        metrics: { block_count: per.length, total_s: totalS, blocks_with_speech: withSpeech },
+      });
+    }
+    const simMin = VC.유사도_최소;
+    const simRows = per.map((p2) => {
+      const raw = asrIn[bname(p2.n)];
+      const heard = typeof raw === "string" ? raw : String((raw as { text?: string } | undefined)?.text ?? "");
+      return { n: p2.n, wav: bname(p2.n), sim: textSim(p2.text, heard), text: p2.text, heard };
+    });
+    const simBad = simRows.filter((r) => r.sim < simMin);
+    const simMinSeen = simRows.length ? Math.min(...simRows.map((r) => r.sim)) : 0;
+    if (simBad.length) {
+      return reject(
+        "voice", preset,
+        `hard_fail: G-나레문구일치 — 자막 문구와 실제 발화가 다른 블록 ${simBad.length}건 (유사도 < ${simMin})\n` +
+          simBad.slice(0, 8).map((r) => `  · 블록 ${r.n}(${r.wav}) 유사 ${r.sim} — 문구 「${r.text.slice(0, 26)}」 / 들리는 말 「${r.heard.slice(0, 26)}」`).join("\n"),
+        `① 어긋난 블록의 wav 를 **재사용 없이 새로 합성**한다(러너 캐시를 끄거나 비운다). ② 러너 캐시는 직전 실행본만 쓰고 (문구+파일 해시) 쌍이 맞을 때만 재사용한다 — 대본이 바뀌면 캐시를 통째로 버린다. ③ 다시 합성한 뒤 ①~③ 국면을 처음부터 돌린다. 자막·타임라인은 이 검사를 통과한 voice.json 으로만 만든다.`,
+      );
+    }
+    voiceDoc.metrics = { ...voiceDoc.metrics, text_match_min: simMinSeen, text_match_blocks: simRows.length } as typeof voiceDoc.metrics;
+    (voiceDoc as { blocks: { n: number; heard?: string; text_sim?: number }[] }).blocks.forEach((b2) => {
+      const row = simRows.find((r) => r.n === b2.n);
+      if (row) { b2.heard = row.heard; b2.text_sim = row.sim; }
+    });
+    const gates = [{ id: "G-나레문구일치", pass: true, hard: true, detail: `${simRows.length}블록 전부 문구 일치 — 최저 유사도 ${simMinSeen} (기준 ${simMin})`, fix: "어긋나면 그 블록을 재사용 없이 재합성하고 러너 캐시를 비운다" }];
+
     return base("voice", preset, {
       status: "execute",
       next_step: "subtitle",
-      message: `TTS 통과: ${per.length}블록 · 실측 ${totalS}s (추정 ${estTotal}s, 추정/실측 ${r3(estTotal / totalS)}) · 실측 ${spc}s/자 (추정 ${N.자당초_추정}) · 나레 시간점유 실측 ${shareMeasured} (추정 ${shareEst}) · 빈 위치 채울 여유 ${headroomS}s ≈ ${headroomChars}자. write_files 를 쓰고 subtitle 로 넘어가라.`,
+      gates,
+      message: `TTS 통과(문구 일치 ${simRows.length}/${simRows.length}, 최저 유사도 ${simMinSeen}): ${per.length}블록 · 실측 ${totalS}s (추정 ${estTotal}s, 추정/실측 ${r3(estTotal / totalS)}) · 실측 ${spc}s/자 (추정 ${N.자당초_추정}) · 나레 시간점유 실측 ${shareMeasured} (추정 ${shareEst}) · 빈 위치 채울 여유 ${headroomS}s ≈ ${headroomChars}자. write_files 를 쓰고 subtitle 로 넘어가라.`,
       instructions: [
         `① write_files 의 내용을 그대로 ${join(voiceDir, "voice.json")} 에 쓴다.`,
         "② record_to_ours 의 값을 저장소의 스타일/영화롱폼/우리실측.json 「tts」에 그대로 넣는다 (기존 값이 있으면 덮어쓴다 — 결과는 매번 갱신). 규격 나레이션.자당초_추정 은 다음 판부터 이 실측으로 바꾼다.",

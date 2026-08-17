@@ -10,15 +10,15 @@
   ],
   "tts": {
     "자당초": {
-      "value": 0.117,
+      "value": 0.121,
       "unit": "s/자(공백 1칸 정규화)",
-      "measure": "ElevenLabs eleven_v3 보이스 하와이 · 27블록 951자 → 실측 111.2s (pcm 바이트 ÷ 48000)",
+      "measure": "ElevenLabs eleven_v3 보이스 하와이 · 27블록 951자 → 실측 115.2s (pcm 바이트 ÷ 48000)",
       "n": 27,
       "date": "2026-08-17",
       "src": "Full Time (2023) voice/voice.json"
     },
     "블록당초": {
-      "value": 4.119,
+      "value": 4.267,
       "unit": "s/블록",
       "measure": "같은 실측",
       "n": 27,

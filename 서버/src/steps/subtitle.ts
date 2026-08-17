@@ -658,7 +658,9 @@ export const subtitle: StepHandler = {
     const holdIntervals = pics.filter((p) => holdRoles.has(p.role)).map((p) => [p.t0, p.t1] as [number, number]);
     const holdS = r3(holdIntervals.reduce((a, [x, y]) => a + (y - x), 0));
     // 축 = 자막 큐(나레·대사)가 있는 시간 (가족 G14 와 같은 축 — 정답지 대본.G-죽은시간_max.적용)
-    const sound: [number, number][] = cues.map((c) => [c.t0, c.t1] as [number, number]).sort((a, b) => a[0] - b[0]);
+    // 축 = 자막 큐 ∪ **나레 음성 구간**. 나레 큐를 실측 발성으로 바짝 자른 뒤(2026-08-17)부터
+    //   블록 안 쉼(숨·문장 사이)이 "죽은 시간"으로 잡혔다 — 그 시간에도 나레는 들리고 있으므로 죽은 시간이 아니다.
+    const sound: [number, number][] = [...cues.map((c) => [c.t0, c.t1] as [number, number]), ...nars.map((n) => [n.t0, n.t1] as [number, number])].sort((a, b) => a[0] - b[0]);
     const union: [number, number][] = [];
     for (const [a, b] of sound) { const last = union[union.length - 1]; if (last && a <= last[1]) last[1] = Math.max(last[1], b); else union.push([a, b]); }
     const inHold = (x: number, y: number) => holdIntervals.reduce((acc, [h0, h1]) => acc + Math.max(0, Math.min(y, h1) - Math.max(x, h0)), 0);
