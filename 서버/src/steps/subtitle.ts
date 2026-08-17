@@ -20,7 +20,7 @@ import type { JudgeJob } from "../schema.js";
 interface SubSpec { 나레_한줄_최대자수: number; 대사_한줄_최대자수: number; 줄_조각_최소자수?: number; 줄나눔_주체?: string; 큐_최소길이_s: number; 잘린_대사큐_최소길이_s?: number; 큐_무음노출_상한_s?: number; 큐_최대길이_s: number; 대사큐_꼬리_s: number; 큐_사이_최소간격_s: number; 대사_줄수_대화안_상한: number; 대사_구두점: string; 번역_문체: string; 폰트: Record<string, unknown> }
 interface AsmSpec { over_배치: Record<string, string>; before_after: Record<string, string>; 브리지_컷: { 사용: boolean; 패딩_s: number; 앵커: string }; 죽은시간_홀드_제외_역할: string[]; 덕킹_역할: string[]; 죽은시간_컷: { 사용: boolean; 임계_s: number; 앞_남김_s: number; 뒤_남김_s: number; 대상_역할: string[]; 보호_소리_최소_s?: number } }
 interface JudgeTextSpec { backend: string; 모델: string; 엔드포인트: string; 키_환경변수: string; 온도: number; thinkingBudget: number; maxOutputTokens: number; responseMimeType: string }
-interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-줄바꿈"?: { 확정위반_max: number }; "G-자막_겹침_max": { value: number }; "G-교차겹침_max"?: { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
+interface SubAnswer { "G-자막_한줄_최대자수": { 나레: number; 대사: number }; "G-줄바꿈"?: { 확정위반_max: number }; "G-나레커버율"?: { min: number; "구멍_0_3s_max"?: number }; "G-자막_겹침_max": { value: number }; "G-교차겹침_max"?: { value: number }; "G-죽은시간_max": { value: number }; 무자막_최장_s: { value: number }; 클립당_자막: { min: number; max: number } }
 const SUB = (spec as unknown as { 자막: SubSpec })["자막"];
 const TRIG = (spec as unknown as { 전사: { 늘어난발화_규칙: { 트리거_단어당_s: number; 트리거_여유_s: number } } })["전사"]["늘어난발화_규칙"];
 /** 전사 발화가 '수상하게 긴가' (끝이 늘어난 whisper 세그먼트) — 이런 발화는 시각을 믿지 않고 실측 소리를 쓴다 */
@@ -612,6 +612,33 @@ export const subtitle: StepHandler = {
           mine.push(cue);
         }
       });
+      // ── R1 덩어리 타일링 (2026-08-18) ────────────────────────────────────────
+      //   **자기 발성 덩어리를 그 덩어리에 배정된 큐들이 빈틈없이 나눠 덮는다.** 큐 시각은 문자 정렬(chars_t),
+      //   덩어리는 무음 스캔에서 오는데 두 축의 발성 시작점이 어긋나 「소리는 나는데 자막이 없는」 구멍이 생겼다
+      //   (n7 0.791s·n22 0.319s, 전수 5.14s — 진단일지 21절). 덩어리 **안**에서 당기는 것은 허용하고,
+      //   덩어리를 **넘는** 당김은 계속 금지한다(사용자 승인 R3).
+      {
+        const runsTl = RUNS.map(([u, v]) => [r3(n.t0 + u), r3(n.t0 + v)] as [number, number]);
+        for (const [ru, rv] of runsTl) {
+          const own = mine.filter((c) => { const ch = narChunk.get(c); return !!ch && ch[0] >= ru - 0.02 && ch[1] <= rv + 0.02; }).sort((a, b) => a.t0 - b.t0);
+          if (!own.length) continue;
+          own[0].t0 = r3(Math.min(own[0].t0, ru));                                   // 첫 큐를 덩어리 시작까지
+          own[own.length - 1].t1 = r3(Math.max(own[own.length - 1].t1, rv));         // 마지막 큐를 덩어리 끝까지
+          for (let i = 1; i < own.length; i++) own[i - 1].t1 = r3(own[i].t0);        // 앞 큐 끝 = 뒤 큐 시작(간격 0)
+          // 타일링 뒤에는 **덩어리 전체**가 이 큐들의 자리다 — 게이트 ⓑ 의 기준을 문자 정렬 조각에서 덩어리로 옮긴다
+          //   (ⓑ 의 뜻은 그대로 「큐가 자기 덩어리 안에 있는가」다)
+          for (const c of own) narChunk.set(c, [ru, rv]);
+        }
+        // ── R2 빈 덩어리 — 배정된 줄이 없으면 이웃 큐를 늘려 덮는다(무음 노출 상한 안에서만) ──
+        for (const [ru, rv] of runsTl) {
+          if (mine.some((c) => Math.min(c.t1, rv) - Math.max(c.t0, ru) > 0.05)) continue;
+          const before = mine.filter((c) => c.t1 <= ru + 1e-6).sort((a, b) => b.t1 - a.t1)[0];
+          const after = mine.filter((c) => c.t0 >= rv - 1e-6).sort((a, b) => a.t0 - b.t0)[0];
+          if (before && ru - before.t1 <= quietMax0 + 1e-6) { before.t1 = r3(rv); warnings.push(`나레 ${n.n}: 배정된 줄이 없는 발성 ${r2(ru)}~${r2(rv)}s 를 앞 큐 「${before.text}」로 덮었다(R2).`); }
+          else if (after && after.t0 - rv <= quietMax0 + 1e-6) { after.t0 = r3(ru); warnings.push(`나레 ${n.n}: 배정된 줄이 없는 발성 ${r2(ru)}~${r2(rv)}s 를 뒤 큐 「${after.text}」로 덮었다(R2).`); }
+          else warnings.push(`나레 ${n.n}: 발성 ${r2(ru)}~${r2(rv)}s(${r2(rv - ru)}s)에 배정된 줄이 없고 이웃 큐로도 덮을 수 없다 — 그 블록 lines[] 를 덩어리 수에 맞춰 나눠라.`);
+        }
+      }
       cues.push(...mine);
     }
     // 【강제 규칙 2026-08-17】 **한 큐 = 한 발화.** 화자가 다른 말을 한 줄에 합치지 않는다 —
@@ -783,6 +810,31 @@ export const subtitle: StepHandler = {
     const 집필수 = [...lineSource.values()].filter((v) => v === "집필").length;
     const 보기 = (v: typeof 줄위반) => v.slice(0, 3).map((x) => `${x.패턴} ${x.ref}${x.t0 !== undefined ? ` ${x.t0}s` : ""} 「${x.앞줄 ?? ""}」|「${x.줄}」(${x.이유})`).join(" · ");
     if (줄의심.length) warnings.push(`줄바꿈 의심(ⓐ·ⓓ, 품사 정보 없이는 확정 불가) ${줄의심.length}건: ${보기(줄의심)}`);
+    // ── G-나레커버율 (2026-08-18) — 나레 발성 중 자막이 덮는 비율. 대사판(G-대사커버율)과 대칭 ──
+    let narSpeechS = 0, narCovS = 0;
+    const narHoles: { n: number; t0: number; t1: number; len: number }[] = [];
+    for (const n of nars) {
+      const vb = vmap.get(n.n);
+      const sp: [number, number][] = (vb?.speech && vb.speech.length ? vb.speech : [[0, vb?.dur_s ?? 0]]) as [number, number][];
+      const cs = cues.filter((c) => c.lane === "nar" && c.ref === `n${n.n}`).sort((a, b) => a.t0 - b.t0);
+      for (const [u0, v0] of sp) {
+        const u = n.t0 + u0, v = n.t0 + v0;
+        if (v <= u) continue;
+        narSpeechS += v - u;
+        let cur = u;
+        for (const c of cs) {
+          const a = Math.max(cur, c.t0), b2 = Math.min(v, c.t1);
+          if (b2 > a) { if (a - cur > 0.001) narHoles.push({ n: n.n, t0: r3(cur), t1: r3(a), len: r3(a - cur) }); narCovS += b2 - a; cur = Math.max(cur, c.t1); }
+        }
+        if (v - cur > 0.001) narHoles.push({ n: n.n, t0: r3(cur), t1: r3(v), len: r3(v - cur) });
+      }
+    }
+    const narCov = narSpeechS > 0 ? r3(narCovS / narSpeechS) : 1;
+    const narBig = narHoles.filter((h) => h.len >= 0.3);
+    const NCA = A["G-나레커버율"] ?? { min: 0.98, 구멍_0_3s_max: 0 };
+    gates.push({ id: "G-나레커버율", pass: narCov >= (NCA.min ?? 0.98) - 1e-6 && narBig.length <= (NCA["구멍_0_3s_max"] ?? 0), hard: true,
+      detail: `나레 발성 ${r3(narSpeechS)}s 중 자막이 ${r3(narCovS)}s 를 덮었다 → ${narCov} (≥${NCA.min ?? 0.98}) · 구멍 총 ${r3(narHoles.reduce((x, h) => x + h.len, 0))}s ${narHoles.length}곳(0.3s 이상 ${narBig.length}곳)${narBig.length ? ` — ${narBig.slice(0, 3).map((h) => `n${h.n} ${h.t0}~${h.t1}(${h.len}s)`).join(" · ")}` : ""}`,
+      fix: "구멍 목록의 덩어리를 보라 — 그 덩어리에 배정된 큐를 **덩어리 시작·끝까지 늘린다**(R1 타일링). 배정된 큐가 아예 없으면 줄↔덩어리 배정이 어긋난 것이다(덩어리 수 > 줄 수) — script.json 그 블록의 lines[] 를 덩어리 수에 맞춰 나눈다. 소리와 자막의 시각 축이 다르다는 것을 잊지 마라(큐=문자 정렬 · 덩어리=무음 실측)." });
     gates.push({ id: "G-줄바꿈", pass: 줄확정.length <= (A["G-줄바꿈"]?.확정위반_max ?? 0), hard: true,
       detail: `나레 ${nars.length}블록(집필 줄 ${집필수} · 폴백 분할 ${nars.length - 집필수}) — 확정 위반 ⓑⓒⓔ ${줄확정.length}건${줄확정.length ? ` — ${보기(줄확정)}` : ""} · 의심 ⓐⓓ ${줄의심.length}건${줄의심.length ? ` — ${보기(줄의심)}` : ""}`,
       fix: "그 줄 쌍의 분할점을 「설계/한국어_줄바꿈규칙.md」 §2 우선순위에서 **한 칸 위 자리**로 옮긴다 — 줄 나눔의 주인은 script 단계의 집필자다(규격 「자막.줄나눔_주체」). script.json 그 블록의 lines[] 를 고쳐라. 옮길 자리가 없으면 문장을 줄여 한 줄에 들어가게 한다(상한은 정답지 「G-자막_한줄_최대자수.나레」)." });

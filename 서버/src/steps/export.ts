@@ -240,6 +240,27 @@ export const exportStep: StepHandler = {
     // export 자체: XML 요소 수 = 실측 수
     const duckN = pics.filter((p) => p.audio === "duck").length;
     gates.push({ step: "export", id: "XML 요소 수 = 타임라인 실측", pass: true, hard: true, detail: `V1 컷 ${pics.length} · V2 대사 자막 ${dlgCues.length} · V3 나레 자막 ${narCues.length} · A1 원본 소리 ${separateDuck ? pics.length - duckN : pics.length} · A2 나레 ${nars.length}${separateDuck ? ` · A3 덕킹 컷 소리 ${duckN}` : ""} · 믹스 ${r3(mixDur)}s` });
+    // subtitle: 나레커버율 재검사 (축 = voice.json blocks[].speech 실측 발성)
+    {
+      const vb2 = new Map((voice.blocks as { n: number; dur_s: number; speech?: [number, number][] | null }[]).map((b) => [b.n, b]));
+      let sp = 0, cov = 0; const holes: string[] = [];
+      for (const n of nars) {
+        const b = vb2.get(n.n);
+        const runs: [number, number][] = (b?.speech && b.speech.length ? b.speech : [[0, b?.dur_s ?? 0]]) as [number, number][];
+        const cs = narCues.filter((c) => c.ref === `n${n.n}`).sort((a, b3) => a.t0 - b3.t0);
+        for (const [u0, v0] of runs) {
+          const u = n.t0 + u0, v = n.t0 + v0; if (v <= u) continue;
+          sp += v - u; let cur = u;
+          for (const c of cs) { const a = Math.max(cur, c.t0), b3 = Math.min(v, c.t1); if (b3 > a) { if (a - cur >= 0.3) holes.push(`n${n.n} ${r3(cur)}~${r3(a)}`); cov += b3 - a; cur = Math.max(cur, c.t1); } }
+          if (v - cur >= 0.3) holes.push(`n${n.n} ${r3(cur)}~${r3(v)}`);
+        }
+      }
+      const cv = sp > 0 ? r3(cov / sp) : 1;
+      const min = (AJ as unknown as { "G-나레커버율"?: { min: number } })["G-나레커버율"]?.min ?? 0.98;
+      gates.push({ step: "subtitle", id: "G-나레커버율", pass: cv >= min - 1e-6 && holes.length === 0, hard: true,
+        detail: `나레 발성 ${r3(sp)}s 중 자막이 ${r3(cov)}s → ${cv} (≥${min}) · 0.3s 이상 구멍 ${holes.length}곳${holes.length ? ` — ${holes.slice(0, 3).join(" · ")}` : ""}`,
+        fix: "구멍 난 발성 덩어리에 배정된 큐를 덩어리 시작·끝까지 늘린다(R1 타일링). 배정된 줄이 없으면 script.json 그 블록의 lines[] 를 덩어리 수에 맞춰 나눈다." });
+    }
     // subtitle: 줄바꿈 재검사 (규칙: 설계/한국어_줄바꿈규칙.md · 최종 산출물에서 다시 잰다)
     const 줄위반 = nars.flatMap((n) => {
       const mine = narCues.filter((c) => c.ref === `n${n.n}`).sort((a, b) => a.t0 - b.t0);
