@@ -17,7 +17,12 @@
 
 사용: python 서버/runner/분석_계측.py --video <mp4> --out <폴더> [--limit_s 120] [--fps 2] [--scene 0.3]
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, importlib.util, json, os, re, subprocess, sys
+
+# 자막 레인은 **실측으로 찾는다**(고정 띠를 쓰지 않는다) — 분석_자막띠보정.py 의 계산을 그대로 빌려 쓴다
+_보정경로 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "분석_자막띠보정.py")
+_spec = importlib.util.spec_from_file_location("자막띠보정", _보정경로)
+보정 = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(보정)
 
 def run(argv, **kw):
     return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", **kw)
@@ -145,6 +150,7 @@ def main():
     ap.add_argument("--나레띠", default="0.55,0.72", help="나레 자막 레인 높이 비율")
     ap.add_argument("--대사띠", default="0.72,0.95", help="대사 자막 레인 높이 비율")
     ap.add_argument("--잉크", type=int, default=200, help="글자로 볼 밝기 임계(0~255). **자막 있는 영상 1편으로 보정한 뒤 10편에 쓴다**")
+    ap.add_argument("--레인표본_s", type=float, default=3.0, help="레인 찾을 때 몇 초마다 한 장 볼지")
     ap.add_argument("--변화", type=int, default=12, help="다음 큐로 볼 프레임 간 평균 차이")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -157,9 +163,13 @@ def main():
     doc["컷"] = 컷(a.video, a.limit_s, a.scene)
     say("[3/5] 무음/발화")
     doc["발화"] = 무음(a.video, a.limit_s)
-    say("[4/5] 자막 띠")
-    doc["자막띠"] = [자막띠(a.video, a.limit_s, a.fps, tuple(float(x) for x in a.나레띠.split(",")), "나레레인", 잉크=a.잉크, 변화=a.변화),
-                   자막띠(a.video, a.limit_s, a.fps, tuple(float(x) for x in a.대사띠.split(",")), "대사레인", 잉크=a.잉크, 변화=a.변화)]
+    say("[4/5] 자막 레인 실측 → 그 띠로 큐 재기")
+    H0 = doc["기본"]["해상도"][1] or 1080
+    레인정보, 기타요소, _빈도, _n = 보정.레인찾기(a.video, 매초=a.레인표본_s, 잉크=a.잉크, H0=H0, limit_s=a.limit_s)
+    doc["자막레인_실측"] = 레인정보
+    doc["자막레인_기타요소"] = 기타요소      # 헤더·워터마크·그림 등 — 버리지 않고 남긴다
+    doc["자막띠"] = [자막띠(a.video, a.limit_s, a.fps, tuple(x["y_비율"]), f"실측레인{i+1}", 잉크=a.잉크, 변화=a.변화)
+                   for i, x in enumerate(레인정보)] or [자막띠(a.video, a.limit_s, a.fps, (0.72, 0.95), "기본띠", 잉크=a.잉크, 변화=a.변화)]
     say("[5/5] 소리 크기")
     doc["소리"] = 소리크기(a.video, a.limit_s)
 
@@ -170,7 +180,7 @@ def main():
                       "컷_경계": doc["컷"]["컷_경계_수"], "분당_컷": doc["컷"]["분당_컷"],
                       "컷_길이_중앙": (doc["컷"]["컷_길이_분포_s"] or {}).get("중앙"),
                       "발화_비율": doc["발화"]["발화_비율"],
-                      "나레레인_큐": doc["자막띠"][0].get("큐_수"), "대사레인_큐": doc["자막띠"][1].get("큐_수"),
+                      "레인": doc["자막레인_실측"], "레인별_큐": [x.get("큐_수") for x in doc["자막띠"]],
                       "RMS_중앙": (doc["소리"]["RMS_dB_분포"] or {}).get("중앙")}, ensure_ascii=False))
 
 if __name__ == "__main__":
