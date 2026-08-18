@@ -46,7 +46,7 @@ def 구간(참행, 최소=2):
 
 
 def 레인찾기(video, 매초=3.0, 잉크=200, 높이=540, 폭=160, 최소행비율=0.06, 최대행비율=0.6,
-           레인빈도=0.15, 레인상한=0.85, 최대두께=0.25, 최소글자=2.5, 솟음폭=0.12, H0=1080, limit_s=None):
+           레인빈도=0.06, 레인상한=0.85, 최대두께=0.25, 최소글자=2.5, 솟음폭=0.05, H0=1080, limit_s=None):
     """자막 레인을 찾아 (자막레인, 기타_요소, 행별_빈도, 표본수) 를 돌려준다.
        계측기(분석_계측.py)와 보정기가 **같은 계산**을 쓰도록 여기 한 벌만 둔다."""
     행잉크 = ffmpeg_rows(video, 매초, 높이, 폭, 잉크, limit_s)
@@ -89,8 +89,8 @@ def main():
     ap.add_argument("--최소행비율", type=float, default=0.06, help="한 행이 '글자 있음'이 되려면 가로 몇 %가 밝아야 하는지")
     ap.add_argument("--최대행비율", type=float, default=0.6, help="이보다 넓게 밝으면 글자가 아니라 그림으로 본다")
     ap.add_argument("--레인상한", type=float, default=0.85, help="이보다 자주 켜져 있으면 자막이 아니라 고정 요소(헤더·워터마크)로 본다")
-    ap.add_argument("--레인빈도", type=float, default=0.15, help="행이 레인이 되려면 몇 %의 프레임에서 글자가 보여야 하는지")
-    ap.add_argument("--솟음폭", type=float, default=0.12, help="주변(±80행) 중앙값보다 이만큼 높아야 레인으로 본다")
+    ap.add_argument("--레인빈도", type=float, default=0.06, help="행이 레인이 되려면 몇 %의 프레임에서 글자가 보여야 하는지")
+    ap.add_argument("--솟음폭", type=float, default=0.05, help="주변(±80행) 중앙값보다 이만큼 높아야 레인으로 본다")
     ap.add_argument("--최대두께", type=float, default=0.25, help="레인 두께가 화면의 이 비율을 넘으면 자막이 아니라 그림")
     ap.add_argument("--최소글자", type=float, default=2.5, help="글자 높이가 화면의 이 %% 미만이면 자막이 아니라 잔글씨(헤더·워터마크)")
     ap.add_argument("--캡처", type=int, default=6, help="검증 캡처 장수")
