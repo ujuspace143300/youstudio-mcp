@@ -1,19 +1,19 @@
 [
  {
-  "n": 1,
+  "n": 2,
   "상태": "통과",
-  "초": 51.3,
-  "토큰": 215944,
+  "초": 32.7,
+  "토큰": 180175,
   "usage": {
-   "promptTokenCount": 213113,
-   "candidatesTokenCount": 2831,
-   "totalTokenCount": 215944,
+   "promptTokenCount": 177436,
+   "candidatesTokenCount": 2739,
+   "totalTokenCount": 180175,
    "thoughtsTokenCount": 0,
    "cachedContentTokenCount": 0,
    "promptTokensDetails": [
     {
      "modality": "VIDEO",
-     "tokenCount": 153318
+     "tokenCount": 127446
     },
     {
      "modality": "TEXT",
@@ -21,7 +21,201 @@
     },
     {
      "modality": "AUDIO",
-     "tokenCount": 58083
+     "tokenCount": 48278
+    }
+   ]
+  }
+ },
+ {
+  "n": 3,
+  "상태": "통과",
+  "초": 31.6,
+  "토큰": 249697,
+  "usage": {
+   "promptTokenCount": 246766,
+   "candidatesTokenCount": 2931,
+   "totalTokenCount": 249697,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "VIDEO",
+     "tokenCount": 177738
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "AUDIO",
+     "tokenCount": 67316
+    }
+   ]
+  }
+ },
+ {
+  "n": 4,
+  "상태": "통과",
+  "초": 41.1,
+  "토큰": 117581,
+  "usage": {
+   "promptTokenCount": 114837,
+   "candidatesTokenCount": 2744,
+   "totalTokenCount": 117581,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "AUDIO",
+     "tokenCount": 31087
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "VIDEO",
+     "tokenCount": 82038
+    }
+   ]
+  }
+ },
+ {
+  "n": 5,
+  "상태": "통과",
+  "초": 27.2,
+  "토큰": 157203,
+  "usage": {
+   "promptTokenCount": 154412,
+   "candidatesTokenCount": 2791,
+   "totalTokenCount": 157203,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "VIDEO",
+     "tokenCount": 110748
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "AUDIO",
+     "tokenCount": 41952
+    }
+   ]
+  }
+ },
+ {
+  "n": 6,
+  "상태": "통과",
+  "초": 31.5,
+  "토큰": 152539,
+  "usage": {
+   "promptTokenCount": 149595,
+   "candidatesTokenCount": 2944,
+   "totalTokenCount": 152539,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "AUDIO",
+     "tokenCount": 40633
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "VIDEO",
+     "tokenCount": 107250
+    }
+   ]
+  }
+ },
+ {
+  "n": 7,
+  "상태": "검사 불통",
+  "초": 50.2,
+  "토큰": 131052,
+  "usage": {
+   "promptTokenCount": 128471,
+   "candidatesTokenCount": 2581,
+   "totalTokenCount": 131052,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "AUDIO",
+     "tokenCount": 34821
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "VIDEO",
+     "tokenCount": 91938
+    }
+   ]
+  }
+ },
+ {
+  "n": 8,
+  "상태": "통과",
+  "초": 84.3,
+  "토큰": 168333,
+  "usage": {
+   "promptTokenCount": 165523,
+   "candidatesTokenCount": 2810,
+   "totalTokenCount": 168333,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "VIDEO",
+     "tokenCount": 118800
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "AUDIO",
+     "tokenCount": 45011
+    }
+   ]
+  }
+ },
+ {
+  "n": 9,
+  "상태": "JSON 파싱 실패",
+  "초": 35.8
+ },
+ {
+  "n": 10,
+  "상태": "통과",
+  "초": 24.8,
+  "토큰": 71567,
+  "usage": {
+   "promptTokenCount": 68679,
+   "candidatesTokenCount": 2888,
+   "totalTokenCount": 71567,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "AUDIO",
+     "tokenCount": 18391
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "VIDEO",
+     "tokenCount": 48576
     }
    ]
   }

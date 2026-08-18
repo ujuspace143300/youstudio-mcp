@@ -1,0 +1,30 @@
+{
+ "n": 10,
+ "url": "https://www.youtube.com/watch?v=dtDq0oJ3b1w",
+ "모델": "gemini-3.5-flash",
+ "백엔드": "evolink",
+ "걸린_s": 24.8,
+ "finishReason": "STOP",
+ "usage": {
+  "promptTokenCount": 68679,
+  "candidatesTokenCount": 2888,
+  "totalTokenCount": 71567,
+  "thoughtsTokenCount": 0,
+  "cachedContentTokenCount": 0,
+  "promptTokensDetails": [
+   {
+    "modality": "AUDIO",
+    "tokenCount": 18391
+   },
+   {
+    "modality": "TEXT",
+    "tokenCount": 1712
+   },
+   {
+    "modality": "VIDEO",
+    "tokenCount": 48576
+   }
+  ]
+ },
+ "받은_시각": "2026-08-18 12:57:50"
+}

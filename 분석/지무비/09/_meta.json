@@ -1,0 +1,30 @@
+{
+ "n": 9,
+ "url": "https://www.youtube.com/watch?v=V6n91ItPaSM",
+ "모델": "gemini-3.5-flash",
+ "백엔드": "evolink",
+ "걸린_s": null,
+ "finishReason": "STOP",
+ "usage": {
+  "promptTokenCount": 56592,
+  "candidatesTokenCount": 2672,
+  "totalTokenCount": 59264,
+  "thoughtsTokenCount": 0,
+  "cachedContentTokenCount": 0,
+  "promptTokensDetails": [
+   {
+    "modality": "VIDEO",
+    "tokenCount": 39798
+   },
+   {
+    "modality": "TEXT",
+    "tokenCount": 1712
+   },
+   {
+    "modality": "AUDIO",
+    "tokenCount": 15082
+   }
+  ]
+ },
+ "비고": "첫 파싱 실패 → 원응답에서 복구(재호출 없음)"
+}

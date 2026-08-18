@@ -85,6 +85,44 @@ def 호출(url_video, prompt, model, 최대토큰, 백엔드):
     return status, 답.strip(), usage, finish, raw, 초
 
 
+# 제미나이가 **한 항목만 영어 키**로 쓰는 일이 있다(실측 07: "meaning_type": "반전어").
+#   값은 멀쩡하므로 재호출하지 않고 **키 이름만** 우리 스키마로 옮긴다 — 값은 손대지 않는다.
+별칭 = {"meaning_type": "의미_유형", "confidence": "확신", "time_s": "시각_s", "type": "종류",
+        "text": "자막_전문", "words": "강조_단어", "reason": "왜_강조라고_보나", "duration_s": "길이_s",
+        "position": "붙은_자리", "color_hex": "색_HEX", "size_ratio": "크기_배수", "lane": "레인"}
+
+
+def 느슨한파싱(text):
+    """제미나이가 JSON 뒤에 군더더기를 붙일 때가 있다(실측 09: 닫는 괄호 하나가 더 붙었다).
+       첫 번째 완결된 JSON 값만 떼어 쓴다 — 값을 고치지는 않는다."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+        if text[:4].lower() == "json": text = text[4:].strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        i = text.find("{")
+        if i < 0: raise
+        obj, _ = json.JSONDecoder().raw_decode(text[i:])
+        return obj
+
+
+def 정규화(o):
+    """영어 키를 우리 키로 바꾼다(값은 그대로). 우리 키가 이미 있으면 건드리지 않는다."""
+    if isinstance(o, list):
+        return [정규화(x) for x in o]
+    if not isinstance(o, dict):
+        return o
+    out = {}
+    for k, v in o.items():
+        kk = 별칭.get(k, k)
+        if kk != k and kk in o:      # 우리 키가 이미 있으면 영어 키는 버린다
+            continue
+        out[kk] = 정규화(v)
+    return out
+
+
 def 판독(row, prompt, 인자):
     n = row["n"]
     폴더 = os.path.join(ROOT, "분석/지무비", f"{n:02d}")
@@ -106,11 +144,12 @@ def 판독(row, prompt, 인자):
             최대 = 최대 * 2
             continue
         try:
-            doc = json.loads(답)
+            doc = 느슨한파싱(답)
         except Exception as e:
             print(f"  ✗ JSON 파싱 실패({e}) — 원응답은 {폴더}/_원응답.json")
             return {"n": n, "상태": "JSON 파싱 실패", "초": 초}
         # 실측(2026-08-18): 제미나이가 편.url 에 자리표시자("v_v_v_v_v_v")를 넣는다 — **우리가 아는 값**으로 덮는다
+        doc = 정규화(doc)
         doc.setdefault("편", {})
         doc["편"]["url"] = row["url"]
         doc["편"]["n"] = n
@@ -136,11 +175,36 @@ def main():
     ap.add_argument("--백엔드", default="evolink", choices=["evolink", "google"])
     ap.add_argument("--최대토큰", type=int, default=32768)
     ap.add_argument("--쉼_s", type=float, default=3.0, help="편 사이 쉬는 시간")
+    ap.add_argument("--다시검사", action="store_true", help="API 를 부르지 않고, 이미 받은 판독을 정규화한 뒤 다시 검사만 한다")
     a = ap.parse_args()
     링크 = json.load(open(a.링크, encoding="utf-8"))
     표본 = [r for r in 링크["표본"] if (a.n is None or r["n"] == a.n)]
-    if not a.전체 and a.n is None:
+    if not a.전체 and a.n is None and not a.다시검사:
         ap.error("--n <번호> 또는 --전체 중 하나가 필요하다 (먼저 1편으로 품질을 본다)")
+    if a.다시검사:
+        import glob
+        for 원 in sorted(glob.glob(os.path.join(ROOT, "분석/지무비", "*", "_원응답.json"))):
+            폴더2 = os.path.dirname(원)
+            목표 = os.path.join(폴더2, "gemini.json")
+            if os.path.exists(목표): continue
+            try:
+                j = json.load(open(원, encoding="utf-8"))
+                t = "".join(p2.get("text", "") for p2 in (j.get("candidates") or [{}])[0].get("content", {}).get("parts", []))
+                doc2 = 정규화(느슨한파싱(t))
+                nn2 = int(os.path.basename(폴더2))
+                doc2.setdefault("편", {})["n"] = nn2
+                row2 = next((r for r in 링크["표본"] if r["n"] == nn2), None)
+                if row2: doc2["편"]["url"] = row2["url"]
+                json.dump(doc2, open(목표, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+                print(f"· {nn2:02d} 원응답에서 복구했다(재호출 없음)")
+            except Exception as e:
+                print(f"· {폴더2}: 복구 실패 — {e}")
+        for path in sorted(glob.glob(os.path.join(ROOT, "분석/지무비", "*", "gemini.json"))):
+            doc = 정규화(json.load(open(path, encoding="utf-8")))
+            json.dump(doc, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            r = subprocess.run([sys.executable, 검사기, "--판독", path], capture_output=True, text=True, encoding="utf-8", errors="replace")
+            print((r.stdout or "").rstrip())
+        return
     prompt = 프롬프트_읽기()
     print(f"프롬프트 {len(prompt)}자 · 대상 {len(표본)}편 · 백엔드 {a.백엔드}")
     결과 = []
