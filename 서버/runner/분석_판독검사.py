@@ -102,6 +102,9 @@ def 검사(doc, 이름="판독"):
     warn(isinstance(doc.get("인상_장치"), list) and len(doc["인상_장치"]) >= 3, "인상_장치 가 3개 미만")
     전체 = doc.get("전체_인상") or {}
     warn(num(전체.get("나레_비중_%")), "전체_인상.나레_비중_% 가 숫자가 아니다")
+    레인이름 = {str(r.get("레인")) for r in 레인 if isinstance(r, dict)}
+    warn(not (전체.get("대사_자막_있음") is True and not any("대사" in x for x in 레인이름)),
+         "전체_인상.대사_자막_있음 = true 인데 자막_레인 에 대사 레인이 없다 — 레인을 둘 다 적었는지 확인")
 
     낮음 = sum(1 for g in 강조 if isinstance(g, dict) and g.get("확신") == "낮음")
     유형 = {}

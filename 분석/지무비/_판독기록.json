@@ -1,0 +1,29 @@
+[
+ {
+  "n": 1,
+  "상태": "통과",
+  "초": 51.3,
+  "토큰": 215944,
+  "usage": {
+   "promptTokenCount": 213113,
+   "candidatesTokenCount": 2831,
+   "totalTokenCount": 215944,
+   "thoughtsTokenCount": 0,
+   "cachedContentTokenCount": 0,
+   "promptTokensDetails": [
+    {
+     "modality": "VIDEO",
+     "tokenCount": 153318
+    },
+    {
+     "modality": "TEXT",
+     "tokenCount": 1712
+    },
+    {
+     "modality": "AUDIO",
+     "tokenCount": 58083
+    }
+   ]
+  }
+ }
+]
