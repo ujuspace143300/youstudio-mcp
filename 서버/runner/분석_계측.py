@@ -57,7 +57,9 @@ def 기본(video):
 def 컷(video, limit_s, th):
     argv = ["ffmpeg", "-hide_banner", "-v", "info"]
     if limit_s: argv += ["-t", str(limit_s)]
-    argv += ["-i", video, "-an", "-filter_complex", f"select='gt(scene,{th})',metadata=print:file=-", "-f", "null", "-"]
+    # 4K 는 그대로 디코딩하면 느리다 → **가로 640 으로 줄여** 장면 점수를 잰다(경계 시각은 해상도와 무관하다).
+    #   방법 기록: scale 을 select 앞에 두어 축소된 화면끼리 비교한다.
+    argv += ["-i", video, "-an", "-filter_complex", f"scale=640:-2,select='gt(scene,{th})',metadata=print:file=-", "-f", "null", "-"]
     r = run(argv)
     txt = (r.stdout or "") + (r.stderr or "")
     times, scores = [], []
@@ -99,8 +101,15 @@ def 무음(video, limit_s, noise_db=-24, d_s=0.4):
             "발화_길이_분포_s": 분포([round(b - a, 3) for a, b in speech]), "발화_구간": speech}
 
 # ── ④ 자막 띠 ───────────────────────────────────────────────────────────────
-def 자막띠(video, limit_s, fps, band, 이름, W=32, H=8, 잉크=200, 변화=12):
-    """band = (y0, y1) 화면 높이 비율. 밝은 픽셀 수(잉크)와 프레임 간 차이로 큐 경계를 잡는다."""
+def 자막띠(video, limit_s, fps, band, 이름, W=48, H=12, 잉크=200, 변화=0.45, 최소잉크=2):
+    """자막 띠에서 큐(자막 한 장)의 시작·끝을 잡는다.
+
+       **글자만 남긴 흑백 마스크를 비교한다**(2026-08-18 수리). 전에는 회색 화면을 통째로 비교해
+       배경이 움직일 때마다 큐가 끊겼다 — 3편 모두 큐 길이 중앙이 표본 간격(0.5s)과 같아진 게 그 증거다.
+       마스크로 바꾸면 배경 움직임은 대부분 사라지고 **글자가 바뀔 때만** 크게 달라진다.
+
+       변화 = 두 마스크가 서로 다른 칸 ÷ 둘 중 큰 잉크 수. 0.45 면 「글자의 절반쯤이 바뀌었다」.
+    """
     y0, y1 = band
     vf = f"fps={fps},crop=w=iw:h=ih*{round(y1 - y0, 4)}:x=0:y=ih*{round(y0, 4)},scale={W}:{H},format=gray"
     argv = ["ffmpeg", "-hide_banner", "-v", "error"]
@@ -110,25 +119,31 @@ def 자막띠(video, limit_s, fps, band, 이름, W=32, H=8, 잉크=200, 변화=1
     buf, size = r.stdout, W * H
     frames = [buf[i:i + size] for i in range(0, len(buf) - size + 1, size)]
     if not frames: return {"이름": 이름, "오류": "프레임 없음", "stderr": (r.stderr or b"")[:200].decode("utf-8", "replace")}
-    ink = [sum(1 for px in f if px >= 잉크) for f in frames]              # 밝은 픽셀 수 = 글자가 있나
-    diff = [0] + [sum(abs(frames[i][j] - frames[i - 1][j]) for j in range(size)) // size for i in range(1, len(frames))]
-    있음 = [k > 0 for k in ink]
+    마스크 = [[px >= 잉크 for px in f] for f in frames]
+    ink = [sum(m) for m in 마스크]
+    def 다름(i):
+        A, B = 마스크[i - 1], 마스크[i]
+        큰 = max(ink[i], ink[i - 1])
+        if 큰 == 0: return 0.0
+        return sum(1 for j in range(size) if A[j] != B[j]) / 큰
+    diff = [0.0] + [다름(i) for i in range(1, len(frames))]
+    있음 = [k >= 최소잉크 for k in ink]
     큐, cur = [], None
     for i, has in enumerate(있음):
         t = i / fps
         if has and cur is None: cur = t
-        elif has and cur is not None and diff[i] > 변화: 큐.append([round(cur, 3), round(t, 3)]); cur = t   # 내용이 바뀌었다 = 다음 큐
+        elif has and cur is not None and diff[i] > 변화: 큐.append([round(cur, 3), round(t, 3)]); cur = t   # 글자가 바뀌었다 = 다음 큐
         elif not has and cur is not None: 큐.append([round(cur, 3), round(t, 3)]); cur = None
     if cur is not None: 큐.append([round(cur, 3), round(len(frames) / fps, 3)])
-    큐 = [c for c in 큐 if c[1] - c[0] >= 1.0 / fps]
+    큐 = [c for c in 큐 if c[1] - c[0] >= 1.5 / fps]         # 표본 한두 칸짜리는 깜빡임으로 본다
     dur = limit_s or 기본(video)["길이_s"]
     간격 = [round(큐[i + 1][0] - 큐[i][1], 3) for i in range(len(큐) - 1)]
-    빈틈 = [round(큐[i + 1][0] - 큐[i][1], 3) for i in range(len(큐) - 1)]
-    return {"이름": 이름, "띠_높이비율": [y0, y1], "표본_fps": fps, "큐_수": len(큐),
+    return {"이름": 이름, "띠_높이비율": [y0, y1], "표본_fps": fps, "변화_임계": 변화, "큐_수": len(큐),
             "분당_큐": round(len(큐) / (dur / 60), 2) if dur else None,
-            "큐_길이_분포_s": 분포([round(b - a, 3) for a, b in 큐]), "큐_사이_간격_분포_s": 분포(간격),
-            "무자막_최장_s": round(max(빈틈, default=0), 3), "잉크_있는_프레임_비율": round(sum(있음) / len(있음), 3),
+            "큐_길이_분포_s": 분포([round(b2 - a2, 3) for a2, b2 in 큐]), "큐_사이_간격_분포_s": 분포(간격),
+            "무자막_최장_s": round(max(간격, default=0), 3), "잉크_있는_프레임_비율": round(sum(있음) / len(있음), 3),
             "큐": 큐[:400]}
+
 
 # ── ⑤ 소리 크기 ─────────────────────────────────────────────────────────────
 def 소리크기(video, limit_s, win=1.0):
@@ -145,13 +160,13 @@ def main():
     ap.add_argument("--video", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit_s", type=float, default=None, help="앞부분만 잰다(시험용)")
-    ap.add_argument("--fps", type=float, default=2.0, help="자막 띠 표본 fps")
+    ap.add_argument("--fps", type=float, default=4.0, help="자막 띠 표본 fps — 큐 경계 해상도(4 면 ±0.25s)")
     ap.add_argument("--scene", type=float, default=0.3, help="컷 검출 임계")
     ap.add_argument("--나레띠", default="0.55,0.72", help="나레 자막 레인 높이 비율")
     ap.add_argument("--대사띠", default="0.72,0.95", help="대사 자막 레인 높이 비율")
     ap.add_argument("--잉크", type=int, default=200, help="글자로 볼 밝기 임계(0~255). **자막 있는 영상 1편으로 보정한 뒤 10편에 쓴다**")
     ap.add_argument("--레인표본_s", type=float, default=3.0, help="레인 찾을 때 몇 초마다 한 장 볼지")
-    ap.add_argument("--변화", type=int, default=12, help="다음 큐로 볼 프레임 간 평균 차이")
+    ap.add_argument("--변화", type=float, default=0.45, help="다음 큐로 볼 마스크 차이 비율(0~1). 0.45 = 글자의 절반쯤이 바뀜")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     slug = os.path.splitext(os.path.basename(a.video))[0]
