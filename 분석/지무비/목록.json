@@ -1,0 +1,85 @@
+{
+ "_안내": "분석 표본 목록 — 영상 파일은 저장소 밖(원본 폴더). 이 파일에는 실측 메타만 둔다.",
+ "_용도": "내부 벤치마킹 분석 전용(정답지 대역을 우리 자로 재기 위한 레퍼런스 해부). 재배포·재업로드 금지.",
+ "원본_폴더": "C:/Users/user/Desktop/youstudio_work/분석/지무비/원본",
+ "요약": {
+  "표본": 10,
+  "있음": 0,
+  "없음": 10,
+  "총_길이_s": 0,
+  "총_길이_분": 0.0,
+  "총_용량_MB": 0
+ },
+ "표본": [
+  {
+   "n": 1,
+   "url": "https://www.youtube.com/watch?v=snhH6I5XlFQ",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 2,
+   "url": "https://www.youtube.com/watch?v=GB4v0CNnA0M",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 3,
+   "url": "https://www.youtube.com/watch?v=QE18uBRFfZw",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 4,
+   "url": "https://www.youtube.com/watch?v=UWsZol98Dqc",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 5,
+   "url": "https://www.youtube.com/watch?v=A_TdwWfnRpM",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 6,
+   "url": "https://www.youtube.com/watch?v=X1WyNZnOIZY",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 7,
+   "url": "https://www.youtube.com/watch?v=4QsXfTvFLCo",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 8,
+   "url": "https://www.youtube.com/watch?v=D9pGhSMT44A",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 9,
+   "url": "https://www.youtube.com/watch?v=V6n91ItPaSM",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  },
+  {
+   "n": 10,
+   "url": "https://www.youtube.com/watch?v=dtDq0oJ3b1w",
+   "파일": null,
+   "제목": null,
+   "상태": "없음"
+  }
+ ]
+}
