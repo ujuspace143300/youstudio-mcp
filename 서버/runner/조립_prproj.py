@@ -24,6 +24,60 @@ T = DN["트랙_UID"]
 S = DN["견본"]
 
 
+# ── 견본 찾기 — ObjectID 를 못박지 않는다 (2026-08-19) ────────────────────────
+#   도너를 프리미어에서 다시 저장하면 ObjectID 가 다시 매겨질 수 있다. 그때도 안 깨지도록
+#   **속성으로 찾고**(자막=트랙+폰트 · 컷/나레=트랙의 첫 아이템), 딸린 ID(사슬·서브클립·클립·필터)는
+#   아이템에서 **따라가 얻는다**. 못 찾으면 규격에 적힌 값으로 물러선다.
+SHARED = {"541", "542", "543", "544", "623",           # Graphic 미디어 계보 — 공유, 복제·삭제 금지
+          "ebfb8f8d-03b7-48bc-a7a8-3a00c6414625",      # Graphic MasterClip (모든 자막 SubClip 이 가리킨다)
+          "1b62cdc4-0c16-4be3-a9f4-9cbf7a26236f"}      # Graphic Media
+
+
+def 딸린ID(doc, item, 오디오=False):
+    """트랙 아이템 하나에서 사슬·서브클립·클립(·레벨 필터)을 따라가 얻는다"""
+    b = doc.get(item)
+    chain = int(re.search(r'<Components ObjectRef="(\d+)"', b).group(1))
+    sub = int(re.search(r'<SubClip ObjectRef="(\d+)"', b).group(1))
+    clip = int(re.search(r'<Clip ObjectRef="(\d+)"', doc.get(sub)).group(1))
+    out = {"item": item, "chain": chain, "subclip": sub, "clip": clip}
+    if 오디오:
+        for comp in re.findall(r'<Component Index="\d+" ObjectRef="(\d+)"/>', doc.get(chain)):
+            cb = doc.get(int(comp))
+            if any("<Name>Level</Name>" in doc.get(int(p)) for p in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', cb)):
+                out["filter"] = int(comp); break
+    return out
+
+
+def 견본찾기(doc, 말하기=None):
+    """규격 「조립.도너.견본」 대신 실제 도너에서 견본을 찾아 돌려준다"""
+    from prproj_lib import parse_blob, param_blob, collect_lineage
+    말 = 말하기 or (lambda *x: None)
+    폰트 = {"자막_나레": SPEC["자막"]["폰트"]["나레"]["PS명"], "자막_대사": SPEC["자막"]["폰트"]["대사"]["PS명"]}
+    찾은 = {}
+    for 이름, 트랙 in (("자막_나레", "V3"), ("자막_대사", "V2")):
+        items, _ = track_items(doc, T[트랙])
+        고름 = None
+        for it in items:
+            try:
+                ids, _u = collect_lineage(doc, [it], stop=SHARED)
+                st = [i for i in sorted(ids - SHARED, key=int) if "<Name>Source Text</Name>" in doc.get(i)]
+                if not st: continue
+                if 폰트[이름] in (parse_blob(param_blob(doc.get(st[0]))).get("fonts") or []):
+                    고름 = it; break
+            except Exception:
+                continue
+        찾은[이름] = 딸린ID(doc, 고름) if 고름 else 딸린ID(doc, int(S[이름]["item"]))
+        if 고름 and str(고름) != str(S[이름]["item"]):
+            말(f"  · 견본 {이름}: 규격 {S[이름]['item']} → 실제 {고름}(폰트 {폰트[이름]} 로 찾음)")
+    for 이름, 트랙, 오디오 in (("컷_비디오", "V1", False), ("컷_오디오_덕킹", "A3", True), ("나레", "A2", True)):
+        items, _ = track_items(doc, T[트랙])
+        고름 = items[0] if items else int(S[이름]["item"])
+        찾은[이름] = 딸린ID(doc, 고름, 오디오)
+        if str(고름) != str(S[이름]["item"]):
+            말(f"  · 견본 {이름}: 규격 {S[이름]['item']} → 실제 {고름}({트랙} 첫 아이템)")
+    return 찾은
+
+
 # ── 공통 도구 ──────────────────────────────────────────────────────────────
 def strip_node(b):
     return re.sub(r"\n\t+<Node Version=\"1\">.*?</Node>", "", b, count=1, flags=re.S)
@@ -50,13 +104,13 @@ class Alloc:
 
 
 # ── ① 컷 (계단 3-b) ────────────────────────────────────────────────────────
-def 컷치환(doc, tl, alloc, src_path):
+def 컷치환(doc, tl, alloc, src_path, 견본):
     V1, A1, A3 = T["V1"], T["A1"], T["A3"]
     seq_uid = DN["시퀀스"]["UID"]
     LEVEL_KEEP = S["컷_오디오_유니티"]["level"]
     LEVEL_DUCK = S["컷_오디오_덕킹"]["level"]
-    vid_t = {"item": S["컷_비디오"]["item"], "chain": S["컷_비디오"]["chain"], "subclip": S["컷_비디오"]["subclip"], "clip": S["컷_비디오"]["clip"]}
-    aud_t = {"item": S["컷_오디오_덕킹"]["item"], "chain": S["컷_오디오_덕킹"]["chain"], "subclip": S["컷_오디오_덕킹"]["subclip"], "clip": S["컷_오디오_덕킹"]["clip"], "filter": S["컷_오디오_덕킹"]["filter"]}
+    vid_t = 견본["컷_비디오"]
+    aud_t = 견본["컷_오디오_덕킹"]
     aud_params = [int(x) for x in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', doc.get(aud_t["filter"]))]
     aud_secs = [int(x) for x in re.findall(r'<SecondaryContentItem Index="\d+" ObjectRef="(\d+)"/>', doc.get(aud_t["clip"]))]
     tmpl = {oid: doc.get(oid) for oid in list(vid_t.values()) + list(aud_t.values()) + aud_params + aud_secs}
@@ -164,9 +218,9 @@ def 컷치환(doc, tl, alloc, src_path):
 
 
 # ── ② 나레 (계단 3-c) ──────────────────────────────────────────────────────
-def 나레치환(doc, tl, voice, alloc):
+def 나레치환(doc, tl, voice, alloc, 견본):
     A2 = T["A2"]
-    N = S["나레"]
+    N = {**S["나레"], **견본["나레"]}      # UID(계보 GUID)는 규격 값, 아이템·사슬은 찾은 값
     root_uid = N["RootProjectItem_UID"]
     vdur = {b["n"]: b["dur_s"] for b in voice["blocks"]}
     ids, uids = collect_lineage(doc, [N["item"], N["ClipProjectItem_UID"]])
@@ -263,12 +317,9 @@ def 나레치환(doc, tl, voice, alloc):
 
 
 # ── ③ 자막 (계단 3-d) ──────────────────────────────────────────────────────
-SHARED = {"541", "542", "543", "544", "623",           # Graphic 미디어 계보 — 공유, 복제·삭제 금지
-          "ebfb8f8d-03b7-48bc-a7a8-3a00c6414625",      # Graphic MasterClip (모든 자막 SubClip 이 가리킨다)
-          "1b62cdc4-0c16-4be3-a9f4-9cbf7a26236f"}      # Graphic Media
 
 
-def 자막치환(doc, tl, alloc):
+def 자막치환(doc, tl, alloc, 견본):
     def template(item_id):
         ids, uids = collect_lineage(doc, [item_id], stop=SHARED)
         tmpl_ids = sorted(ids - SHARED, key=int)
@@ -280,7 +331,7 @@ def 자막치환(doc, tl, alloc):
         runs = len(parse_blob(param_blob(blocks[st]))["runs"])
         return {"ids": tmpl_ids, "blocks": blocks, "item": str(item_id), "st": st, "vfc": vfc, "sub": sub, "clip": vclip, "runs": runs}
 
-    TPL = {"dlg": template(S["자막_대사"]["item"]), "nar": template(S["자막_나레"]["item"])}
+    TPL = {"dlg": template(견본["자막_대사"]["item"]), "nar": template(견본["자막_나레"]["item"])}
     new_blocks, refs = [], {"dlg": [], "nar": []}
     rows = []
     for cue in sorted(tl["cues"], key=lambda c: (c["t0"], c["lane"])):
@@ -395,9 +446,11 @@ def main():
 
     doc = Doc(load(donor))
     alloc = Alloc(doc)
-    r_cut = 컷치환(doc, tl, alloc, src)
-    r_nar = 나레치환(doc, tl, voice, alloc)
-    r_sub = 자막치환(doc, tl, alloc)
+    say = (lambda *x: print(*x, file=sys.stderr)) if a.json else print
+    견본 = 견본찾기(doc, say)
+    r_cut = 컷치환(doc, tl, alloc, src, 견본)
+    r_nar = 나레치환(doc, tl, voice, alloc, 견본)
+    r_sub = 자막치환(doc, tl, alloc, 견본)
     seq = doc.get_uid(DN["시퀀스"]["UID"])
     doc.replace_uid(DN["시퀀스"]["UID"], set_child(seq, "Name", esc(tl["title"] + " 리캡")))
     save(out_path, doc.xml)
@@ -420,7 +473,6 @@ def main():
               "cuts": r_cut["cuts"], "nars": r_nar["nars"], "cues": r_sub["cues"], "timeline_mismatch": tl_bad}
     json.dump(report, open(report_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-    say = (lambda *x: print(*x, file=sys.stderr)) if a.json else print
     say("저장 " + out_path + ": 컷 " + str(r_cut["V1"]) + " · A1 " + str(r_cut["A1"]) + " · A3 " + str(r_cut["A3"]) +
         " · 나레 " + str(r_nar["A2"]) + " · 자막 " + str(r_sub["V2_대사"] + r_sub["V3_나레"]) +
         "(대사 " + str(r_sub["V2_대사"]) + " · 나레 " + str(r_sub["V3_나레"]) + ")")
