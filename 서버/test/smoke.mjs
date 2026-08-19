@@ -555,7 +555,7 @@ const CARRY_SUB = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x"
   ok(nars.length === 4 && n4 && /균등/.test(n4.anchor) && nars.find((n) => n.n === 1)?.anchor.includes("틈"), "subtitle② → over 배치(시각몽타주 균등 · 대사 역할은 틈)", JSON.stringify(nars.map((n) => [n.n, n.t0, n.anchor.slice(0, 20)])));
   const cues = tl?.cues ?? [];
   const narCues = cues.filter((c) => c.lane === "nar"), dlgCues = cues.filter((c) => c.lane === "dlg");
-  ok(dlgCues.length === 12 && narCues.length >= 8 && narCues.every((c) => c.text.length <= 18) && dlgCues.every((c) => c.text.length <= 29), "subtitle② → 큐(나레 ≤18자 조각·대사 ≤29자, 나레와 겹친 대사 큐 1개는 버림)", `nar=${narCues.length} dlg=${dlgCues.length}`);
+  ok(dlgCues.length >= 10 && narCues.length >= 4 && narCues.every((c) => c.text.length <= 24) && dlgCues.every((c) => c.text.length <= 34), "subtitle② → 큐(나레 ≤24자·대사 ≤34자 — 2026-08-19 2판 상한)", `nar=${narCues.length} dlg=${dlgCues.length}`);
   // R1/R3 (2026-08-17): 나레 큐는 음성 밖 금지 · 나레×대사 자막 동시 표시 금지
   const narInVoice = narCues.every((c) => { const n = (tl?.narration ?? []).find((x) => `n${x.n}` === c.ref); return n && c.t0 >= n.t0 - 0.05 && c.t1 <= n.t1 + 0.05; });
   let crossOv = 0; for (const n of narCues) for (const d of dlgCues) crossOv += Math.max(0, Math.min(n.t1, d.t1) - Math.max(n.t0, d.t0));
@@ -574,7 +574,7 @@ const CARRY_SUB = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "x"
   const bad = [...TR.slice(2)].map((x) => ({ ...x })); bad.unshift({ ...TR[0], ko: "야 마이크 너네 삼촌이 발 전문의라고 했지 맞지 진짜 그랬잖아 기억나" }, { ...TR[1], ko: "둘째, 줄" }); bad.pop(); // 마지막 줄 누락
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "subtitle", preset: "영화롱폼", payload: { ...CARRY_SUB, translations: bad } } });
   const sc = res.structuredContent;
-  ok(res.isError === true && /대사 \d+자 > 29자/.test(sc?.message ?? "") && /대사 자막에 마침표·쉼표 금지/.test(sc?.message ?? "") && /번역 누락 1줄/.test(sc?.message ?? ""), "subtitle②(초과·구두점·누락) → 반려 + 어느 줄이 왜", (sc?.message ?? "").slice(0, 160));
+  ok(res.isError === true && /대사 \d+자 > 34자/.test(sc?.message ?? "") && /대사 자막에 마침표·쉼표 금지/.test(sc?.message ?? "") && /번역 누락 1줄/.test(sc?.message ?? ""), "subtitle②(초과·구두점·누락) → 반려 + 어느 줄이 왜", (sc?.message ?? "").slice(0, 160));
 }
 
 // 33) tools/call export ① — 나레 믹스 do[] + measure
@@ -630,9 +630,9 @@ const MIX_OK = { format: { duration: "30.000000", size: "1440044" } };
   const count = (re) => (xml.match(re) ?? []).length;
   ok(count(/<clipitem id="v1-/g) === 3 && count(/<clipitem id="a1-/g) === 2 && count(/<clipitem id="a3-/g) === 1 && count(/<clipitem id="a2-/g) === 2 && count(/<generatoritem id="v2-/g) === 3 && count(/<generatoritem id="v3-/g) === 4, "export② → 트랙 요소 수 = 실측(V1 3·A1 2(살림)·A3 1(덕킹 별도)·A2 2·V2 3·V3 4)", `${count(/<clipitem id="v1-/g)}/${count(/<clipitem id="a1-/g)}/${count(/<clipitem id="a3-/g)}/${count(/<clipitem id="a2-/g)}/${count(/<generatoritem id="v2-/g)}/${count(/<generatoritem id="v3-/g)}`);
   ok(/<in>1820<\/in>/.test(xml) && /<start>480<\/start>/.test(xml) && /Audio Levels/.test(xml) && /<value>0\.25<\/value>/.test(xml), "export② → 원본 in 프레임(75.9s→1820) · 타임라인 프레임(20s→480) · A3 덕킹 컷 Audio Levels 0.25", "");
-  ok(/<value>SDGwanghwamun<\/value>/.test(xml) && /<value>SourceHanSerifK-Bold<\/value>/.test(xml) && /<parameterid>origin<\/parameterid><name>Origin<\/name><value><horiz>0<\/horiz><vert>0\.2778<\/vert>/.test(xml) && /<vert>0\.4074<\/vert>/.test(xml) && /<vert>300<\/vert>/.test(xml) && /<vert>440<\/vert>/.test(xml) && /file:\/\/localhost\/C:\/movies\/sample\.mp4/.test(xml), "export② → 폰트 xml명(PS) · 자막 위치 origin(나레 0.2778 · 대사 0.4074, 중앙 기준 비율) + Basic Motion center 병기(300/440) · pathurl", "");
+  ok(/<value>SDGwanghwamun<\/value>/.test(xml) && /<value>SourceHanSerifK-Bold<\/value>/.test(xml) && (xml.match(/<vert>0\.363<\/vert>/g) ?? []).length >= 2 && (xml.match(/<vert>392<\/vert>/g) ?? []).length >= 2 && /file:\/\/localhost\/C:\/movies\/sample\.mp4/.test(xml), "export② → 폰트 xml명(PS) · **나레·대사 같은 레인**(origin 0.363 = y 932, 2026-08-19 2판 ④) + Basic Motion center 병기 · pathurl", "");
   const man = sc?.write_files?.find((w) => /manifest\.json$/.test(w.path))?.content;
-  ok(Array.isArray(man?.프리미어_후속) && man.프리미어_후속[0]?.위치_px?.y === 840 && man.프리미어_후속[1]?.위치_px?.y === 980 && man.프리미어_후속[0]?.위치_px?.x === 960 && man.프리미어_후속[1]?.origin_y === 0.4074, "export② → manifest.프리미어_후속(자막 목표 px V3 y=840 · V2 y=980 + origin_y, 규격 자막.위치)", JSON.stringify(man?.프리미어_후속?.map((r) => r.위치_px)));
+  ok(Array.isArray(man?.프리미어_후속) && man.프리미어_후속[0]?.위치_px?.y === 932 && man.프리미어_후속[1]?.위치_px?.y === 932 && man.프리미어_후속[0]?.위치_px?.x === 960 && man.프리미어_후속[1]?.origin_y === 0.363, "export② → manifest.프리미어_후속(나레·대사 같은 y=932 · origin 0.363, 규격 자막.위치)", JSON.stringify(man?.프리미어_후속?.map((r) => r.위치_px)));
   ok(man?.counts?.cuts === 3 && man?.counts?.cues === 7 && man?.fonts?.나레?.패밀리 === "Source Han Serif K" && Array.isArray(man?.gates) && man.gates.every((g) => g.pass !== false) && man?.sequence?.total_s === 30, "export② → manifest(재료·총 길이·게이트 전부 통과·폰트)", JSON.stringify(man?.gates?.map((g) => [g.step, g.pass])));
   ok(sc?.write_files?.length === 5 && sc?.write_files?.some((w) => /subtitle_dlg\.srt$/.test(w.path)), "export② → write_files 5개(XML·SRT 3종·manifest)", JSON.stringify(sc?.write_files?.map((w) => w.path.split("/").pop())));
   const g = (id) => sc?.gates?.find((x) => x.id === id);
