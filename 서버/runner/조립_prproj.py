@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "도너"))          # prproj_lib 는 도너 폴더에 한 벌만 둔다
 from prproj_lib import (Doc, load, save, esc, frame_ticks, rewire, set_child, child, collect_lineage,
                         track_set_items, track_items, verify, parse_blob, blob_set_texts, param_blob,
-                        param_set_blob, split_runs_words, GRAPHIC_IN, FRAME_TICKS, TPS)
+                        param_set_blob, split_runs_words, is_source_text, 이름인가, 빈블롭_RE, GRAPHIC_IN, FRAME_TICKS, TPS)
 
 SPEC = json.load(open(os.path.join(ROOT, "스타일/영화롱폼/규격.json"), encoding="utf-8"))
 DN = SPEC["조립"]["도너"]
@@ -28,9 +28,31 @@ S = DN["견본"]
 #   도너를 프리미어에서 다시 저장하면 ObjectID 가 다시 매겨질 수 있다. 그때도 안 깨지도록
 #   **속성으로 찾고**(자막=트랙+폰트 · 컷/나레=트랙의 첫 아이템), 딸린 ID(사슬·서브클립·클립·필터)는
 #   아이템에서 **따라가 얻는다**. 못 찾으면 규격에 적힌 값으로 물러선다.
-SHARED = {"541", "542", "543", "544", "623",           # Graphic 미디어 계보 — 공유, 복제·삭제 금지
-          "ebfb8f8d-03b7-48bc-a7a8-3a00c6414625",      # Graphic MasterClip (모든 자막 SubClip 이 가리킨다)
-          "1b62cdc4-0c16-4be3-a9f4-9cbf7a26236f"}      # Graphic Media
+SHARED_규격 = {"541", "542", "543", "544", "623",       # 옛 도너의 번호 — 못 찾을 때의 폴백
+               "ebfb8f8d-03b7-48bc-a7a8-3a00c6414625",  # Graphic MasterClip (모든 자막 SubClip 이 가리킨다)
+               "1b62cdc4-0c16-4be3-a9f4-9cbf7a26236f"}  # Graphic Media
+_공유캐시 = {}
+
+
+def 공유계보(doc):
+    """Graphic 미디어 계보 = 모든 자막이 함께 쓰는 것. 복제도 삭제도 하지 않는다.
+       UID 둘은 왕복해도 안 변하므로 못박고, **번호는 거기서 따라가 얻는다**."""
+    키 = id(doc)
+    if 키 in _공유캐시:
+        return _공유캐시[키]
+    mc, md = "ebfb8f8d-03b7-48bc-a7a8-3a00c6414625", "1b62cdc4-0c16-4be3-a9f4-9cbf7a26236f"
+    공유 = {mc, md}
+    try:
+        for uid in (mc, md):                                  # MasterClip → 로깅·채널그룹 · Media → 스트림
+            공유 |= {o for _t, o in re.findall(r'<(\w+) ObjectRef="(\d+)"/>', doc.get_uid(uid))}
+        for m in re.finditer(r'^	<\w+ ObjectID="(\d+)"', doc.xml, re.M):   # Graphic Media 를 가리키는 MediaSource
+            if f'<Media ObjectURef="{md}"/>' in doc.get(int(m.group(1))):
+                공유.add(m.group(1))
+        assert len(공유) >= 5, 공유
+    except Exception:
+        공유 = set(SHARED_규격)
+    _공유캐시[키] = 공유
+    return 공유
 
 
 def 딸린ID(doc, item, 오디오=False):
@@ -43,9 +65,25 @@ def 딸린ID(doc, item, 오디오=False):
     if 오디오:
         for comp in re.findall(r'<Component Index="\d+" ObjectRef="(\d+)"/>', doc.get(chain)):
             cb = doc.get(int(comp))
-            if any("<Name>Level</Name>" in doc.get(int(p)) for p in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', cb)):
+            if any(이름인가(doc.get(int(p)), "Level") for p in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', cb)):
                 out["filter"] = int(comp); break
     return out
+
+
+def 보호계보(doc):
+    """원본 mp4 미디어 계보 = 지우면 안 되는 것. UID 는 규격에서(왕복해도 안 변한다),
+       번호(ObjectID)는 도너에서 **따라가 얻는다**(프리미어가 다시 저장하면 번호가 바뀐다)."""
+    M = DN["원본_mp4"]
+    보호 = {M["Media_UID"], M["MasterClip_UID"]}
+    try:
+        b = doc.get_uid(M["Media_UID"])
+        for _t, oid in re.findall(r'<(\w+) ObjectRef="(\d+)"/>', b):
+            보호.add(oid)
+            for _t2, o2 in re.findall(r'<(\w+) ObjectRef="(\d+)"/>', doc.get(int(oid))):
+                보호.add(o2)
+    except Exception:
+        보호 |= {str(M[k]) for k in ("VideoStream", "AudioStream", "VideoMediaSource", "AudioMediaSource", "Markers") if k in M}
+    return 보호
 
 
 def 견본찾기(doc, 말하기=None):
@@ -59,10 +97,10 @@ def 견본찾기(doc, 말하기=None):
         고름 = None
         for it in items:
             try:
-                ids, _u = collect_lineage(doc, [it], stop=SHARED)
-                st = [i for i in sorted(ids - SHARED, key=int) if "<Name>Source Text</Name>" in doc.get(i)]
+                ids, _u = collect_lineage(doc, [it], stop=공유계보(doc))
+                st = [i for i in sorted(ids - 공유계보(doc), key=int) if is_source_text(doc.get(i))]
                 if not st: continue
-                if 폰트[이름] in (parse_blob(param_blob(doc.get(st[0]))).get("fonts") or []):
+                if 폰트[이름] in (parse_blob(param_blob(doc.get(st[0]), doc.xml)).get("fonts") or []):
                     고름 = it; break
             except Exception:
                 continue
@@ -114,7 +152,7 @@ def 컷치환(doc, tl, alloc, src_path, 견본):
     aud_params = [int(x) for x in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', doc.get(aud_t["filter"]))]
     aud_secs = [int(x) for x in re.findall(r'<SecondaryContentItem Index="\d+" ObjectRef="(\d+)"/>', doc.get(aud_t["clip"]))]
     tmpl = {oid: doc.get(oid) for oid in list(vid_t.values()) + list(aud_t.values()) + aud_params + aud_secs}
-    level_param = [p for p in aud_params if "<Name>Level</Name>" in tmpl[p]][0]
+    level_param = [p for p in aud_params if 이름인가(tmpl[p], "Level")][0]
 
     new_blocks, links = [], []
     v_refs, a1_refs, a3_refs, report_cuts = [], [], [], []
@@ -299,7 +337,7 @@ def 나레치환(doc, tl, voice, alloc, 견본):
         for m in re.finditer(r'^\t<ClipProjectItem ObjectUID="([^"]+)"', doc.xml, re.M):
             if f'<MasterClip ObjectURef="{mc}"/>' in doc.get_uid(m.group(1)):
                 rm_uids.add(m.group(1))
-    protect = {DN["원본_mp4"]["Media_UID"], DN["원본_mp4"]["MasterClip_UID"], str(DN["원본_mp4"]["VideoMediaSource"]), str(DN["원본_mp4"]["AudioMediaSource"]), str(DN["원본_mp4"]["Markers"])}
+    protect = 보호계보(doc)
     assert not ((rm_ids | rm_uids) & protect), "원본 mp4 계보 보호 위반"
     removed = doc.remove_many(rm_ids | rm_uids)
 
@@ -321,14 +359,17 @@ def 나레치환(doc, tl, voice, alloc, 견본):
 
 def 자막치환(doc, tl, alloc, 견본):
     def template(item_id):
-        ids, uids = collect_lineage(doc, [item_id], stop=SHARED)
-        tmpl_ids = sorted(ids - SHARED, key=int)
+        ids, uids = collect_lineage(doc, [item_id], stop=공유계보(doc))
+        tmpl_ids = sorted(ids - 공유계보(doc), key=int)
         blocks = {i: doc.get(i) for i in tmpl_ids}
-        st = [i for i in tmpl_ids if "<Name>Source Text</Name>" in blocks[i]][0]
+        st = [i for i in tmpl_ids if is_source_text(blocks[i])][0]
         vfc = [i for i in tmpl_ids if blocks[i].lstrip().startswith("<VideoFilterComponent")][0]
         sub = [i for i in tmpl_ids if blocks[i].lstrip().startswith("<SubClip")][0]
         vclip = [i for i in tmpl_ids if blocks[i].lstrip().startswith("<VideoClip")][0]
-        runs = len(parse_blob(param_blob(blocks[st]))["runs"])
+        if 빈블롭_RE.search(blocks[st]):        # 해시로 남의 본문을 가리키는 블롭 — 견본으로 쓰려면 본문을 채워 둔다
+            채움 = param_blob(blocks[st], doc.xml)
+            blocks[st] = 빈블롭_RE.sub(lambda m: f'<StartKeyframeValue Encoding="base64" BinaryHash="{m.group(1)}">{채움}</StartKeyframeValue>', blocks[st], count=1)
+        runs = len(parse_blob(param_blob(blocks[st], doc.xml))["runs"])
         return {"ids": tmpl_ids, "blocks": blocks, "item": str(item_id), "st": st, "vfc": vfc, "sub": sub, "clip": vclip, "runs": runs}
 
     TPL = {"dlg": template(견본["자막_대사"]["item"]), "nar": template(견본["자막_나레"]["item"])}
@@ -366,15 +407,15 @@ def 자막치환(doc, tl, alloc, 견본):
     for uid in (T["V2"], T["V3"], T["V4"]):
         clips, trans = track_items(doc, uid)
         for tr in trans:
-            i_, u_ = collect_lineage(doc, [tr], stop=SHARED)
+            i_, u_ = collect_lineage(doc, [tr], stop=공유계보(doc))
             rm_ids |= i_
             rm_uids |= u_
         for it in clips:
-            i_, u_ = collect_lineage(doc, [it], stop=SHARED)
+            i_, u_ = collect_lineage(doc, [it], stop=공유계보(doc))
             rm_ids |= i_
             rm_uids |= u_
-    rm_ids -= SHARED
-    rm_uids -= SHARED
+    rm_ids -= 공유계보(doc)
+    rm_uids -= 공유계보(doc)
     assert not (rm_ids & {str(i) for i in refs["dlg"] + refs["nar"]}), "새 자막이 제거 목록에 들어감"
     removed = doc.remove_many(rm_ids | rm_uids)
 
@@ -406,8 +447,8 @@ def timeline_대조(out_path, tl):
             sc = int(re.search(r'<SubClip ObjectRef="(\d+)"', b).group(1))
             ch = int(re.search(r'<Components ObjectRef="(\d+)"', b).group(1))
             vfc = int(re.findall(r'<Component Index="\d+" ObjectRef="(\d+)"/>', doc2.get(ch))[0])
-            stp = [p for p in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', doc2.get(vfc)) if "<Name>Source Text</Name>" in doc2.get(p)][0]
-            txt = "".join(r["text"] for r in parse_blob(param_blob(doc2.get(stp)))["runs"])
+            stp = [p for p in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', doc2.get(vfc)) if is_source_text(doc2.get(p))][0]
+            txt = "".join(r["text"] for r in parse_blob(param_blob(doc2.get(stp), doc2.xml))["runs"])
             if txt != cue["text"] or child(doc2.get(sc), "Name") != esc(cue["text"]) or st_ != frame_ticks(cue["t0"]):
                 bad.append({"lane": lane, "t0": cue["t0"], "want": cue["text"], "got": txt})
     # 컷·나레 시각도 대조한다 (자막만 보던 계단 3-d 에서 넓힌 것 — 계단 4)
@@ -431,6 +472,7 @@ def main():
     ap.add_argument("--voice", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--report", default=None)
+    ap.add_argument("--도너", default=None, help="규격 「조립.도너.파일」 대신 쓸 도너(시험용)")
     ap.add_argument("--json", action="store_true", help="요약(JSON)만 표준출력으로 — 사람이 읽는 줄은 표준오류로. export 가 게이트로 읽는다")
     a = ap.parse_args()
     out_path = os.path.abspath(a.out)
@@ -441,7 +483,7 @@ def main():
     voice = json.load(open(a.voice, encoding="utf-8"))
     src = os.path.normpath(tl["source"]["path"] if isinstance(tl.get("source"), dict) else tl["source"])
     assert os.path.exists(src), "원본 영상 없음: " + src
-    donor = os.path.join(ROOT, DN["파일"])
+    donor = getattr(a, "도너", None) or os.path.join(ROOT, DN["파일"])
     assert os.path.exists(donor), "도너 없음: " + donor
 
     doc = Doc(load(donor))

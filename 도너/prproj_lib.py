@@ -135,6 +135,29 @@ def track_items(doc: Doc, track_uid: str):
     trans = [int(x) for x in re.findall(r'<TrackItem Index="\d+" ObjectRef="(\d+)"/>', m2.group(1))] if m2 else []
     return clips, trans
 
+# ── Source Text 파라미터 찾기 — 이름은 프리미어 UI 언어로 번역돼 저장된다 ──────
+#   한글 프리미어에서 도너를 다시 저장했더니 <Name>Source Text</Name> 가 전부
+#   <Name>소스 텍스트</Name> 로 바뀌었다(2026-08-19 왕복 시험). 이름 하나만 보면 자막을 통째로 놓친다.
+이름_동의어 = {                       # 표준(영문) 이름 → 실제로 나타날 수 있는 이름들
+    "Source Text": ("Source Text", "소스 텍스트"),
+    "Level": ("Level", "레벨"),
+    "Mute": ("Mute", "음소거"),
+}
+소스텍스트_이름 = 이름_동의어["Source Text"]
+
+
+def 이름인가(block: str, 표준: str) -> bool:
+    """파라미터 블록이 그 이름인가 — UI 언어가 달라도 같은 것으로 본다"""
+    return any(f"<Name>{n}</Name>" in block for n in 이름_동의어.get(표준, (표준,)))
+
+
+def is_source_text(block: str) -> bool:
+    return 이름인가(block, "Source Text")
+
+
+SOURCE_TEXT_RE = "<Name>(?:" + "|".join(소스텍스트_이름) + ")</Name>"
+
+
 # ── Source Text 블롭 (읽기 전용 파서 — 검증용) ─────────────────────────────
 def _u32(b, o): return struct.unpack_from("<I", b, o)[0]
 def _i32(b, o): return struct.unpack_from("<i", b, o)[0]
@@ -203,9 +226,23 @@ def blob_set_texts(b64: str, texts: list[str]) -> tuple[str, str, dict]:
 
 BLOB_RE = re.compile(r'(<StartKeyframeValue Encoding="base64" BinaryHash=")([^"]+)(">)([^<]+)(</StartKeyframeValue>)', re.S)
 
-def param_blob(block: str) -> str:
-    m = BLOB_RE.search(block); assert m, "Source Text 블롭 없음"
-    return re.sub(r"\s+", "", m.group(4))
+# 빈 블롭 — 프리미어는 **같은 내용의 블롭을 두 번 쓰지 않는다**. 둘째부터는 본문 없이
+# BinaryHash 만 남기고 먼저 나온 같은 해시의 본문을 가리킨다(2026-08-19 왕복 시험에서 확인:
+# 똑같은 대사 자막 「고맙네」 두 개 중 하나가 <StartKeyframeValue .../> 로 비어 있었다).
+빈블롭_RE = re.compile(r'<StartKeyframeValue Encoding="base64" BinaryHash="([^"]+)"\s*/>')
+
+
+def param_blob(block: str, xml: str = None) -> str:
+    """블록의 Source Text 블롭(base64). 비어 있으면 xml 안에서 같은 BinaryHash 의 본문을 찾아 온다."""
+    m = BLOB_RE.search(block)
+    if m:
+        return re.sub(r"\s+", "", m.group(4))
+    e = 빈블롭_RE.search(block)
+    assert e, "Source Text 블롭 없음"
+    assert xml, f"빈 블롭(해시 참조) — 본문을 찾으려면 xml 이 필요하다: {e.group(1)}"
+    참 = re.search(r'<StartKeyframeValue Encoding="base64" BinaryHash="' + re.escape(e.group(1)) + r'">([^<]+)<', xml)
+    assert 참, f"빈 블롭이 가리키는 본문을 못 찾았다: {e.group(1)}"
+    return re.sub(r"\s+", "", 참.group(1))
 
 def param_set_blob(block: str, b64: str, binhash: str) -> str:
     return BLOB_RE.sub(lambda m: m.group(1) + binhash + m.group(3) + b64 + m.group(5), block, count=1)
@@ -287,7 +324,8 @@ def verify(path: str, expect_tracks: dict | None = None) -> dict:
     missing = [p for p in paths if re.match(r"^[A-Za-z]:\\", p) and not os.path.exists(p)]
     ok("미디어 경로 실존", not missing, f"경로 {len([p for p in paths if re.match(r'^[A-Za-z]:', p)])}개 · 없음 {missing[:3]}")
     # 5 블롭 재파싱
-    blobs = re.findall(r'<Name>Source Text</Name>.*?<StartKeyframeValue Encoding="base64" BinaryHash="([^"]+)">([^<]+)</StartKeyframeValue>', xml, re.S)
+    blobs = re.findall(SOURCE_TEXT_RE + r'.*?<StartKeyframeValue Encoding="base64" BinaryHash="([^"]+)">([^<]+)</StartKeyframeValue>', xml, re.S)
+    빈참조 = len(빈블롭_RE.findall(xml))       # 해시로 앞의 본문을 가리키는 블롭(프리미어가 만든 중복 제거)
     nbad = 0; nhash = 0
     for h, b64 in blobs:
         try:
@@ -295,7 +333,7 @@ def verify(path: str, expect_tracks: dict | None = None) -> dict:
             if int(h[-8:], 16) != info["len"] + 12: nhash += 1
         except Exception:
             nbad += 1
-    ok("Source Text 블롭 재파싱", nbad == 0 and nhash == 0, f"{len(blobs)}개 · 파싱 실패 {nbad} · BinaryHash 길이 불일치 {nhash}")
+    ok("Source Text 블롭 재파싱", nbad == 0 and nhash == 0, f"{len(blobs)}개 · 파싱 실패 {nbad} · BinaryHash 길이 불일치 {nhash}" + (f" · 해시 참조 {빈참조}" if 빈참조 else ""))
     # 6 gzip 왕복
     again = gzip.decompress(gzip.compress(xml.encode("utf-8"), 9, mtime=0)).decode("utf-8")
     ok("gzip 왕복 동일", again == xml, hashlib.md5(xml.encode("utf-8")).hexdigest()[:12])
