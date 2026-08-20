@@ -370,9 +370,15 @@ def 자막치환(doc, tl, alloc, 견본):
             채움 = param_blob(blocks[st], doc.xml)
             blocks[st] = 빈블롭_RE.sub(lambda m: f'<StartKeyframeValue Encoding="base64" BinaryHash="{m.group(1)}">{채움}</StartKeyframeValue>', blocks[st], count=1)
         runs = len(parse_blob(param_blob(blocks[st], doc.xml))["runs"])
-        return {"ids": tmpl_ids, "blocks": blocks, "item": str(item_id), "st": st, "vfc": vfc, "sub": sub, "clip": vclip, "runs": runs}
+        pos = [i for i in tmpl_ids if 이름인가(blocks[i], "Position")]
+        return {"ids": tmpl_ids, "blocks": blocks, "item": str(item_id), "st": st, "vfc": vfc, "sub": sub, "clip": vclip,
+                "runs": runs, "pos": (pos[0] if pos else None)}
 
     TPL = {"dlg": template(견본["자막_대사"]["item"]), "nar": template(견본["자막_나레"]["item"])}
+    # 위치는 블롭 밖 평문이라 **우리가 직접 쓴다**(서식·크기와 달리 도너 복제 대상이 아니다).
+    # 규격 「자막.위치」 = 잉크 아랫변 정렬(지무비 실측 91%) — 앵커 y = 아랫변 − 보정
+    POS = SPEC["자막"]["위치"]
+    Y = {"nar": f'{POS["나레"]["목표_px"]["y"] / 1080:.6f}', "dlg": f'{POS["대사"]["목표_px"]["y"] / 1080:.6f}'}
     new_blocks, refs = [], {"dlg": [], "nar": []}
     rows = []
     for cue in sorted(tl["cues"], key=lambda c: (c["t0"], c["lane"])):
@@ -393,6 +399,8 @@ def 자막치환(doc, tl, alloc, 견본):
                 b = set_child(b, "Name", esc(cue["text"]))
             elif i == tpl["vfc"]:
                 b = re.sub(r"<InstanceName>.*?</InstanceName>", "<InstanceName>" + esc(cue["text"]) + "</InstanceName>", b, flags=re.S)
+            elif i == tpl["pos"]:
+                b = re.sub(r"(<StartKeyframe>[^,]+,)([^:,]+):([^,]+)(,)", lambda m: m.group(1) + m.group(2) + ":" + Y[lane] + m.group(4), b, count=1)
             elif i == tpl["st"]:
                 b64, binhash, blob_info = blob_set_texts(param_blob(b), texts)   # tail relocation + 재파싱
                 b = param_set_blob(b, b64, binhash)
@@ -424,7 +432,7 @@ def 자막치환(doc, tl, alloc, 견본):
     track_set_items(doc, T["V3"], refs["nar"], transitions=[])
     track_set_items(doc, T["V4"], [], transitions=[])
     bad_blob = [r for r in rows if r["reparsed"] != r["text"]]
-    return {"V2_대사": len(refs["dlg"]), "V3_나레": len(refs["nar"]), "V4": 0, "removed": removed, "added": len(new_blocks),
+    return {"위치_y_norm": Y, "V2_대사": len(refs["dlg"]), "V3_나레": len(refs["nar"]), "V4": 0, "removed": removed, "added": len(new_blocks),
             "template": {k: {"blocks": len(v["ids"]), "runs": v["runs"]} for k, v in TPL.items()},
             "blob_mismatch": bad_blob, "cues": rows}
 
