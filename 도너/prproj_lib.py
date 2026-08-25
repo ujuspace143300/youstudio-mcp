@@ -169,6 +169,22 @@ def _fpos(b, t, i):
 def _rstr(b, p):
     n = _u32(b, p); return b[p + 4:p + 4 + n].decode("utf-8")
 
+def _색읽기(b, st, 슬롯):
+    """StyleTable 의 색 슬롯 → [R, G, B]. 색은 **작은 표 하나에 1바이트 3개**로 들어 있다."""
+    p = _fpos(b, st, 슬롯)
+    if p is None: return None
+    t = p + _u32(b, p)
+    if not (12 < t < len(b) - 2): return None
+    vt = t - _i32(b, t)
+    if not (12 <= vt < len(b) - 4): return None
+    n = (_u16(b, vt) - 4) // 2
+    out = []
+    for i in range(min(n, 4)):
+        r = _u16(b, vt + 4 + 2 * i)
+        out.append(b[t + r] if r else 0)
+    return out[:3] if len(out) >= 3 else None
+
+
 def parse_blob(b64: str) -> dict:
     raw = base64.b64decode(b64); b = raw
     assert struct.unpack_from("<Q", b, 0)[0] == len(raw) - 12, "헤더 길이 불일치"
@@ -181,11 +197,13 @@ def parse_blob(b64: str) -> dict:
         for i in range(_u32(b, vec)):
             el = vec + 4 + 4 * i; rt = el + _u32(b, el); tf = _fpos(b, rt, 0)
             text = _rstr(b, tf + _u32(b, tf)) if tf else ""
-            size = None; stf = _fpos(b, rt, 1)
+            size = None; color = None; stroke = None; stf = _fpos(b, rt, 1)
             if stf is not None:
                 st = stf + _u32(b, stf); szp = _fpos(b, st, 1)
                 if szp is not None: size = struct.unpack_from("<f", b, szp)[0]
-            out["runs"].append({"text": text, "size": size})
+                color = _색읽기(b, st, 2)        # 채움색 — 2026-08-25 규명(진단일지 §26)
+                stroke = _색읽기(b, st, 4)       # 테두리색(도너는 전부 검정)
+            out["runs"].append({"text": text, "size": size, "color": color, "stroke": stroke})
     fp = _fpos(b, main, 1)
     if fp is not None:
         vec = fp + _u32(b, fp)
@@ -246,6 +264,46 @@ def param_blob(block: str, xml: str = None) -> str:
 
 def param_set_blob(block: str, b64: str, binhash: str) -> str:
     return BLOB_RE.sub(lambda m: m.group(1) + binhash + m.group(3) + b64 + m.group(5), block, count=1)
+
+def blob_set_colors(b64: str, colors: list) -> tuple[str, str, dict]:
+    """런 채움색만 바꾼 새 블롭. colors[i] = [R,G,B] 또는 None(그대로).
+
+    규칙은 텍스트 치환과 같다 — **색 표를 버퍼 끝에 새로 만들고**(원본 표를 복사해 3바이트만 고친다)
+    그 런의 참조 오프셋 하나만 돌린다. 원본 표는 다른 런·다른 큐가 함께 쓸 수 있으므로 **제자리 수정 금지**.
+    반환 (base64, BinaryHash, 재파싱 정보)."""
+    raw = bytearray(base64.b64decode(re.sub(r"\s+", "", b64)))
+    b = bytes(raw)
+    assert struct.unpack_from("<Q", b, 0)[0] == len(raw) - 12 and b[8:12] == MAGIC, "블롭 헤더/매직"
+    root = 12 + _u32(b, 12); p = _fpos(b, root, 0); main = p + _u32(b, p)
+    rp = _fpos(b, main, 0); assert rp is not None, "런 벡터 없음"
+    vec = rp + _u32(b, rp); n = _u32(b, vec)
+    assert len(colors) == n, f"런 수 {n} != 색 {len(colors)}"
+    for i, rgb in enumerate(colors):
+        if rgb is None: continue
+        b = bytes(raw)
+        el = vec + 4 + 4 * i; rt = el + _u32(b, el)
+        stf = _fpos(b, rt, 1); assert stf is not None, f"런 {i} StyleTable 없음"
+        st = stf + _u32(b, stf)
+        cp = _fpos(b, st, 2); assert cp is not None, f"런 {i} 색 슬롯(f2) 없음"
+        t = cp + _u32(b, cp); vt = t - _i32(b, t)
+        vs = _u16(b, vt); ts = _u16(b, vt + 2)
+        while len(raw) % 4: raw.append(0)
+        new_vt = len(raw); raw += bytes(b[vt:vt + vs])          # vtable 복사
+        while len(raw) % 4: raw.append(0)
+        new_t = len(raw); raw += bytes(b[t:t + max(ts, 4)])      # 표 본체 복사
+        struct.pack_into("<i", raw, new_t, new_t - new_vt)       # 새 vtable 을 가리키게
+        for k in range(3):                                       # R·G·B 세 바이트
+            r = _u16(bytes(raw), new_vt + 4 + 2 * k)
+            if r: raw[new_t + r] = int(rgb[k]) & 0xFF
+        struct.pack_into("<I", raw, cp, new_t - cp)              # 런 → 새 색 표
+    struct.pack_into("<Q", raw, 0, len(raw) - 12)
+    out = base64.b64encode(bytes(raw)).decode("ascii")
+    info = parse_blob(out)
+    for i, rgb in enumerate(colors):
+        if rgb is not None:
+            assert info["runs"][i]["color"] == list(rgb), f"재파싱 색 불일치 런 {i}: {info['runs'][i]['color']} != {rgb}"
+    return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
+
 
 def split_runs_words(text: str, n: int) -> list[str]:
     """[B안] 텍스트를 런 n개로 나누되 **단어 경계에서만** 자른다(중간 끊김 방지).
