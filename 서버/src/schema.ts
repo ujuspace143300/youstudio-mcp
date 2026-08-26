@@ -22,8 +22,10 @@ export const STEP_ORDER = [
 ] as const;
 export type Step = (typeof STEP_ORDER)[number];
 
-export const PRESETS = ["영화롱폼"] as const;
-export type Preset = (typeof PRESETS)[number];
+// 프리셋 목록은 styles.ts 등록표에서 파생된다 — 새 프리셋은 거기 한 줄.
+import { PRESETS, DEFAULT_PRESET, type Preset } from "./styles.js";
+export { PRESETS };
+export type { Preset };
 
 // ── 소재 ────────────────────────────────────────────────────────────────
 // 영화롱폼은 로컬 영상 파일만 받는다. 종류가 늘면 여기 discriminated union 으로 추가한다.
@@ -42,7 +44,7 @@ export const ToolInputSchema = z.object({
   step: z.enum(STEP_ORDER).describe(
     "맨 처음은 'setup'(준비 확인). 준비가 끝났으면 'start' 로 소재를 준다. 이후는 서버가 next_step 으로 지시한 값을 그대로.",
   ),
-  preset: z.enum(PRESETS).default("영화롱폼").describe("채널 규격 이름"),
+  preset: z.enum(PRESETS).default(DEFAULT_PRESET).describe("채널 규격 이름 (스타일/<이름>/ 폴더)"),
   source: SourceSchema.optional().describe("소재. start 에서 한 번만 준다."),
   payload: z.record(z.string(), z.unknown()).optional().describe(
     "직전 단계에서 서버가 요청한 자료 (measure 결과, carry 값, 사람이 채운 값).",

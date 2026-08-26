@@ -6,7 +6,7 @@
  *   2) 작업 폴더 구조를 알려주고 만들라고 지시한다 (번호 대신 단계 이름 — 확장 계획 3번)
  *   3) 스타일/영화롱폼/규격.json 을 응답에 실어 "규격은 서버가 내려준다"를 증명한다
  */
-import spec from "../../../스타일/영화롱폼/규격.json";
+import { styleOf } from "../styles.js";
 import { base } from "../response.js";
 import type { StepHandler } from "./types.js";
 
@@ -16,6 +16,7 @@ export const WORK_DIRS = ["probe", "transcript", "brief", "clips", "script", "vo
 export const setup: StepHandler = {
   name: "setup",
   run({ preset }) {
+    const { spec, from } = styleOf(preset);
     return base("setup", preset, {
       status: "execute",
       next_step: "start",
@@ -46,7 +47,7 @@ export const setup: StepHandler = {
         dirs: [...WORK_DIRS],
       },
       spec: {
-        _from: "스타일/영화롱폼/규격.json (서버 번들에 포함 — 배포본에도 실려 간다)",
+        _from: from,
         ...spec,
       },
     });

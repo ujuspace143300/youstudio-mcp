@@ -33,6 +33,8 @@ async function rpc(method, params) {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
       "mcp-protocol-version": PROTOCOL,
+      // 배포본 검사: YOUSTUDIO_TOKEN=... MCP_URL=https://... npm test
+      ...(process.env.YOUSTUDIO_TOKEN ? { authorization: `Bearer ${process.env.YOUSTUDIO_TOKEN}` } : {}),
     },
     body: JSON.stringify(body),
   });
