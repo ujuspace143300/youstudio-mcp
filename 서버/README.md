@@ -45,6 +45,41 @@ npm test               # = node test/smoke.mjs
 
 타입 검사만: `npm run typecheck`
 
+## 배포 (Cloudflare Workers) — 모든 컴퓨터가 같은 서버를 쓴다
+
+로컬 `wrangler dev` 는 그 컴퓨터에서만 돈다. 컴퓨터를 바꿔도 같은 결과를 받으려면 한 곳에 배포하고 URL 하나로 붙는다 (볼케이노와 같은 형태).
+
+```bash
+cd 서버
+npx wrangler login                       # 처음 한 번, 브라우저 승인
+npx wrangler secret put YOUSTUDIO_TOKEN  # 배포본 인증 토큰 — 공개 URL 이라 반드시 넣는다
+npx wrangler deploy                      # → https://youstudio-mcp.<계정>.workers.dev
+```
+
+- 인증: 시크릿이 있으면 `Authorization: Bearer <토큰>` 이 없는 요청은 401. `/health` 는 열려 있고 `auth:true/false` 로 토큰 설정 여부를 보여준다.
+- 토큰은 컴퓨터마다 `~/.volcano/keys/youstudio` 파일에 둔다 (볼트·저장소에 넣지 않는다). 볼트 `설치/연결.ps1`·`연결.sh` 가 이 파일을 읽어 헤더와 함께 등록한다.
+- 배포본 검사: `YOUSTUDIO_TOKEN=<토큰> MCP_URL=https://youstudio-mcp.<계정>.workers.dev npm test`
+- 로컬 dev 에서 인증까지 보려면 `서버/.dev.vars` 에 `YOUSTUDIO_TOKEN=...` (gitignore 됨) 을 두고 기동한다.
+- **규격·프리셋을 바꿨으면 `npx wrangler deploy` 를 다시 한다.** 배포하지 않으면 컴퓨터마다 다른 서버를 보는 상태로 돌아간다.
+
+## 새 프리셋(스타일) 추가
+
+`src/styles.ts` 가 등록표다. 프리셋 하나 = `스타일/<이름>/` 폴더 하나.
+
+1. `스타일/<이름>/` 에 `규격.json` · `정답지.json` · `나레이션.md` 를 둔다 (영화롱폼을 복사해 시작).
+2. `src/styles.ts` 의 `STYLES` 에 한 줄 추가한다. `PRESETS` 와 도구 입력 enum 은 거기서 파생된다.
+3. `npm run typecheck && npm test` → `npx wrangler deploy`.
+4. 볼트 `프리셋/<이름>.md` 카드를 만든다 (사람용: 왜 이 값인지·조정 이력).
+
+※ 2026-08-26 현재 `setup` 만 프리셋별 규격을 고른다. 나머지 단계(brief~export)는 아직 `스타일/영화롱폼` 을 모듈 수준에서 직접 import 한다 — 두 번째 프리셋이 실제로 생길 때 그 사례로 단계별 전환을 한다 (한 번에 하나씩).
+
+## 클로드에 붙이기 (배포본)
+
+```bash
+claude mcp add --transport http --scope user youstudio https://youstudio-mcp.<계정>.workers.dev --header "Authorization: Bearer <토큰>"
+```
+볼트 연결 스크립트가 이걸 대신 한다.
+
 ## 클로드에 붙이기 (로컬)
 
 Claude Code 에서:
