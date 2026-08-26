@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "도너"))          # prproj_lib 는 도너 폴더에 한 벌만 둔다
 from prproj_lib import (Doc, load, save, esc, frame_ticks, rewire, set_child, child, collect_lineage,
                         track_set_items, track_items, verify, parse_blob, blob_set_texts, param_blob,
-                        param_set_blob, split_runs_words, is_source_text, 이름인가, 빈블롭_RE, GRAPHIC_IN, FRAME_TICKS, TPS)
+                        param_set_blob, is_source_text, 이름인가, 빈블롭_RE, GRAPHIC_IN, FRAME_TICKS, TPS)
 
 SPEC = json.load(open(os.path.join(ROOT, "스타일/영화롱폼/규격.json"), encoding="utf-8"))
 DN = SPEC["조립"]["도너"]
@@ -86,27 +86,63 @@ def 보호계보(doc):
     return 보호
 
 
+def _흰가(c):
+    return c is not None and min(c) >= 200 and max(c) - min(c) <= 40
+
+
+def _강조색인가(c):
+    강 = SPEC["자막"]["강조"]["색"]["RGB"]
+    return c is not None and all(abs(a - b) <= 40 for a, b in zip(c, 강))
+
+
+def 견본점수(info, 조건):
+    """견본 후보를 조건에 얼마나 맞는지로 점수 매긴다(클수록 좋다). 폰트는 이미 걸러진 뒤다."""
+    runs = info["runs"]
+    점 = 0
+    if runs and 조건.get("px") and runs[0]["size"] == float(조건["px"]): 점 += 8
+    if len(runs) == 조건["런"]: 점 += 4
+    색 = [r["color"] for r in runs]
+    if 조건["런"] == 3 and len(runs) == 3:
+        if _흰가(색[0]) and _강조색인가(색[1]) and _흰가(색[2]): 점 += 2
+    elif 조건["런"] == 1 and len(runs) == 1:
+        if _흰가(색[0]): 점 += 2
+    return 점
+
+
 def 견본찾기(doc, 말하기=None):
-    """규격 「조립.도너.견본」 대신 실제 도너에서 견본을 찾아 돌려준다"""
+    """규격 「조립.도너.견본」 대신 실제 도너에서 견본을 찾아 돌려준다.
+
+    자막 견본은 **폰트 + 글꼴 크기 + 런 구성 + 런 색**으로 고른다(2026-08-26, 5단계).
+    나레 견본은 「흰·빨강·흰」 3런짜리여야 한다 — 강조는 색을 쓰는 것이 아니라
+    **그 견본의 런에 [앞][강조어][뒤] 로 텍스트를 나눠 넣는 것**이기 때문이다(규격 「자막.강조」).
+    강조가 없는 큐는 [전체][빈][빈] 이 되어 빨강 런에 글자가 없다 → 전부 흰색으로 보인다."""
     from prproj_lib import parse_blob, param_blob, collect_lineage
     말 = 말하기 or (lambda *x: None)
-    폰트 = {"자막_나레": SPEC["자막"]["폰트"]["나레"]["PS명"], "자막_대사": SPEC["자막"]["폰트"]["대사"]["PS명"]}
+    종류 = SPEC["자막"]["종류"]
+    조건 = {"자막_나레": {"트랙": "V3", "폰트": SPEC["자막"]["폰트"]["나레"]["PS명"], "px": 종류["나레"]["글꼴_px"], "런": 3},
+            "자막_대사": {"트랙": "V2", "폰트": SPEC["자막"]["폰트"]["대사"]["PS명"], "px": 종류["대사"]["글꼴_px"], "런": 1}}
     찾은 = {}
-    for 이름, 트랙 in (("자막_나레", "V3"), ("자막_대사", "V2")):
-        items, _ = track_items(doc, T[트랙])
-        고름 = None
+    for 이름, c in 조건.items():
+        items, _ = track_items(doc, T[c["트랙"]])
+        후보 = []
         for it in items:
             try:
                 ids, _u = collect_lineage(doc, [it], stop=공유계보(doc))
                 st = [i for i in sorted(ids - 공유계보(doc), key=int) if is_source_text(doc.get(i))]
                 if not st: continue
-                if 폰트[이름] in (parse_blob(param_blob(doc.get(st[0]), doc.xml)).get("fonts") or []):
-                    고름 = it; break
+                info = parse_blob(param_blob(doc.get(st[0]), doc.xml))
+                if c["폰트"] not in (info.get("fonts") or []): continue
+                후보.append((견본점수(info, c), -int(it), it, info))
             except Exception:
                 continue
+        고름, 정보 = (max(후보)[2], max(후보)[3]) if 후보 else (None, None)
         찾은[이름] = 딸린ID(doc, 고름) if 고름 else 딸린ID(doc, int(S[이름]["item"]))
-        if 고름 and str(고름) != str(S[이름]["item"]):
-            말(f"  · 견본 {이름}: 규격 {S[이름]['item']} → 실제 {고름}(폰트 {폰트[이름]} 로 찾음)")
+        if 고름:
+            말(f'  · 견본 {이름}: item {고름} — {정보["fonts"][0]} · {정보["runs"][0]["size"]:.0f}px · 런 {len(정보["runs"])}'
+               f' · 색 {[r["color"] for r in 정보["runs"]]} (후보 {len(후보)}개 중 점수 {max(후보)[0]})')
+        assert 고름 and len(정보["runs"]) == c["런"], (
+            f'{이름} 견본을 못 찾았다 — 조건: {c["폰트"]} · {c["px"]}px · 런 {c["런"]}. '
+            f'후보 {len(후보)}개. 도너를 갈아 끼웠다면 조건에 맞는 큐가 있는지 먼저 확인하라')
     for 이름, 트랙, 오디오 in (("컷_비디오", "V1", False), ("컷_오디오_덕킹", "A3", True), ("나레", "A2", True)):
         items, _ = track_items(doc, T[트랙])
         고름 = items[0] if items else int(S[이름]["item"])
@@ -357,6 +393,26 @@ def 나레치환(doc, tl, voice, alloc, 견본):
 # ── ③ 자막 (계단 3-d) ──────────────────────────────────────────────────────
 
 
+def 런배분(cue, 런수, 견본색):
+    """큐 텍스트를 견본의 런 개수에 맞춰 나눈다 — **강조 구간을 그 색 런에 얹는다**.
+
+    견본이 「흰·빨강·흰」 3런이면(규격 「자막.강조」):
+      · 강조 있음 → [앞][강조어][뒤]  — 가운데 런이 빨강이라 그 단어만 빨강이 된다
+      · 강조 없음 → [전체][빈][빈]    — 빨강 런에 글자가 없으니 전부 흰색으로 보인다
+    강조는 `cue["강조"] = [시작, 끝]` (텍스트 안 **문자 위치**, 파이썬 슬라이스와 같다).
+    견본이 1런이면(대사) 강조를 쓰지 않는다 — 도너 V2 79개가 전부 1런·흰색이다."""
+    text = cue["text"]
+    강 = cue.get("강조")
+    if 런수 < 2 or not 강:
+        return ([text] + [""] * (런수 - 1)) if 런수 > 1 else [text]
+    s0, s1 = int(강[0]), int(강[1])
+    assert 0 <= s0 < s1 <= len(text), f'강조 구간이 텍스트 밖: {강} / 「{text}」'
+    조각 = [text[:s0], text[s0:s1], text[s1:]]
+    if 런수 == 3:
+        return 조각
+    assert False, f"강조를 얹을 런 자리가 없다 — 견본 런 {런수}개, 색 {견본색}"
+
+
 def 자막치환(doc, tl, alloc, 견본):
     def template(item_id):
         ids, uids = collect_lineage(doc, [item_id], stop=공유계보(doc))
@@ -369,10 +425,12 @@ def 자막치환(doc, tl, alloc, 견본):
         if 빈블롭_RE.search(blocks[st]):        # 해시로 남의 본문을 가리키는 블롭 — 견본으로 쓰려면 본문을 채워 둔다
             채움 = param_blob(blocks[st], doc.xml)
             blocks[st] = 빈블롭_RE.sub(lambda m: f'<StartKeyframeValue Encoding="base64" BinaryHash="{m.group(1)}">{채움}</StartKeyframeValue>', blocks[st], count=1)
-        runs = len(parse_blob(param_blob(blocks[st], doc.xml))["runs"])
+        _info = parse_blob(param_blob(blocks[st], doc.xml))
+        runs = len(_info["runs"])
+        색 = [r["color"] for r in _info["runs"]]
         pos = [i for i in tmpl_ids if 이름인가(blocks[i], "Position")]
         return {"ids": tmpl_ids, "blocks": blocks, "item": str(item_id), "st": st, "vfc": vfc, "sub": sub, "clip": vclip,
-                "runs": runs, "pos": (pos[0] if pos else None)}
+                "runs": runs, "색": 색, "pos": (pos[0] if pos else None)}
 
     TPL = {"dlg": template(견본["자막_대사"]["item"]), "nar": template(견본["자막_나레"]["item"])}
     # 위치는 블롭 밖 평문이라 **우리가 직접 쓴다**(서식·크기와 달리 도너 복제 대상이 아니다).
@@ -386,7 +444,7 @@ def 자막치환(doc, tl, alloc, 견본):
         tpl = TPL[lane]
         t0 = frame_ticks(cue["t0"])
         t1 = max(frame_ticks(cue["t1"]), t0 + FRAME_TICKS)
-        texts = split_runs_words(cue["text"], tpl["runs"])
+        texts = 런배분(cue, tpl["runs"], tpl["색"])
         idmap = {int(i): alloc() for i in tpl["ids"]}
         blob_info = None
         for i in tpl["ids"]:
@@ -407,6 +465,8 @@ def 자막치환(doc, tl, alloc, 견본):
             new_blocks.append(b)
         refs[lane].append(idmap[int(tpl["item"])])
         rows.append({"lane": lane, "t0_s": cue["t0"], "t1_s": cue["t1"], "text": cue["text"], "runs": texts,
+                     "강조": (texts[1] if len(texts) > 1 and texts[1] else None),
+                     "색": [r["color"] for r in blob_info["runs"]],
                      "item": idmap[int(tpl["item"])], "blob_len": blob_info["len"], "font": blob_info["fonts"],
                      "size": [r["size"] for r in blob_info["runs"]], "reparsed": "".join(r["text"] for r in blob_info["runs"])})
 
@@ -432,7 +492,10 @@ def 자막치환(doc, tl, alloc, 견본):
     track_set_items(doc, T["V3"], refs["nar"], transitions=[])
     track_set_items(doc, T["V4"], [], transitions=[])
     bad_blob = [r for r in rows if r["reparsed"] != r["text"]]
-    return {"위치_y_norm": Y, "V2_대사": len(refs["dlg"]), "V3_나레": len(refs["nar"]), "V4": 0, "removed": removed, "added": len(new_blocks),
+    강조수 = sum(1 for r in rows if r["강조"])
+    빨강_오염 = [r for r in rows if not r["강조"] and any(_강조색인가(c) for c, t in zip(r["색"], r["runs"]) if t)]
+    return {"위치_y_norm": Y, "강조": 강조수, "빨강_오염": 빨강_오염,
+            "견본_색": {k: v["색"] for k, v in TPL.items()}, "V2_대사": len(refs["dlg"]), "V3_나레": len(refs["nar"]), "V4": 0, "removed": removed, "added": len(new_blocks),
             "template": {k: {"blocks": len(v["ids"]), "runs": v["runs"]} for k, v in TPL.items()},
             "blob_mismatch": bad_blob, "cues": rows}
 
@@ -511,12 +574,15 @@ def main():
     res["checks"].append({"check": "나레 클립 길이 = voice.json 실측(±1프레임)", "pass": not r_nar["length_mismatch"], "detail": str(r_nar["A2"]) + "개 중 불일치 " + str(len(r_nar["length_mismatch"]))})
     res["checks"].append({"check": "자막 블롭 재파싱 = 넣은 텍스트", "pass": not r_sub["blob_mismatch"], "detail": str(len(r_sub["cues"])) + "개 중 불일치 " + str(len(r_sub["blob_mismatch"]))})
     res["checks"].append({"check": "timeline.json 대조(자막 문구·시각 · 컷/나레 시각)", "pass": not tl_bad, "detail": "불일치 " + str(len(tl_bad))})
-    ok = res["pass"] and not r_nar["length_mismatch"] and not r_sub["blob_mismatch"] and not tl_bad
+    res["checks"].append({"check": "강조 없는 큐에 강조색 런이 없다(규격 「자막.강조」)", "pass": not r_sub["빨강_오염"],
+                          "detail": "강조 " + str(r_sub["강조"]) + "개 · 오염 " + str(len(r_sub["빨강_오염"]))})
+    ok = res["pass"] and not r_nar["length_mismatch"] and not r_sub["blob_mismatch"] and not tl_bad and not r_sub["빨강_오염"]
 
     report = {"stage": "계단 4 — 조립 통합", "donor": DN["파일"], "source": src, "out": out_path,
               "title": tl["title"], "total_s": tl["total_s"],
               "counts": {"V1": r_cut["V1"], "A1": r_cut["A1"], "A3": r_cut["A3"], "A2": r_nar["A2"],
                          "V2": r_sub["V2_대사"], "V3": r_sub["V3_나레"], "V4": 0, "links": r_cut["links"],
+                         "강조": r_sub["강조"],
                          "removed_blocks": r_cut["removed"] + r_nar["removed"] + r_sub["removed"],
                          "added_blocks": r_cut["added"] + r_nar["added"] + r_sub["added"]},
               "levels": r_cut["levels"], "pass": ok, "checks": res["checks"],
