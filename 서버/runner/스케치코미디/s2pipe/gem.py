@@ -24,6 +24,39 @@ USER_AGENT = "script-engine/1.1"        # ★정본 상수. 바꾸면 멀티모�
 BIG_MB = 18.0                           # 이보다 크면 EvoLink 를 건너뛴다
 
 
+INLINE_MB = 12.5   # base64 는 파일의 4/3 배 — 프롬프트까지 얹어도 BIG_MB(18) 안에 들게
+
+
+def shrink_for_inline(mp4, log=print):
+    """base64 인라인 한도에 맞는 판정용 프록시(240p·12fps)를 돌려준다. 작으면 원본 그대로.
+    ★판정·전사에만 쓴다 — 자르기·렌더는 원본을 쓴다. 길이가 같아 타임코드는 그대로 맞는다.
+    (2026-08-28 사장님 결정 — 순정 크레딧 소진, EvoLink 무료 경로로 간다)"""
+    import subprocess
+    if os.path.getsize(mp4) <= INLINE_MB * 1024 * 1024:
+        return mp4
+    dst = os.path.splitext(mp4)[0] + ".judge.mp4"
+    if os.path.exists(dst) and os.path.getsize(dst) <= INLINE_MB * 1024 * 1024:
+        return dst
+    o = subprocess.run(["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                        "-of", "csv=p=0", mp4], capture_output=True, text=True)
+    try:
+        dur = float(o.stdout.strip())
+    except ValueError:
+        dur = 0.0
+    a_bps = 48000
+    v_bps = max(120000, int(INLINE_MB * 1024 * 1024 * 8 / max(dur, 1)) - a_bps)
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", mp4,
+                        "-vf", "scale=-2:240,fps=12", "-c:v", "libx264",
+                        "-b:v", str(v_bps), "-maxrate", str(v_bps), "-bufsize", str(v_bps * 2),
+                        "-preset", "veryfast", "-c:a", "aac", "-b:a", str(a_bps), "-ac", "1",
+                        "-movflags", "+faststart", "-y", dst], capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.exists(dst):
+        log("  ★판정 프록시 생성 실패 — 원본을 그대로 보낸다(순정 경로로 갈 수 있다)")
+        return mp4
+    log(f"  판정 프록시 {os.path.getsize(dst)/1024/1024:.1f}MB (240p·12fps) — 인라인 한도 안")
+    return dst
+
+
 def _read_key(p):
     try:
         return open(os.path.expanduser(p), encoding="utf-8").read().strip()

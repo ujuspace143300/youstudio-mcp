@@ -63,7 +63,8 @@ def main():
         print(f"잘라 붙인 영상이 없다: {cut}\n  먼저 python -m s2pipe.build 를 한 번 돌려라")
         return 1
 
-    b64 = base64.b64encode(open(cut, "rb").read()).decode()
+    send = gem.shrink_for_inline(cut)   # 인라인 한도 넘으면 판정용 프록시
+    b64 = base64.b64encode(open(send, "rb").read()).decode()
     maxc = CFG["layout"]["subtitle"]["max_chars"]
     payload = {"contents": [{"parts": [
         {"inline_data": {"mime_type": "video/mp4", "data": b64}},

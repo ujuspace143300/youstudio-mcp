@@ -464,7 +464,7 @@ def main():
     cands = pick_comments(info, 9999)
     if cands:
         print(f"댓글 후보 {len(cands)}개 — 어울리는 것을 모델이 고른다", flush=True)
-    plan = call(mp4, dur, fps, vtt_text(vtt), hot, focus, cands)
+    plan = call(gem.shrink_for_inline(mp4), dur, fps, vtt_text(vtt), hot, focus, cands)
 
     # ★모델이 원본 길이를 넘는 타임코드를 낸다. 그런데 **일정한 비율로 늘어난다** —
     #   274→412(1.50배) · 416→656(1.58배). 그냥 버리면 뒤쪽 좋은 대목이 통째로
