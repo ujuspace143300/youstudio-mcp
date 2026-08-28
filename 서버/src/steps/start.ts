@@ -18,8 +18,8 @@ function join(root: string, ...parts: string[]): string {
 export const start: StepHandler = {
   name: "start",
   run({ preset, source, payload }) {
-    if (!source) {
-      return reject("start", preset, "source 가 없다", "source: { kind: 'local_video', path: '<영화 파일 절대경로>' } 를 실어 start 를 다시 부르라.");
+    if (!source || source.kind !== "local_video") {
+      return reject("start", preset, "source 가 없거나 로컬 영상이 아니다", "source: { kind: 'local_video', path: '<영화 파일 절대경로>' } 를 실어 start 를 다시 부르라. (영화롱폼은 로컬 파일만 받는다 — 유튜브 소재는 스케치코미디 프리셋)");
     }
     const workdir = typeof payload.workdir === "string" ? payload.workdir.trim() : "";
     if (!workdir) {

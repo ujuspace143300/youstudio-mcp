@@ -19,6 +19,9 @@
 import 영화롱폼_규격 from "../../스타일/영화롱폼/규격.json";
 import 영화롱폼_정답지 from "../../스타일/영화롱폼/정답지.json";
 import 영화롱폼_나레이션 from "../../스타일/영화롱폼/나레이션.md";
+import 스케치_규격 from "../../스타일/스케치코미디/규격.json";
+import 스케치_정답지 from "../../스타일/스케치코미디/정답지.json";
+import 스케치_대본 from "../../스타일/스케치코미디/대본.md";
 
 export interface Style {
   /** 우리가 정한 설정값 (스타일/<이름>/규격.json) */
@@ -43,6 +46,15 @@ export const STYLES = {
     from: "스타일/영화롱폼/규격.json (서버 번들에 포함 — 배포본에도 실려 간다)",
     steps: ["setup", "start", "probe", "transcript", "brief", "select", "script", "voice", "subtitle", "export"],
     workDirs: ["probe", "transcript", "brief", "clips", "script", "voice", "subtitle", "render"],
+  },
+  스케치코미디: {
+    spec: 스케치_규격 as Record<string, unknown>,
+    answer: 스케치_정답지 as Record<string, unknown>,
+    guideMd: 스케치_대본,
+    from: "스타일/스케치코미디/규격.json (서버 번들에 포함 — 배포본에도 실려 간다)",
+    // 자막은 두 번 뽑고 두 번 굽는다 — 1차 렌더(sk_cut)는 cut.mp4 를 만들기 위한 것
+    steps: ["setup", "start", "sk_plan", "sk_check", "sk_cut", "sk_subs", "sk_asr", "sk_sync", "sk_recheck", "sk_render", "sk_deliver"],
+    workDirs: ["projects", "work", "out"],
   },
 } as const satisfies Record<string, Style>;
 

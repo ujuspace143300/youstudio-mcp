@@ -23,6 +23,17 @@ if hasattr(sys.stdout, "reconfigure"):
 PHASES = {p["no"]: p for p in CFG["edit"]["phases"]}
 
 
+def _g(path, default):
+    """생성 config 의 _정답지(판정 대역)에서 값을 꺼낸다 — 없으면 sketch2 시절 기본값.
+    판정의 정본은 서버(sk_check)지만, 이 이중 빗장의 상수도 원천은 정답지 한 곳이다."""
+    cur = CFG.get("_정답지", {})
+    for k in path.split("."):
+        if not isinstance(cur, dict) or k not in cur:
+            return default
+        cur = cur[k]
+    return cur
+
+
 def check(proj, path):
     """반려 사유와 주의를 낸다. rc 0 이면 통과."""
     e, n, tb = CFG["edit"], CFG["narration"], CFG["layout"]["title"]
@@ -73,7 +84,7 @@ def check(proj, path):
     order = sorted(segs, key=lambda s: s["t0"])
     for a, b in zip(order, order[1:]):
         ov = a["t1"] - b["t0"]
-        if ov > 0.05:
+        if ov > _g("구조.G-조각겹침.겹침_max_sec", 0.05):
             bad.append(f"★조각이 {ov:.1f}초 겹친다 — 원본 {b['t0']:.1f}~{a['t1']:.1f} 이"
                        f" 두 번 나온다. 한쪽 끝을 물러라")
 
@@ -104,7 +115,7 @@ def check(proj, path):
         if not got:
             continue
         want = (p["sec"][1] - p["sec"][0]) / span
-        if got / total > want * 3.5:
+        if got / total > want * _g("구조.G-Phase몫.배수_max", 3.5):
             bad.append(f"★P{no} {p['name']} 가 {got:.0f}초({got/total*100:.0f}%)를"
                        f" 차지한다 — 한 칸이 편을 통째로 먹었다."
                        f" 나머지 Phase 가 밀려난다. 짧게 자르거나 쪼개라")
@@ -115,7 +126,7 @@ def check(proj, path):
         if s.get("phase") == 4 and climax_at is None:
             climax_at = at
         at += s["t1"] - s["t0"]
-    if climax_at is not None and total and climax_at / total < 0.6:
+    if climax_at is not None and total and climax_at / total < _g("구조.G-Climax위치.min_pos", 0.6):
         bad.append(f"★Climax 가 너무 빠르다 — {climax_at:.0f}초"
                    f"({climax_at/total*100:.0f}% 지점). 전체의 60% 를 지나서 와야 한다")
 
@@ -145,12 +156,12 @@ def check(proj, path):
         if span < need:
             bad.append(f"★조각 {i} 패딩 부족 — 나레이션은 {need:.1f}초인데"
                        f" 화면은 {span:.1f}초다. 다음 대사가 겹쳐 튀어나온다")
-        elif span < need + 0.5:
+        elif span < need + _g("나레이션.G-나레이션.패딩_여유_soft_sec", 0.5):
             warn.append(f"조각 {i} 패딩이 빠듯하다 (나레 {need:.1f}초 / 화면 {span:.1f}초)")
     nrs = [s for s in segs if (s.get("narration") or "").strip()]
     if not nrs:
         warn.append("나레이션이 하나도 없다 — 이 채널의 핵심 장치다")
-    elif len(nrs) > 3:
+    elif len(nrs) > _g("나레이션.G-나레이션.개수_권장", [1, 2])[1] + 1:
         warn.append(f"나레이션 {len(nrs)}개 — 1~2개면 충분하다. 많으면 설명이 된다")
     # ★★나레이션이 나오는 동안 원음이 죽는다. 그러니 **웃음이 터지는 자리에는
     #   얹으면 안 된다** — 훅과 펀치라인은 배우 말이 들려야 산다.
@@ -201,7 +212,7 @@ def check(proj, path):
     # ── 자막
     subs = sorted(proj.get("subs", []), key=lambda x: x["t"])
     gaps = [(subs[i - 1]["t"], subs[i]["t"]) for i in range(1, len(subs))
-            if subs[i]["t"] - subs[i - 1]["t"] >= 3.0]
+            if subs[i]["t"] - subs[i - 1]["t"] >= _g("자막.G-자막공백.빈구간_warn_sec", 3.0)]
     if gaps:
         warn.append(f"자막이 3초 이상 비는 곳 {len(gaps)}군데"
                     f" (예: {gaps[0][0]:.0f}~{gaps[0][1]:.0f}초)")

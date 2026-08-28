@@ -8,7 +8,7 @@ import { STYLES } from "./styles.js";
 
 /** 그 프리셋 파이프라인에서 이 단계의 다음 단계 이름. 마지막이거나 없는 단계면 null */
 export function nextOf(preset: Preset, step: Step): Step | null {
-  const seq = STYLES[preset].steps;
+  const seq = STYLES[preset].steps as readonly string[];
   const i = seq.indexOf(step);
   return i >= 0 && i + 1 < seq.length ? (seq[i + 1] as Step) : null;
 }

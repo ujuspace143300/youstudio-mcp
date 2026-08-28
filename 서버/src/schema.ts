@@ -16,13 +16,19 @@ export { PRESETS };
 export type { Preset };
 
 // ── 소재 ────────────────────────────────────────────────────────────────
-// 영화롱폼은 로컬 영상 파일만 받는다. 종류가 늘면 여기 discriminated union 으로 추가한다.
+// 영화롱폼 = 로컬 영상 파일 · 스케치코미디 = 유튜브 롱폼 URL.
 export const SourceSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("local_video"),
     path: z.string().min(1).describe("영화 원본 파일의 절대경로"),
     title: z.string().optional().describe("영화 제목 (개봉연도) — 예: '영화 제목 (2024)'"),
     lang: z.string().optional().describe("원어 코드 — 예: en, ko, ja"),
+  }),
+  z.object({
+    kind: z.literal("youtube"),
+    url: z.string().min(1).describe("유튜브 롱폼 URL (스케치코미디 소재)"),
+    slug: z.string().optional().describe("편 이름 — 한 소재 두 편이면 <id>_A · <id>_B"),
+    focus_sec: z.number().optional().describe("B 편 전용 — 다른 웃음 클러스터의 초 지점 (댓글 타임스탬프 참고)"),
   }),
 ]);
 export type Source = z.infer<typeof SourceSchema>;

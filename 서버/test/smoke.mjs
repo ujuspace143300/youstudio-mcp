@@ -87,7 +87,12 @@ console.log(`서버: ${URL_}`);
   const names = (res.tools ?? []).map((t) => t.name);
   ok(names.length === 1 && names[0] === "youstudio_video", "tools/list → youstudio_video 하나", JSON.stringify(names));
   const stepEnum = res.tools?.[0]?.inputSchema?.properties?.step?.enum;
-  ok(Array.isArray(stepEnum) && stepEnum[0] === "setup" && stepEnum.at(-1) === "export", "step enum 10개", JSON.stringify(stepEnum));
+  // 단계 enum = 모든 프리셋 단계의 합집합 (영화롱폼 10 + 스케치코미디 sk_* 9 = 19)
+  ok(
+    Array.isArray(stepEnum) && stepEnum[0] === "setup" && stepEnum.includes("export") && stepEnum.at(-1) === "sk_deliver" && stepEnum.length === 19,
+    "step enum 19개(프리셋 합집합)",
+    JSON.stringify(stepEnum),
+  );
 }
 
 // 3) tools/call setup
@@ -722,6 +727,122 @@ const MIX_OK = { format: { duration: "30.000000", size: "1440044" } };
     }
   }
   ok(없는키.length === 0, "코드 → 규격 키: 코드 타입이 기대하는데 규격에 없는 키 0개", [...new Set(없는키)].join(" · "));
+}
+
+// ── 스케치코미디 프리셋 (2026-08-28, sketch2 이식) ────────────────────────────
+// 게이트를 통과하는 최소 편.json — 실제 8vLYMfEGZvM 편의 값을 다듬은 것
+const SK = {
+  slug: "TESTID_A",
+  source: { url: "https://www.youtube.com/watch?v=TESTID", id: "TESTID", dur: 480.6, fps: 23.976 },
+  title: ["피규어 박스 좀", "구겨진 게 죄야?"],
+  title_candidates: [["후보 하나!"], ["후보 둘?"], ["후보 셋..."], ["후보 넷!"], ["후보 다섯?"]],
+  hashtag: "#피규어_박스",
+  hooks: ["훅1", "훅2", "훅3"],
+  segments: [
+    { t0: 358.5, t1: 363.0, punch: 10, phase: 1, keep: true },
+    { t0: 300.0, t1: 308.0, punch: 5, phase: 2, keep: true, narration: "친구의 피규어 박스가 구겨졌다" },
+    { t0: 326.0, t1: 344.0, punch: 8, phase: 3, keep: true },
+    { t0: 401.0, t1: 409.0, punch: 9, phase: 4, keep: true },
+    { t0: 413.0, t1: 419.0, punch: 10, phase: 5, keep: true },
+  ],
+  subs: Array.from({ length: 18 }, (_, i) => ({ t: i * 2.5, text: `자막 ${i}`, kind: "line" })),
+  comments: [],
+  credit: { channel: "띱 Deep", title: "테스트" },
+};
+const SK_CARRY = { workdir: "C:/sketch_work/test", project_path: "C:/sketch_work/test/projects/TESTID_A.json", source: SK.source };
+const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video", arguments: { step, preset: "스케치코미디", ...args } });
+
+// S1) setup — 프리셋별 규격·작업 폴더
+{
+  const res = await skCall("setup");
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "start", "sk setup → next_step=start", `${sc?.status}/${sc?.next_step}`);
+  ok(typeof sc?.spec?._안내 === "string" && String(sc.spec._안내).includes("스케치코미디"), "sk setup → 스케치코미디 규격이 실려 옴", String(sc?.spec?._안내).slice(0, 40));
+  ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["projects", "work", "out"]), "sk setup → workDirs=projects/work/out", JSON.stringify(sc?.workdir_layout?.dirs));
+}
+// S2) 다른 프리셋의 단계는 반려된다 (파이프라인 등록표)
+{
+  const r1 = await skCall("probe", { payload: {} });
+  ok(r1.isError === true && /단계가 아니다/.test(r1.structuredContent?.message ?? ""), "sk: probe 는 스케치코미디 단계가 아니다 → 반려", r1.structuredContent?.message);
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "영화롱폼", payload: {} } });
+  ok(r2.isError === true && /단계가 아니다/.test(r2.structuredContent?.message ?? ""), "영화롱폼: sk_plan 반려 + 단계 순서 안내", r2.structuredContent?.message);
+}
+// S3) start — 유튜브 소재 + config 생성 지시
+{
+  const res = await skCall("start", { source: { kind: "youtube", url: SK.source.url, slug: "TESTID_A" }, payload: { workdir: SK_CARRY.workdir } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "sk_plan", "sk start → next_step=sk_plan", `${sc?.status}/${sc?.next_step}`);
+  const j = sc?.jobs?.[0];
+  ok(sc?.jobs_kind === "argv" && j?.argv?.includes("규격조립.py") && j?.argv?.at(-1) === SK_CARRY.workdir, "sk start → 규격조립 argv(--workdir)", j?.argv?.join(" "));
+  ok((sc?.instructions ?? []).join(" ").includes("서버/runner/스케치코미디"), "sk start → 러너 폴더 지시", "");
+  const bad = await skCall("start", { source: { kind: "local_video", path: "C:/x.mp4" }, payload: { workdir: "C:/w" } });
+  ok(bad.isError === true && /유튜브/.test(bad.structuredContent?.message ?? ""), "sk start(로컬 파일) → 반려", bad.structuredContent?.message);
+}
+// S4) sk_plan — plan argv 조립 (slug·focus 전달)
+{
+  const res = await skCall("sk_plan", { payload: { workdir: SK_CARRY.workdir, source: { kind: "youtube", url: SK.source.url, slug: "TESTID_B", focus_sec: 421 } } });
+  const sc = res.structuredContent;
+  const a = sc?.jobs?.[0]?.argv ?? [];
+  ok(sc?.next_step === "sk_check" && a.includes("s2pipe.plan") && a.includes(SK.source.url), "sk_plan → plan argv + next=sk_check", a.join(" "));
+  ok(a.includes("--config") && a.includes("C:/sketch_work/test/config.json"), "sk_plan → --config <workdir>/config.json", "");
+  ok(a.includes("--slug") && a.includes("TESTID_B") && a.includes("--focus") && a.includes("421"), "sk_plan → A/B slug·focus 전달", "");
+}
+// S5) sk_check — 게이트 통과 (밀도·5-Phase·나레 패딩)
+{
+  const res = await skCall("sk_check", { payload: { ...SK_CARRY, project: SK } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "sk_cut", "sk_check(정상) → 통과, next=sk_cut", `${sc?.status}/${sc?.next_step} ${JSON.stringify(sc?.rejected ?? [])}`);
+  ok(sc?.metrics?.total_sec === 44.5 && Math.abs(sc.metrics.density - 0.374) < 0.001, "sk_check → metrics(길이 44.5s·밀도 0.374)", JSON.stringify(sc?.metrics));
+  ok(sc?.tts_est?.chars === 16 && sc?.carry?.includes("tts_est"), "sk_check → TTS 예상 분량 carry(나레 16자)", JSON.stringify(sc?.tts_est));
+}
+// S6) sk_check — 반려들 (훅 약함 · Climax 위치 · sketch 대본 혼입 · P5 나레이션)
+{
+  const weak = { ...SK, segments: SK.segments.map((s, i) => (i === 0 ? { ...s, punch: 4 } : s)) };
+  const r1 = await skCall("sk_check", { payload: { ...SK_CARRY, project: weak } });
+  ok(r1.isError === true && (r1.structuredContent?.rejected ?? []).some((b) => b.includes("훅이 약하다")), "sk_check(훅 punch 4) → 반려", JSON.stringify(r1.structuredContent?.rejected));
+  const early = { ...SK, segments: SK.segments.map((s, i) => (i === 2 ? { ...s, t1: 328.0 } : s)) };
+  const r2 = await skCall("sk_check", { payload: { ...SK_CARRY, project: early } });
+  ok(r2.isError === true && (r2.structuredContent?.rejected ?? []).some((b) => b.includes("Climax 가 너무 빠르다")), "sk_check(Climax 51%) → 반려", JSON.stringify(r2.structuredContent?.rejected));
+  const sketch1 = { ...SK, segments: SK.segments.map(({ phase, ...s }) => s) };
+  const r3 = await skCall("sk_check", { payload: { ...SK_CARRY, project: sketch1 } });
+  ok(r3.isError === true && (r3.structuredContent?.rejected ?? [])[0]?.includes("sketch 대본"), "sk_check(phase 없음) → sketch 대본 혼입 반려", "");
+  const narrP5 = { ...SK, segments: SK.segments.map((s, i) => (i === 4 ? { ...s, narration: "마무리 설명" } : s)) };
+  const r4 = await skCall("sk_check", { payload: { ...SK_CARRY, project: narrP5 } });
+  ok(r4.isError === true && (r4.structuredContent?.rejected ?? []).some((b) => b.includes("배우 말이 들려야 한다")), "sk_check(P5 나레이션) → 반려", "");
+}
+// S7) 유료 단계 — 비용 보고 지시가 박혀 있다
+{
+  const cut = await skCall("sk_cut", { payload: { ...SK_CARRY, tts_est: { chars: 15, est_sec: 2.4 } } });
+  const sc = cut.structuredContent;
+  ok(sc?.next_step === "sk_subs" && sc?.jobs?.[0]?.argv?.includes("make.py"), "sk_cut → make.py argv, next=sk_subs", sc?.jobs?.[0]?.argv?.join(" "));
+  ok((sc?.instructions ?? []).join(" ").includes("승인") && /Typecast/.test((sc?.instructions ?? []).join(" ")), "sk_cut → 유료(Typecast) 승인 지시", "");
+  ok(/15자/.test(sc?.message ?? ""), "sk_cut → 예상 분량이 메시지에", sc?.message);
+  const asr = await skCall("sk_asr", { payload: SK_CARRY });
+  ok(asr.structuredContent?.next_step === "sk_sync" && /Speechmatics/.test((asr.structuredContent?.instructions ?? []).join(" ")), "sk_asr → 유료(Speechmatics) 승인 지시, next=sk_sync", "");
+}
+// S8) sk_subs·sk_sync·sk_recheck·sk_render 사슬
+{
+  const subs = await skCall("sk_subs", { payload: SK_CARRY });
+  ok(subs.structuredContent?.next_step === "sk_asr" && subs.structuredContent?.jobs?.[0]?.argv?.includes("s2pipe.subs"), "sk_subs → next=sk_asr", "");
+  const sync = await skCall("sk_sync", { payload: SK_CARRY });
+  ok(sync.structuredContent?.next_step === "sk_recheck" && /멈추면 손대지/.test((sync.structuredContent?.instructions ?? []).join(" ")), "sk_sync → next=sk_recheck + 정렬 중단 지시", "");
+  ok(/subs_before_sync/.test(sync.structuredContent?.jobs?.[0]?.note ?? ""), "sk_sync → 맞물림 중단 규칙 명시", "");
+  const re = await skCall("sk_recheck", { payload: { ...SK_CARRY, project: SK } });
+  ok(re.structuredContent?.status === "execute" && re.structuredContent?.next_step === "sk_render", "sk_recheck(정상) → next=sk_render", "");
+  const rd = await skCall("sk_render", { payload: SK_CARRY });
+  ok(rd.structuredContent?.next_step === "sk_deliver" && /캐시/.test(rd.structuredContent?.message ?? ""), "sk_render → TTS 캐시 재사용, next=sk_deliver", "");
+  const missing = await skCall("sk_cut", { payload: {} });
+  ok(missing.isError === true && /workdir·project_path/.test(missing.structuredContent?.message ?? ""), "sk_cut(carry 누락) → 반려 + 고치는 법", "");
+}
+// S9) sk_deliver — 사람확인 + A/B 안내
+{
+  const res = await skCall("sk_deliver", { payload: SK_CARRY });
+  const sc = res.structuredContent;
+  ok(sc?.status === "done" && sc?.next_step === null, "sk_deliver → done/null", `${sc?.status}/${sc?.next_step}`);
+  ok(Array.isArray(sc?.사람확인) && sc.사람확인.length === 6, "sk_deliver → 사람확인 6항목", String(sc?.사람확인?.length));
+  ok((sc?.instructions ?? []).join(" ").includes("_B"), "sk_deliver(A 편) → B 편 안내", "");
+  const b = await skCall("sk_deliver", { payload: { ...SK_CARRY, source: { ...SK_CARRY.source, kind: "youtube", url: SK.source.url, slug: "TESTID_B" } } });
+  ok((b.structuredContent?.instructions ?? []).join(" ").includes("두 채널에 나눠"), "sk_deliver(B 편) → 두 채널 안내", "");
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

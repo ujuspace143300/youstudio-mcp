@@ -18,6 +18,11 @@ import { voice } from "./voice.js";
 import { subtitle } from "./subtitle.js";
 import { exportStep } from "./export.js";
 import { stub } from "./_stub.js";
+import { skStart } from "./스케치코미디/start.js";
+import { skPlan } from "./스케치코미디/plan.js";
+import { skCheck, skRecheck } from "./스케치코미디/check.js";
+import { skAsr, skCut, skRender, skSubs, skSync } from "./스케치코미디/flow.js";
+import { skDeliver } from "./스케치코미디/deliver.js";
 import type { StepHandler } from "./types.js";
 
 const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
@@ -32,6 +37,19 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     voice,
     subtitle,
     export: exportStep,
+  },
+  스케치코미디: {
+    setup, // 공유 — workDirs·spec 은 등록표에서 프리셋별로 온다
+    start: skStart,
+    sk_plan: skPlan,
+    sk_check: skCheck,
+    sk_cut: skCut,
+    sk_subs: skSubs,
+    sk_asr: skAsr,
+    sk_sync: skSync,
+    sk_recheck: skRecheck,
+    sk_render: skRender,
+    sk_deliver: skDeliver,
   },
 };
 
