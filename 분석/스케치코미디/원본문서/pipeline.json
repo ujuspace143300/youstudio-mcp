@@ -1,0 +1,45 @@
+{
+  "format": "숏폼",
+  "name": "sketch2",
+  "note": "vh.py 가 읽는 파일. 경로와 명령만 안다 — 규격은 config.json 에 있고, 그 정본은 「마스터 지침서 3.11」이다. ★껍데기(화면·글꼴·댓글 층)는 sketch 에서 가져왔고 대본 흐름만 지침서를 따른다.",
+
+  "python": "~/.volcano/venv/Scripts/python.exe",
+  "projects_dir": "projects",
+  "work_dir": "work",
+  "out_dir": "out",
+
+  "spec_files": ["config.json"],
+  "rendered_mark": { "in": "work", "file": "cut.mp4" },
+  "title_field": "title",
+
+  "cmd": {
+    "check":    ["make.py", "{project}", "--check"],
+    "plan":     ["-m", "s2pipe.plan", "{url}"],
+    "subs":     ["-m", "s2pipe.subs", "{project}"],
+    "asr":      ["-m", "s2pipe.asr", "{project}"],
+    "sync":     ["-m", "s2pipe.sync", "{project}"],
+    "comments": ["-m", "s2pipe.comments", "{project}"],
+    "render":   ["make.py", "{project}"]
+  },
+
+  "notes": {
+    "check": "★**5-Phase 구조를 기계가 잡는다** — 밀도, 조각 겹침, 훅 세기, Climax 위치, Phase 몫, 나레이션 패딩, 제목 끝맺음. 굽기 전에 전부 걸린다. 실제로 웃긴가는 못 본다.",
+    "plan": "원본을 받고 5-Phase 로 자른다. ★**한 소재에서 두 편을 만든다** — `--slug <id>_A` 로 한 번, 댓글이 몰린 다른 대목에 `--slug <id>_B --focus <초>` 로 한 번. 두 채널에 나눠 올린다. ★모델이 댓글 후보 중 그 대목에 어울리는 것도 같이 고른다.",
+    "subs": "★★**굽고 나서 반드시 돌린다.** 계획 단계 자막은 원본 전체를 보고 낸 것이라 성기고 싱크가 어긋난다 — 잘라 붙인 cut.mp4 만 보게 하면 촘촘해진다(실측 15줄 → 27줄, 빈 구간 0).",
+    "asr": "★실제 발화 시각을 받는다(Speechmatics 요금). `sync` 가 이걸 써서 자막을 맞춘다. 문구는 쓰지 않는다 — 오인식이 많다.",
+    "sync": "★★자막 **시각만** 실제 발화에 맞춘다(공짜). 모델은 시각을 추정하므로 줄마다 -1.1~+1.6초 어긋난다. 2.5초 넘게 튀는 줄은 잘못 붙은 것이라 되돌린다.",
+    "comments": "화면에 얹을 댓글만 다시 고른다(공짜). `--refetch` 로 원본에서 다시 받는다.",
+    "render": "★★**TTS 요금이 나간다.** 나레이션이 이 채널의 핵심 장치라 뺄 수 없다. 검사를 먼저 통과시켜라.",
+    "verify": "완성본을 열어 본다 — 첫 3초에 훅이 박혔는가, 나레이션이 대사와 겹치지 않는가, 얼굴이 제대로 잡히는가, 끝이 칼같이 떨어지는가."
+  },
+
+  "_flow": "plan → check → render → subs → asr → sync → check → render. ★자막은 두 번 뽑고 두 번 굽는다 — 첫 렌더는 cut.mp4 를 만들려고 돌리는 것이다. TTS 는 캐시가 있어 두 번째 렌더에서 다시 굽지 않는다.",
+
+  "keys": {
+    "EvoLink": { "file": "~/.volcano/keys/evolink", "env": "EVOLINK_API_KEY" },
+    "Gemini": { "file": "~/.volcano/keys/gemini", "env": "GEMINI_API_KEY" },
+    "Typecast": { "file": "~/.volcano/keys/typecast", "env": "TYPECAST_API_KEY" },
+    "Speechmatics": { "file": "~/.volcano/keys/speechmatics", "env": "SPEECHMATICS_API_KEY" }
+  },
+  "_keys": "EvoLink 를 먼저 쓰고 순정 Gemini 로 물러난다(s2pipe/gem.py). 18MB 를 넘는 미디어는 순정으로 간다(EvoLink 엔 Files API 가 없다). Typecast=나레이션 · Speechmatics=자막 싱크."
+}
