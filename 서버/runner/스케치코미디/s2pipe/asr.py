@@ -10,7 +10,7 @@
 import json, os, subprocess, sys, time, urllib.request, urllib.error, uuid
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CFG = json.load(open(os.path.join(HERE, "config.json"), encoding="utf-8"))
+from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
 KEY = open(os.path.expanduser("~/.volcano/keys/speechmatics"), encoding="utf-8").read().strip()
 API = "https://asr.api.speechmatics.com/v2/jobs"
 

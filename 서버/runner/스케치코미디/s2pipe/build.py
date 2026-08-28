@@ -22,7 +22,7 @@ from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CFG = json.load(open(os.path.join(HERE, "config.json"), encoding="utf-8"))
+from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
 V, L = CFG["video"], CFG["layout"]
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -59,7 +59,7 @@ def find_burned_subs(src, W, H, dur, n=10):
     tops = []
     for i in range(n):
         t = dur * (i + 1) / (n + 1)
-        p = os.path.join(os.environ.get("TEMP", "."), f"_s2burn{i}.png")
+        p = os.path.join(__import__("tempfile").gettempdir(), f"_s2burn{i}.png")
         r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss",
                             f"{t:.2f}", "-i", src, "-frames:v", "1", "-y", p],
                            capture_output=True)
@@ -177,8 +177,12 @@ def cut_and_join(src, segs, dst, work, fps):
 
 # ★글꼴을 못 찾으면 **반드시 진짜 글꼴로 떨어져야 한다.** `load_default()` 는 고정 크기
 #   비트맵이라 **size 가 통째로 무시된다** — 헤더 글자가 아무리 키워도 작게 나온 이유가
-#   이것이었다. sketch 와 같은 사다리를 쓴다.
-FALLBACK = [r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\malgun.ttf"]
+#   이것이었다. 사다리 끝까지 못 찾으면 조용히 굽지 말고 **멈춘다**(맥 이식 2026-08-28).
+FALLBACK = [
+    r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\malgun.ttf",  # 윈도우
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",                      # 맥 — 맑은 고딕 대응
+    "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+]
 
 
 def _font(rel, px):
@@ -189,7 +193,7 @@ def _font(rel, px):
                 return ImageFont.truetype(p, px)
             except OSError:
                 continue
-    return ImageFont.load_default()
+    raise SystemExit(f"글꼴을 못 찾았다 (rel={rel!r}) — load_default 는 size 를 무시하므로 쓰지 않는다. FALLBACK 사다리를 확인하라.")
 
 
 def draw_frame(proj, dst):
@@ -288,7 +292,9 @@ def write_ass(proj, dst, total, narrs=()):
     c = L["comment"]
     # ★Format 줄은 sketch 와 **똑같이** 쓴다. 필드를 줄여 쓰면 libass 가 값을 어긋난
     #   자리에서 읽는다 — 댓글 글꼴·크기가 안 맞던 이유가 여기에도 있었다.
-    # ★댓글은 **맑은 고딕**이다(sketch 와 같게). 자막 글꼴을 쓰면 너무 굵어 댓글로 안 보인다.
+    # ★댓글은 얇은 시스템 글꼴이다 — 자막 글꼴을 쓰면 너무 굵어 댓글로 안 보인다.
+    #   윈도우는 맑은 고딕, 맥은 Apple SD Gothic Neo (맥 이식 2026-08-28, 사람 눈 확인 대상).
+    cmt_font = c.get("font_name") or ("Malgun Gothic" if os.name == "nt" else "Apple SD Gothic Neo")
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {V['w']}
@@ -300,8 +306,8 @@ ScaledBorderAndShadow: yes
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
 Style: main,{s.get('font_name', 'Malgun Gothic')},{size},&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,{s['outline_px']},0,2,60,60,{V['h'] - s['baseline_y']},1
 Style: narr,{s.get('font_name', 'Malgun Gothic')},{nsize},{bgr(ns['color'])},{bgr(ns.get('outline', '000000'))},&H00000000,-1,0,0,0,100,100,0,0,1,{ns.get('outline_px', 7)},0,2,40,40,{V['h'] - ns['baseline_y']},1
-Style: cmt,Malgun Gothic,{c['text_size']},{bgr(c['color'])},&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,7,{c['text_x']},40,{c['text_y']},1
-Style: cmtlike,Malgun Gothic,{c['meta_size']},{bgr(c.get('meta_color','8A8F98'))},&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,7,{c['text_x'] + 36},40,{c['meta_y']},1
+Style: cmt,{cmt_font},{c['text_size']},{bgr(c['color'])},&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,7,{c['text_x']},40,{c['text_y']},1
+Style: cmtlike,{cmt_font},{c['meta_size']},{bgr(c.get('meta_color','8A8F98'))},&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,7,{c['text_x'] + 36},40,{c['meta_y']},1
 
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
@@ -435,7 +441,7 @@ def narrate(proj, work, total):
 
 def pick_sfx(tag):
     """`@꼬리표` 에서 하나를 고른다. 없으면 None — 조용히 넘기지 않고 알린다."""
-    cat = os.path.join(HERE, "assets", "catalog.json")
+    cat = os.path.join(CFG["paths"]["assets"], "catalog.json")
     if not os.path.isfile(cat) or not tag.startswith("@"):
         return None
     d = json.load(open(cat, encoding="utf-8"))
@@ -462,7 +468,7 @@ def compose(cut, frame, ass, narrs, sfx_at, dst):
         d = probe_dur(wav)
         duck += (f",volume={10 ** (n.get('duck_db', -30) / 20):.4f}"
                  f":enable='between(t,{max(0, at - pad):.2f},{at + d + pad:.2f})'")
-    fontsdir = os.path.join(HERE, "assets", "fonts").replace("\\", "/").replace(":", "\\:")
+    fontsdir = CFG["assets"]["fonts_dir"].replace("\\", "/").replace(":", "\\:")
     ass_p = ass.replace("\\", "/").replace(":", "\\:")
 
     ins = ["-loop", "1", "-i", frame, "-i", cut]

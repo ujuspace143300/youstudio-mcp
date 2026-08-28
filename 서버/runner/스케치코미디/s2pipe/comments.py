@@ -14,7 +14,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CFG = json.load(open(os.path.join(HERE, "config.json"), encoding="utf-8"))
+from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")

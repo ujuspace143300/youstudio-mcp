@@ -10,7 +10,7 @@
 import json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CFG = json.load(open(os.path.join(HERE, "config.json"), encoding="utf-8"))
+from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
 
 
 def scene_cuts(src, thr=0.28):

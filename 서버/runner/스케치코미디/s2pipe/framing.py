@@ -9,7 +9,8 @@ import numpy as np
 from PIL import Image
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL = os.path.join(HERE, "assets", "models", "yunet.onnx")
+from .cfg import CFG
+MODEL = os.path.join(CFG["paths"]["assets"], "models", "yunet.onnx")
 
 # ★OpenCV 5.0 에서 `cv2.CascadeClassifier` 가 **없어졌다**(AttributeError).
 #   haar 로 짰다가 조용히 0개만 잡혀서 한참 헤맸다 — DNN 검출기(YuNet)를 쓴다.

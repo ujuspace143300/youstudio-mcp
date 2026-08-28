@@ -15,7 +15,7 @@ import base64, json, os, sys, time, urllib.request, urllib.error
 from . import gem                                        # EvoLink 우선 호출
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CFG = json.load(open(os.path.join(HERE, "config.json"), encoding="utf-8"))
+from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
 MODELS = CFG.get("gemini", {}).get("models", ["gemini-3.5-flash"])
 
 SCHEMA = {
