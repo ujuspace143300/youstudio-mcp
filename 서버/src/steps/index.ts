@@ -1,8 +1,12 @@
 /**
- * steps/index.ts — 단계 처리기 등록표.
- * 새 단계를 구현하면 여기 한 줄만 바꾼다 (stub → 실제 처리기).
+ * steps/index.ts — 파이프라인 등록표: 프리셋마다 「단계 → 처리기」 지도.
+ *
+ * 단계 순서(상태 기계)는 styles.ts 의 steps 가 정본이고, 여기는 그 단계를
+ * 어느 처리기가 맡는지만 적는다. 새 단계를 구현하면 해당 프리셋 지도에 한 줄.
+ * 프리셋끼리 단계가 겹치면 처리기를 공유해도 된다 (setup 처럼).
  */
-import { STEP_ORDER, type Step } from "../schema.js";
+import { STYLES, type Preset } from "../styles.js";
+import type { Step } from "../schema.js";
 import { setup } from "./setup.js";
 import { start } from "./start.js";
 import { probe } from "./probe.js";
@@ -16,19 +20,27 @@ import { exportStep } from "./export.js";
 import { stub } from "./_stub.js";
 import type { StepHandler } from "./types.js";
 
-const IMPLEMENTED: Partial<Record<Step, StepHandler>> = {
-  setup,
-  start,
-  probe,
-  transcript,
-  brief,
-  select,
-  script,
-  voice,
-  subtitle,
-  export: exportStep,
+const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
+  영화롱폼: {
+    setup,
+    start,
+    probe,
+    transcript,
+    brief,
+    select,
+    script,
+    voice,
+    subtitle,
+    export: exportStep,
+  },
 };
 
-export const HANDLERS: Record<Step, StepHandler> = Object.fromEntries(
-  STEP_ORDER.map((s) => [s, IMPLEMENTED[s] ?? stub(s)]),
-) as Record<Step, StepHandler>;
+/** 이 프리셋 파이프라인에 이 단계가 있는가 — 없으면 서버가 반려한다 */
+export function stepInPipeline(preset: Preset, step: Step): boolean {
+  return (STYLES[preset].steps as readonly string[]).includes(step);
+}
+
+/** 처리기를 찾는다. 파이프라인에는 있는데 아직 안 만든 단계면 stub */
+export function handlerOf(preset: Preset, step: Step): StepHandler {
+  return PIPELINES[preset][step] ?? stub(step);
+}

@@ -5,7 +5,9 @@
  * 상태는 서버에 두지 않는다 — 어제 것이 오늘 이어지는 곳은 클라이언트의 작업 폴더다 (HARNESS 6장 ④).
  */
 import { McpServer } from "@modelcontextprotocol/server";
-import { HANDLERS } from "./steps/index.js";
+import { handlerOf, stepInPipeline } from "./steps/index.js";
+import { STYLES } from "./styles.js";
+import { reject } from "./response.js";
 import { ToolInputSchema, type StepResponse } from "./schema.js";
 
 export const SERVER_INFO = { name: "youstudio-mcp", version: "0.1.0" } as const;
@@ -27,8 +29,15 @@ export function buildServer(): McpServer {
     },
     async (input) => {
       const { step, preset, source, payload } = input;
-      const handler = HANDLERS[step];
-      const res: StepResponse = await handler.run({ step, preset, source, payload: payload ?? {} });
+      // 단계가 이 프리셋의 파이프라인에 있는지부터 본다 — 프리셋마다 단계 순서가 다르다
+      const res: StepResponse = stepInPipeline(preset, step)
+        ? await handlerOf(preset, step).run({ step, preset, source, payload: payload ?? {} })
+        : reject(
+            step,
+            preset,
+            `'${step}' 는 프리셋 '${preset}' 의 단계가 아니다`,
+            `이 프리셋의 단계 순서: ${STYLES[preset].steps.join(" → ")}. setup 부터 순서대로 부르라.`,
+          );
       return {
         // 사람이 읽을 요약 한 줄 + 기계가 읽을 전체 JSON
         content: [{ type: "text", text: JSON.stringify(res, null, 2) }],

@@ -3,12 +3,14 @@
  *
  * 모든 단계가 같은 칸을 가진 JSON 을 돌려주게 한다 (빠뜨리는 칸이 없도록).
  */
-import { STEP_ORDER, type Preset, type Step, type StepResponse } from "./schema.js";
+import { type Preset, type Step, type StepResponse } from "./schema.js";
+import { STYLES } from "./styles.js";
 
-/** 이 단계의 다음 단계 이름. 마지막이면 null */
-export function nextOf(step: Step): Step | null {
-  const i = STEP_ORDER.indexOf(step);
-  return i >= 0 && i + 1 < STEP_ORDER.length ? STEP_ORDER[i + 1] : null;
+/** 그 프리셋 파이프라인에서 이 단계의 다음 단계 이름. 마지막이거나 없는 단계면 null */
+export function nextOf(preset: Preset, step: Step): Step | null {
+  const seq = STYLES[preset].steps;
+  const i = seq.indexOf(step);
+  return i >= 0 && i + 1 < seq.length ? (seq[i + 1] as Step) : null;
 }
 
 /** 빈 껍데기 응답. 필요한 칸만 덮어써서 쓴다 */
@@ -17,7 +19,7 @@ export function base(step: Step, preset: Preset, over: Partial<StepResponse> = {
     status: "execute",
     step,
     preset,
-    next_step: nextOf(step),
+    next_step: nextOf(preset, step),
     then_call_with: [],
     instructions: [],
     need_input: null,

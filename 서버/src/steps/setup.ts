@@ -10,13 +10,11 @@ import { styleOf } from "../styles.js";
 import { base } from "../response.js";
 import type { StepHandler } from "./types.js";
 
-/** 작업 폴더 하위 이름 — 단계 이름 그대로. 스타일마다 달라도 어긋나지 않는다 */
-export const WORK_DIRS = ["probe", "transcript", "brief", "clips", "script", "voice", "subtitle", "render"] as const;
-
 export const setup: StepHandler = {
   name: "setup",
   run({ preset }) {
-    const { spec, from } = styleOf(preset);
+    // 작업 폴더 하위 이름은 프리셋 등록표(styles.ts workDirs)에서 온다 — 단계 이름 그대로
+    const { spec, from, workDirs } = styleOf(preset);
     return base("setup", preset, {
       status: "execute",
       next_step: "start",
@@ -44,7 +42,7 @@ export const setup: StepHandler = {
       carry: [],
       workdir_layout: {
         note: "루트는 클라이언트가 정한다. 하위 폴더 이름은 단계 이름이다.",
-        dirs: [...WORK_DIRS],
+        dirs: [...workDirs],
       },
       spec: {
         _from: from,

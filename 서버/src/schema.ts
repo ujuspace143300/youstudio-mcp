@@ -6,24 +6,12 @@
  */
 import { z } from "zod";
 
-// ── 단계 이름과 순서 ─────────────────────────────────────────────────────
-// 순서가 곧 상태 기계다. next_step 은 이 배열의 "다음 칸"이다.
-export const STEP_ORDER = [
-  "setup",
-  "start",
-  "probe",
-  "transcript",
-  "brief",
-  "select",
-  "script",
-  "voice",
-  "subtitle",
-  "export",
-] as const;
-export type Step = (typeof STEP_ORDER)[number];
-
-// 프리셋 목록은 styles.ts 등록표에서 파생된다 — 새 프리셋은 거기 한 줄.
-import { PRESETS, DEFAULT_PRESET, type Preset } from "./styles.js";
+// ── 단계 이름 ────────────────────────────────────────────────────────────
+// 단계 순서(상태 기계)는 프리셋마다 다르다 — styles.ts 등록표의 steps 가 정본이다.
+// 여기의 STEP_ORDER 는 입력 검사용 「모든 프리셋 단계의 합집합」일 뿐, 순서 판정에 쓰지 않는다.
+import { ALL_STEPS, PRESETS, DEFAULT_PRESET, type Preset, type StyleStep } from "./styles.js";
+export const STEP_ORDER = ALL_STEPS;
+export type Step = StyleStep;
 export { PRESETS };
 export type { Preset };
 
