@@ -101,7 +101,11 @@ def main():
     narration = [{"t0": round(nar_t0, 3), "t1": round(nar_t0 + nar_dur, 3),
                   "wav": dst_nar, "text": nar_seg["narration"]}]
 
-    cues = [{"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]}]
+    # 제목 텍스트 클론은 유지하되 **화면 밖**에 둔다 — 보이는 제목은 껍데기에 굽는다.
+    #   (구조를 열렸던 판과 동일하게 유지하기 위함. V3 를 비우거나 다른 견본을 넣은 판은
+    #    프리미어가 「손상」으로 거부했다 — 2026-09-01 실측 2회)
+    cues = [{"lane": "title", "t0": 0.0, "t1": round(total, 3), "text": proj["title"][0] + "\r" + proj["title"][1]}]
+    cues.append({"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]})
     # 대사 큐 — 60fps 격자에서 끝 = min(시작+6초, 다음 시작) 로 겹침 0 을 보장한다
     F = 60
     lines = [x for x in subs if x.get("kind") != "narr"]
