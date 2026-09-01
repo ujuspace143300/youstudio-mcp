@@ -527,6 +527,8 @@ def main():
         "comments": pick_comments(info, total, plan.get("comment_picks")),
         "comment_picks": plan.get("comment_picks", []),
         "credit": origin_of(info),
+        # 절대 지침(정답지 G-결말) — 이 편이 무엇으로 끝나는지. 스키마 필수라 모델이 반드시 낸다
+        "ending": plan.get("ending", {}),
         "_est_sec": round(total, 1),
     }
     pdir = os.path.join(HERE, CFG["paths"]["projects"])
@@ -535,6 +537,8 @@ def main():
     json.dump(proj, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
     print(f"\n{proj['logline']}")
+    ed = proj.get("ending") or {}
+    print(f"결말({ed.get('type', '?')}): {ed.get('desc', '— 없음')}")
     lo, hi = CFG["edit"]["target_sec"]
     print(f"구간 {len(keep)}개 / 전체 {len(plan['segments'])}개 · 예상 {total:.0f}초 "
           + ("OK" if lo <= total <= hi else f"★목표 {lo}~{hi}초 밖"))
