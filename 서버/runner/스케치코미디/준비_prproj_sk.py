@@ -106,16 +106,31 @@ def main():
     #    프리미어가 「손상」으로 거부했다 — 2026-09-01 실측 2회)
     cues = [{"lane": "title", "t0": 0.0, "t1": round(total, 3), "text": proj["title"][0] + "\r" + proj["title"][1]}]
     cues.append({"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]})
-    # 대사 큐 — 60fps 격자에서 끝 = min(시작+6초, 다음 시작) 로 겹침 0 을 보장한다
+    # 대사 큐 — 60fps 격자에서 끝 = min(시작+6초, 다음 시작) 로 겹침 0 을 보장한다.
+    # ★나레이션이 뜨는 동안 대사 자막은 감춘다 (규격 narration.hide_line_subs — 2026-09-01 사장님 재확인:
+    #   나레이션 중에는 본편 대사 자막이 안 나오는 게 맞다). 겹치면 자르고, 0.3초도 안 남으면 뺀다.
     F = 60
+    pad = float(CFG["narration"].get("duck_pad_sec", 0.15))
+    n0f, n1f = round((narration[0]["t0"] - pad) * F), round((narration[0]["t1"] + pad) * F)
     lines = [x for x in subs if x.get("kind") != "narr"]
+    숨김 = 0
     for i, x in enumerate(lines):
         t0f = round(x["t"] * F)
         nxtf = round((lines[i + 1]["t"] if i + 1 < len(lines) else total) * F)
         t1f = min(t0f + 6 * F, nxtf, round(total * F))
         if t1f <= t0f:
             t1f = t0f + 1
+        if t0f < n1f and t1f > n0f:                  # 나레이션 창과 겹침
+            if t0f >= n0f:
+                t0f = n1f                            # 나레 중 시작 → 나레 끝으로 민다
+            else:
+                t1f = n0f                            # 나레 전 시작 → 나레 앞에서 끊는다
+            if t1f - t0f < round(0.3 * F):
+                숨김 += 1
+                continue
         cues.append({"lane": "dlg", "t0": round(t0f / F, 4), "t1": round(t1f / F, 4), "text": x["text"]})
+    if 숨김:
+        print(f"나레이션과 겹쳐 감춘 대사 자막 {숨김}줄")
 
     # 상자 배치 — ★원본 번인 자막이 상자 밖으로 잘려나가게 확대하고, 컷마다 얼굴 중심을 맞춘다
     #   (2026-09-01 사장님: 원본 자막과 우리 자막이 겹친다 — 확대+인물 포커싱으로 가리지 말고 잘라내라)
