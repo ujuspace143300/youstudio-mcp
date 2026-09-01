@@ -247,6 +247,12 @@ def main():
 
     # ── ① 컷 (V1+A1+Link) — 원본 하나를 in/out 으로 문다 (핸들 생존).
     #    모션은 컷별(box) — 번인 자막 잘라내기 + 얼굴 중심 (2026-09-01)
+    #    ★나레이션 덕킹(2026-09-01 사장님: TTS 가 원음에 묻힌다) — 나레 창과 겹치는 컷의
+    #    원음(A1)을 조각내 가운데 조각의 «레벨»을 -15dB(도너·원조 조립기 실측값)로 내린다.
+    LEVEL_DUCK = "0.031653400511"        # -15dB (볼케이노 규격 컷_오디오_덕킹 실측 문자열)
+    nar_pad = 0.2
+    nar_wins = [(frame_ticks(n["t0"] - nar_pad), frame_ticks(n["t1"] + nar_pad)) for n in tl["narration"]]
+    duck_cnt = 0
     for cut in tl["picture"]:
         cbox = cut.get("box", box)
         cut_params = {"위치": cbox["pos"], "비율 조정": cbox["scale"], "폭 비율 조정": cbox["scale"]}
@@ -255,12 +261,38 @@ def main():
         so = si + (t1 - t0)
         vi, _b, _u = clone_item(doc, tpl_v1, alloc, new_blocks, span=(t0, t1), inout=(si, so),
                                 name=cut["name"], params=cut_params)
-        ai, _b, _u = clone_item(doc, tpl_a1, alloc, new_blocks, span=(t0, t1), inout=(si, so), name=cut["name"])
+        # A1 — 나레 창 경계로 조각낸다 (겹침 없으면 1조각)
+        pieces = [(t0, t1, False)]
+        for n0, n1 in nar_wins:
+            nxt = []
+            for p0, p1, dk in pieces:
+                if dk or p1 <= n0 or p0 >= n1:
+                    nxt.append((p0, p1, dk))
+                    continue
+                if p0 < n0:
+                    nxt.append((p0, n0, False))
+                nxt.append((max(p0, n0), min(p1, n1), True))
+                if p1 > n1:
+                    nxt.append((n1, p1, False))
+            pieces = nxt
+        first_ai = None
+        for p0, p1, dk in pieces:
+            if p1 - p0 < FRAME:
+                continue
+            ai, _b2, _u2 = clone_item(doc, tpl_a1, alloc, new_blocks, span=(p0, p1),
+                                      inout=(si + (p0 - t0), si + (p1 - t0)),
+                                      name=cut["name"] + (" (덕킹)" if dk else ""),
+                                      params=({"레벨": LEVEL_DUCK} if dk else None))
+            a_refs.append(ai)
+            duck_cnt += 1 if dk else 0
+            if first_ai is None:
+                first_ai = ai
         lid = alloc()
-        new_blocks.append(f'\t<Link ObjectID="{lid}" ClassID="149d4ea5-a7d4-4b34-9bb7-16d783904bf2" Version="1">\n\t\t<TrackItemGroup Version="1">\n\t\t\t<TrackItems Version="1">\n\t\t\t\t<TrackItem Index="0" ObjectRef="{vi}"/>\n\t\t\t\t<TrackItem Index="1" ObjectRef="{ai}"/>\n\t\t\t</TrackItems>\n\t\t</TrackItemGroup>\n\t</Link>')
+        new_blocks.append(f'\t<Link ObjectID="{lid}" ClassID="149d4ea5-a7d4-4b34-9bb7-16d783904bf2" Version="1">\n\t\t<TrackItemGroup Version="1">\n\t\t\t<TrackItems Version="1">\n\t\t\t\t<TrackItem Index="0" ObjectRef="{vi}"/>\n\t\t\t\t<TrackItem Index="1" ObjectRef="{first_ai}"/>\n\t\t\t</TrackItems>\n\t\t</TrackItemGroup>\n\t</Link>')
         links.append(lid)
         v_refs.append(vi)
-        a_refs.append(ai)
+    if duck_cnt:
+        print(f"나레 덕킹 조각 {duck_cnt}개 (-15dB)", file=sys.stderr)
 
     # ── ② 나레 (A2) — 계보 복제 + 우리 wav (미디어까지 새로) ────────────────
     a2_refs, new_cpis = [], []
@@ -590,6 +622,42 @@ def main():
     for f in os.listdir(os.path.dirname(out_path)):
         if "꾸미기전" in f:
             os.remove(os.path.join(os.path.dirname(out_path), f))
+
+    # ── ⑪b 팝 키프레임 시각 보정 — 키트 자막은 소재 0초에서 시작하지만 우리 그래픽 클립은
+    #    GRAPHIC_IN(3600초)에서 시작한다. 0초대 키프레임은 재생 구간 밖이라 팝이 안 보인다
+    #    (2026-09-01 사장님 «아모르팝업 적용 안 됨» 실측 원인). 시각에 GRAPHIC_IN 을 더한다.
+    doc2 = Doc(load(out_path))
+    shifted = 0
+    for m in re.finditer(r'^\t<(\w+ComponentParam) ObjectID="(\d+)"', doc2.xml, re.M):
+        blk = doc2.get(int(m.group(2)))
+        if "<Keyframes>" not in blk:
+            continue
+        nm = re.search(r"<Name>([^<]*)</Name>", blk)
+        if not nm or nm.group(1) not in ("비율 조정", "폭 비율 조정", "위치", "불투명도"):
+            continue
+
+        def _shift(mm):
+            nonlocal shifted
+            segs = []
+            changed = False
+            for seg in mm.group(1).split(";"):
+                if not seg.strip():
+                    continue
+                parts = seg.split(",")
+                t = int(float(parts[0]))
+                if 0 <= t < GRAPHIC_IN:          # 0초대 = 꾸미기가 넣은 것. 이미 3600초대면 그대로
+                    parts[0] = str(t + GRAPHIC_IN)
+                    changed = True
+                segs.append(",".join(parts))
+            if changed:
+                shifted += 1
+            return "<Keyframes>" + ";".join(segs) + ";</Keyframes>"
+
+        nb = re.sub(r"<Keyframes>(.*?)</Keyframes>", _shift, blk, flags=re.S)
+        if nb != blk:
+            doc2.replace(int(m.group(2)), nb)
+    save(out_path, doc2.xml)
+    print(f"  [OK] 팝 키프레임 시각 보정 — 파라미터 {shifted}개를 소재 시간(3600s대)으로")
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
             "A3": (T["A3"], 0), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
