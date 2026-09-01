@@ -23,6 +23,33 @@ def run(argv):
     subprocess.run(argv, check=True, capture_output=True)
 
 
+def 텍스트검출(rgb, row_min=15, tot_min=40):   # tot 60 은 짧은 대사 자막을 놓쳤다(컷05 실측) → 40
+    """외곽선 자막 검출 — 밝은 픽셀(≥200)에 맞닿은 어두운 픽셀(≤70)을 센다. 색 무관."""
+    import numpy as np
+    g = np.asarray(rgb).astype(int)
+    if g.ndim == 3:
+        g = g.mean(axis=2)
+    bright = g >= 200
+    dark = g <= 70
+    bd = np.zeros_like(bright)
+    bd[1:, :] |= bright[:-1, :]
+    bd[:-1, :] |= bright[1:, :]
+    bd[:, 1:] |= bright[:, :-1]
+    bd[:, :-1] |= bright[:, 1:]
+    c = bd & dark
+    return int(c.sum(axis=1).max()) >= row_min and int(c.sum()) >= tot_min
+
+
+def 배경맞춤(img, bg):
+    """카드·로고의 순백 배경을 껍데기 배경색으로 — 흰 카드 경계가 티 나지 않게 (2026-09-01 사장님)."""
+    import numpy as np
+    a = np.asarray(img.convert("RGBA")).copy()
+    m = (a[:, :, 0] >= 250) & (a[:, :, 1] >= 250) & (a[:, :, 2] >= 250)
+    a[m, 0], a[m, 1], a[m, 2] = bg[0], bg[1], bg[2]
+    from PIL import Image as _I
+    return _I.fromarray(a, "RGBA")
+
+
 def 댓글선별(pngs, logline, want=(10, 15)):
     """댓글 카드 PNG 중 편 내용과 어울리는 것을 모델이 고른다 (EvoLink 무료 한도).
        ★최소 10장(2026-09-01 사장님). 판정이 실패하면 앞에서 12장을 그대로 쓴다."""
@@ -123,7 +150,7 @@ def main():
     if deep:
         hd = L["header"]
         im.paste(Image.new("RGBA", (1080, hd["y1"] - hd["y0"] + 40), bg), (0, hd["y0"] - 20))
-        logo = Image.open(logo_p).convert("RGBA")
+        logo = 배경맞춤(Image.open(logo_p), bg)
         s_ = 0.16451612472534 * 1080 / 1080          # 최하연 실측 비율(시퀀스 1080 기준)
         w_, h_ = int(logo.width * s_), int(logo.height * s_)
         logo = logo.resize((w_, h_))
@@ -143,13 +170,20 @@ def main():
         picked = 댓글선별(pngs, proj.get("logline", ""))
         slots = max(len(picked), 1)
         each = total / slots
+        # 댓글 자리 = 영상 상자 아래 ~ 출처 위 (침범 금지 · 좌우 꽉차게 — 2026-09-01 사장님)
+        zone0, zone1 = b["y1"] + 8, L["credit"]["y0"] - 10
+        zone_h = zone1 - zone0
         for i, p in enumerate(picked):
-            c = Image.open(p).convert("RGBA")
-            c = c.resize((1020, int(c.height * 1020 / c.width)))     # 최하연 카드 폭 1020 실측
+            c = 배경맞춤(Image.open(p), bg)
+            w2, h2 = 1080, int(c.height * 1080 / c.width)
+            if h2 > zone_h:                              # 긴 카드는 자리 높이에 맞춰 줄인다
+                w2, h2 = int(c.width * zone_h / c.height), zone_h
+            c = c.resize((w2, h2))
             cp = os.path.join(sdir, f"_cmt{i:02d}.png")
             c.save(cp)
-            cmt_overlays.append((cp, i * each, (i + 1) * each, 30, int(0.81262129545211792 * 1920 - c.height / 2)))
-        print(f"댓글 {len(picked)}장 → 슬롯 {each:.1f}초씩")
+            cmt_overlays.append((cp, i * each, (i + 1) * each,
+                                 (1080 - w2) // 2, zone0 + (zone_h - h2) // 2))
+        print(f"댓글 {len(picked)}장 → 슬롯 {each:.1f}초씩 · 자리 y{zone0}~{zone1}")
     if cmt_overlays:
         args = ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba]
         for cp, *_r in cmt_overlays:
@@ -269,18 +303,19 @@ def main():
         """이 컷 구간의 하단 밴드에 **노란 번인 자막**이 있는가 (이 소재의 번인 자막은 노랑).
            밝기만 보면 하늘·흰 차가 오탐된다(실측 — 결말 컷이 확대돼 중앙 반전 자막이 잘렸다).
            ★없는 컷은 확대하지 않는다 — 중앙 화면 자막이 내용인 컷을 자르면 안 된다."""
-        hit = 0
-        for j, f in enumerate((0.15, 0.35, 0.5, 0.65, 0.85)):
+        # ★색 하드코딩 금지 — 소재마다 자막 색이 다르다(노랑 소재 다음에 흰 소재가 와서 재발했다,
+        #   2026-09-01 사장님 반려 2회). 번인 자막의 공통 속성 = 밝은 글자에 검은 외곽선.
+        #   「밝은 픽셀(≥200)과 어두운 픽셀(≤70)이 맞닿은 자리」를 세면 색과 무관하게 잡힌다.
+        #   실측: 자막 프레임 행최대 22~35·총 400+ vs 무자막 0~10·총 ≤65.
+        #   ★한 순간이라도 검출되면 「있음」이다 — 자막이 드문드문한 컷(컷05 실측: 8샘플 중 1~2개만
+        #   강검출)을 「없음」으로 놓치는 것이 오탐보다 치명적이다(사장님 절대 요구).
+        for j, f in enumerate((0.1, 0.2, 0.35, 0.5, 0.6, 0.7, 0.85, 0.95)):
             try:
-                band = grab(t0 + (t1 - t0) * f, f"b{t0:.0f}_{j}")[int(1080 * 0.70):, :, :].astype(int)
-                r_, g_, b_ = band[:, :, 0], band[:, :, 1], band[:, :, 2]
-                # 마스크는 실측 보정값 (표본 RGB 209~246 · 172~210 · 40~68 — 2026-09-01)
-                yellow = (r_ > 170) & (g_ > 140) & (b_ < 140) & (r_ + g_ - 2 * b_ > 150)
-                if yellow.sum(axis=1).max() > 1920 * 0.02:
-                    hit += 1
+                if 텍스트검출(grab(t0 + (t1 - t0) * f, f"b{t0:.0f}_{j}")[int(1080 * 0.70):, :, :]):
+                    return True
             except Exception:
                 pass
-        return hit >= 2
+        return False
 
     for i, (seg, pic) in enumerate(zip(segs, picture)):
         if not seg_has_burned(seg["t0"], seg["t1"]):
@@ -310,6 +345,20 @@ def main():
                             os.path.join(pvdir, f"컷{i+1:02d}.png")], check=True)
         except Exception as e:
             print("  미리보기 실패:", e)
+
+    # ★잔존 번인 게이트 (절대 재발 금지 — 2026-09-01 사장님 반려 2회) — 상자에 담길 화면의
+    #   하단 40% 에서 외곽선 자막이 검출되면 실패다. 판정이 틀려도 여기서 걸린다.
+    import numpy as np
+    잔존 = []
+    for i in range(len(picture)):
+        pv = os.path.join(pvdir, f"컷{i+1:02d}.png")
+        if not os.path.exists(pv):
+            continue
+        a = np.asarray(Image.open(pv).convert("RGB"))
+        if 텍스트검출(a[int(a.shape[0] * 0.60):, :, :], row_min=8, tot_min=30):   # 미리보기는 절반 해상도
+            잔존.append(i + 1)
+    print(("  [OK] " if not 잔존 else "  [X] ") + f"컷 하단 잔존 번인 자막 0  걸린 컷 {잔존}")
+    assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대·배치를 다시 잡아야 한다"
     scale = round(s * 100, 3)
     cy = round((b["y0"] + b["y1"]) / 2 / CFG["video"]["h"], 6)
 
