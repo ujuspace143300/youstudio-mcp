@@ -85,7 +85,17 @@ def main():
     subs = json.loads(txt)["subs"]
 
     subs = sorted(subs, key=lambda x: x["t"])
+    # ★모델 타임코드가 일정 비율로 늘어난다(plan 과 같은 증상 — Deep01 실측 1.52배).
+    #   완성 길이를 넘으면 비율로 되돌린다.
+    cut_dur = sum(s["t1"] - s["t0"] for s in proj.get("segments", []) if s.get("keep"))
+    mx = max((x["t"] for x in subs), default=0)
+    if cut_dur and mx > cut_dur * 1.06:
+        ratio = cut_dur / mx
+        print(f"★자막 타임코드가 {1/ratio:.2f}배 늘어났다 — {ratio:.3f} 로 되돌린다")
+        for x in subs:
+            x["t"] = round(x["t"] * ratio, 2)
     old = len(proj.get("subs", []))
+    proj.pop("subs_before_sync", None)   # 재추출하면 이전 싱크 기준은 무효다
     for x in subs:
         x["kind"] = "line"   # ★나레이션은 segments 가 정본
         x["text"] = cfg.strip_punct(x.get("text"))  # ★절대 규칙 — 구두점 금지(정답지 G-구두점)

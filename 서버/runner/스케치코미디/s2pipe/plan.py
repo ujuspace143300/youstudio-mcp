@@ -471,7 +471,16 @@ def main():
              if "--focus" in sys.argv else None)
 
     work = os.path.join(HERE, CFG["paths"]["work"])
-    vid, mp4, vtt = fetch(url, work)
+    if os.path.exists(url) or (slug and os.path.exists(os.path.join(work, f"{slug}.mp4"))):
+        # ★로컬 소재 (2026-09-01 Deep 흐름) — 편시작_deep.py 가 만든 work 파일을 쓴다.
+        #   유튜브 자막 대신 Speechmatics 전사(.ko.vtt), 댓글 텍스트 없음(댓글은 PNG 카드).
+        assert slug, "로컬 소재는 --slug 가 필수다"
+        vid = slug
+        mp4 = os.path.join(work, f"{vid}.mp4")
+        vtt = os.path.join(work, f"{vid}.ko.vtt")
+        assert os.path.exists(mp4) and os.path.exists(vtt), "편시작_deep.py 를 먼저 돌려라 (mp4·ko.vtt)"
+    else:
+        vid, mp4, vtt = fetch(url, work)
     if not os.path.exists(mp4):
         print("원본을 못 받았다")
         return 1

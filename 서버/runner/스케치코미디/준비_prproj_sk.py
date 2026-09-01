@@ -23,6 +23,34 @@ def run(argv):
     subprocess.run(argv, check=True, capture_output=True)
 
 
+def 댓글선별(pngs, logline, want=(10, 15)):
+    """댓글 카드 PNG 중 편 내용과 어울리는 것을 모델이 고른다 (EvoLink 무료 한도).
+       ★최소 10장(2026-09-01 사장님). 판정이 실패하면 앞에서 12장을 그대로 쓴다."""
+    import base64
+    from s2pipe import gem
+    from s2pipe.cfg import CFG as _C
+    models = _C.get("gemini", {}).get("models", ["gemini-3.5-flash"])
+    parts = [{"text": (f"숏폼 내용: {logline}\n아래 번호 붙은 유튜브 댓글 카드 중 이 내용과 어울리는 것을 "
+                       f"{want[0]}~{want[1]}개, 어울리는 순서대로 골라라. JSON 만: {{\"picks\":[번호,...]}} (0부터)")}]
+    for i, p in enumerate(pngs):
+        parts.append({"text": f"[{i}]"})
+        parts.append({"inline_data": {"mime_type": "image/png",
+                                      "data": base64.b64encode(open(p, "rb").read()).decode()}})
+    payload = {"contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 1000, "responseMimeType": "application/json"}}
+    try:
+        txt, _r, _m = gem.ask(payload, models, timeout=300)
+        import re as _re
+        m = _re.search(r"\[[\d,\s]+\]", txt or "")
+        picks = [i for i in json.loads(m.group(0) if m else "x") if 0 <= int(i) < len(pngs)]
+        picks = list(dict.fromkeys(int(i) for i in picks))
+        assert len(picks) >= want[0]
+        return [pngs[i] for i in picks[:want[1]]]
+    except Exception as e:
+        print("댓글 선별 실패 — 앞 12장 사용:", str(e)[:60])
+        return pngs[:12]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("project")
@@ -70,18 +98,74 @@ def main():
     # ② 껍데기 — 제목 포함 frame → 알파 구멍 → mov
     #   ★제목은 껍데기에 굽는다(2026-09-01 사장님 — 정위치·검은색 보장). 도너 텍스트 견본으로
     #   넣으면 신병 헤드라인 서식(노랑·상단)이 따라온다. 수정 가능해야 하는 것은 대사다.
+    #   ★Deep 흐름(work/<슬러그>_로고.png 존재): 헤더는 사장님 지정 로고 이미지로 갈고
+    #   (배치는 최하연님 작업 prproj 실측 — 위치 0.1993:0.0699 · 비율 16.45%),
+    #   댓글 카드 PNG 를 선별해 슬롯 순환으로 굽는다(위치 0.5:0.8126 · 폭 1020 = 실측).
     from PIL import Image
+    import copy as _copy
+    import re as _re
+    p_draw = _copy.deepcopy(proj)
+    cr = p_draw.get("credit") or {}
+    if cr.get("title"):
+        import unicodedata as _ud
+        # ★NFD(맥 파일명 자모 분해)·이모지는 폰트가 못 그린다 — 출처 줄이 «#띱 Deep -» 에서 끊긴 실측
+        cr["title"] = _ud.normalize("NFC", cr["title"])
+        cr["title"] = _re.sub(r"[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F900-\U0001F9FF]", "", cr["title"]).strip()
     frame_png = os.path.join(sdir, "_frame.png")
-    build.draw_frame(proj, frame_png)
+    build.draw_frame(p_draw, frame_png)
     im = Image.open(frame_png).convert("RGBA")
     b = CFG["layout"]["video_box"]
+    L = CFG["layout"]
+    bg = tuple(int(L["bg"][i:i + 2], 16) for i in (0, 2, 4)) + (255,)
+    logo_p = os.path.join(wdir, os.pardir, f"{slug}_로고.png")
+    logo_p = os.path.normpath(logo_p)
+    deep = os.path.exists(logo_p)
+    if deep:
+        hd = L["header"]
+        im.paste(Image.new("RGBA", (1080, hd["y1"] - hd["y0"] + 40), bg), (0, hd["y0"] - 20))
+        logo = Image.open(logo_p).convert("RGBA")
+        s_ = 0.16451612472534 * 1080 / 1080          # 최하연 실측 비율(시퀀스 1080 기준)
+        w_, h_ = int(logo.width * s_), int(logo.height * s_)
+        logo = logo.resize((w_, h_))
+        cx, cy_ = 0.19928400218486786 * 1080, 0.069892480969429016 * 1920
+        im.alpha_composite(logo, (int(cx - w_ / 2), int(cy_ - h_ / 2)))
+        cm = L["comment"]
+        im.paste(Image.new("RGBA", (1080, cm["y1"] - cm["y0"] + 40), bg), (0, cm["y0"] - 20))
     hole = Image.new("RGBA", (b["w"], b["y1"] - b["y0"]), (0, 0, 0, 0))
     im.paste(hole, (0, b["y0"]))
     rgba = os.path.join(sdir, "_frame_hole.png")
     im.save(rgba)
     dst_tpl = os.path.join(sdir, "그래픽_템플릿.mov")
-    run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba, "-t", f"{total + 1:.3f}",
-         "-r", "30", "-c:v", "qtrle", "-pix_fmt", "argb", dst_tpl])
+    cmt_overlays = []
+    if deep:
+        import glob as _g
+        pngs = sorted(_g.glob(os.path.join(wdir, os.pardir, f"{slug}_댓글", "**", "*.png"), recursive=True))
+        picked = 댓글선별(pngs, proj.get("logline", ""))
+        slots = max(len(picked), 1)
+        each = total / slots
+        for i, p in enumerate(picked):
+            c = Image.open(p).convert("RGBA")
+            c = c.resize((1020, int(c.height * 1020 / c.width)))     # 최하연 카드 폭 1020 실측
+            cp = os.path.join(sdir, f"_cmt{i:02d}.png")
+            c.save(cp)
+            cmt_overlays.append((cp, i * each, (i + 1) * each, 30, int(0.81262129545211792 * 1920 - c.height / 2)))
+        print(f"댓글 {len(picked)}장 → 슬롯 {each:.1f}초씩")
+    if cmt_overlays:
+        args = ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba]
+        for cp, *_r in cmt_overlays:
+            args += ["-loop", "1", "-i", cp]
+        fc, cur = "", "[0]"
+        for i, (_cp, a0, a1, x, y) in enumerate(cmt_overlays):
+            nxt = f"[v{i}]"
+            fc += f"{cur}[{i + 1}]overlay={x}:{y}:enable='between(t,{a0:.2f},{a1:.2f})'{nxt};"
+            cur = nxt
+        fc = fc[:-1]
+        args += ["-filter_complex", fc, "-map", cur, "-t", f"{total + 1:.3f}",
+                 "-r", "30", "-c:v", "qtrle", "-pix_fmt", "argb", dst_tpl]
+        run(args)
+    else:
+        run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba, "-t", f"{total + 1:.3f}",
+             "-r", "30", "-c:v", "qtrle", "-pix_fmt", "argb", dst_tpl])
 
     # ③ timeline
     picture, cum = [], 0.0
