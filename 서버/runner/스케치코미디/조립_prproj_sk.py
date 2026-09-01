@@ -473,12 +473,27 @@ def main():
     kept2, pruned = [], []
     for u in re.findall(r'<Item Index="\d+" ObjectURef="([^"]+)"/>', im.group(2)):
         try:
-            mc = re.search(r'<MasterClip ObjectURef="([^"]+)"', doc.get_uid(u))
+            blk = doc.get_uid(u)
         except KeyError:
             kept2.append(u)          # 블록을 못 읽으면 건드리지 않는다
             continue
-        # 마스터클립이 없는 항목(시퀀스·빈)은 무조건 남긴다 — 지우면 시퀀스가 통째로 쓸려나간다(실측)
-        (pruned if (mc and mc.group(1) not in used_mcs) else kept2).append(u)
+        tag = re.match(r"\s*<(\w+)", blk).group(1)
+        mc = re.search(r'<MasterClip ObjectURef="([^"]+)"', blk)
+        # ★시퀀스도 ClipProjectItem 로 루트에 산다(마스터클립→SequenceSource→시퀀스 사슬, 실측).
+        #   계보가 시퀀스에 닿는 항목은 무조건 남긴다 — 지우면 패널에서 시퀀스가 사라진다.
+        is_seq_item = False
+        if mc:
+            try:
+                li, lu = collect_lineage(doc, [mc.group(1)])
+                is_seq_item = seq_uid in lu or any("SequenceSource" in doc.get(i)[:120] for i in li)
+            except KeyError:
+                is_seq_item = True          # 못 읽으면 건드리지 않는다
+        if tag == "ClipProjectItem" and mc and not is_seq_item and mc.group(1) not in used_mcs:
+            pruned.append(u)
+        else:
+            if is_seq_item:          # 시퀀스 항목 이름도 우리 제목으로 (도너 이름이 남는다 — 실측)
+                doc.replace_uid(u, set_child(blk, "Name", esc(tl["title"])))
+            kept2.append(u)
     items2 = "".join(f'\n\t\t\t\t<Item Index="{i}" ObjectURef="{u}"/>' for i, u in enumerate(kept2))
     doc.replace_uid(root_m.group(1), root[:im.start()] + im.group(1) + items2 + "\n\t\t\t" + im.group(3) + root[im.end():])
     cand_i, cand_u = set(), set(pruned)
