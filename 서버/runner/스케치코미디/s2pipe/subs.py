@@ -15,6 +15,7 @@ import base64, json, os, sys, time, urllib.request, urllib.error
 from . import gem                                        # EvoLink 우선 호출
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from . import cfg
 from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
 MODELS = CFG.get("gemini", {}).get("models", ["gemini-3.5-flash"])
 
@@ -41,10 +42,12 @@ def prompt(maxc):
 - ★**3초 이상 비는 구간이 없게 하라.**
 - ★**대사가 없는 구간에는 상황 자막을 넣어라.** 먹기만 하거나 정적이 흐르는 대목도
   비워 두지 않는다 — 괄호로 상황이나 속마음을 적는다.
-  예: `(아구아구)` `(조심스러운 손길)` `(ㅋㅋㅋ...)` `(정적)` `(10만원...?)`
+  예: `(아구아구)` `(조심스러운 손길)` `(ㅋㅋㅋ)` `(정적)` `(10만원?)`
   레퍼런스가 실제로 그렇게 채운다.
 - 구어체 그대로 옮긴다. 다만 너무 빠른 발음이나 뭉갠 말은 읽기 쉽게 다듬는다.
-- 속마음·상황 설명은 괄호로: `(ㅋㅋㅋ...)` `(10만원...?)`
+- 속마음·상황 설명은 괄호로: `(ㅋㅋㅋ)` `(10만원?)`
+- ★★**구두점 금지(절대 규칙)** — 마침표·쉼표·말줄임(…·...)을 쓰지 마라.
+  물음표·느낌표만 허용. 쉼표 자리는 띄어쓰기로.
 - 화자 이름은 넣지 않는다. 화면 전환으로 누가 말하는지 알 수 있다.
 
 말이 겹치거나 빠르게 오가면 각각 짧게 끊어서 촘촘히 낸다.
@@ -85,6 +88,7 @@ def main():
     old = len(proj.get("subs", []))
     for x in subs:
         x["kind"] = "line"   # ★나레이션은 segments 가 정본
+        x["text"] = cfg.strip_punct(x.get("text"))  # ★절대 규칙 — 구두점 금지(정답지 G-구두점)
     proj["subs"] = subs
     json.dump(proj, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 

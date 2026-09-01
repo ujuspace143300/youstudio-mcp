@@ -45,3 +45,17 @@ if not os.path.isfile(CONFIG_PATH):
     )
 with open(CONFIG_PATH, encoding="utf-8") as _f:
     CFG = json.load(_f)
+
+
+def strip_punct(text):
+    """★절대 규칙(2026-09-01 사장님) — 나레이션·자막에서 금지 구두점을 걷어낸다.
+
+    목록은 규격 layout.subtitle.구두점_금지 (마침표·쉼표·말줄임·가운뎃점).
+    쉼표는 공백으로(단어가 붙지 않게), 나머지는 지운다. 물음표·느낌표는 남긴다.
+    plan(모델 출력)·subs(재추출)가 저장 전에 부른다. 판정은 정답지 G-구두점.
+    """
+    banned = (CFG.get("layout", {}).get("subtitle", {}) or {}).get("구두점_금지") or []
+    t = str(text or "")
+    for ch in banned:
+        t = t.replace(ch, " " if ch == "," else "")
+    return " ".join(t.split())

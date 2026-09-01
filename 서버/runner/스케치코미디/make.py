@@ -92,8 +92,15 @@ def check(proj, path):
     #   넓게 퍼뜨리면 대목 사이 맥락이 끊겨 이야기가 안 이어진다 — 같은 소재로
     #   견줘 46% 인 편이 18% 인 편을 이겼다(구조 딱지는 18% 쪽이 더 정확했는데도).
     lo_d, hi_d = e.get("density", [0.40, 0.75])
-    span = max(s["t1"] for s in segs) - min(s["t0"] for s in segs)
-    dens = total / span if span > 0 else 1.0
+    # ★결말 점프(2026-09-01 A안) — 마지막 P5 조각이 규격 결말점프_최대_s 이하면
+    #   밀도 계산에서 통째로 뺀다(길이·범위 모두). 서버 check.ts 와 같은 규칙.
+    jump_max = e.get("결말점프_최대_s", 0)
+    tail = segs[-1]
+    span_segs = segs[:-1] if (len(segs) > 1 and tail.get("phase") == 5
+                              and tail["t1"] - tail["t0"] <= jump_max) else segs
+    span = max(s["t1"] for s in span_segs) - min(s["t0"] for s in span_segs)
+    c_total = sum(s["t1"] - s["t0"] for s in span_segs)
+    dens = c_total / span if span > 0 else 1.0
     if dens < lo_d:
         bad.append(f"★밀도 {dens*100:.0f}% — 원본 {span:.0f}초에 걸쳐 {total:.0f}초를"
                    f" 뽑았다. {lo_d*100:.0f}% 이상이어야 한다."
@@ -220,6 +227,16 @@ def check(proj, path):
     longs = [s for s in subs if len(s.get("text", "")) > mx]
     if longs:
         warn.append(f"자막 {len(longs)}줄이 {mx}자를 넘는다")
+
+    # ★구두점 금지 (정답지 G-구두점, hard · 2026-09-01 절대 규칙) — 서버 check.ts 와 같은 규칙
+    banned = CFG["layout"]["subtitle"].get("구두점_금지") or []
+    dirty_s = [s for s in subs if any(ch in (s.get("text") or "") for ch in banned)]
+    dirty_n = [s for s in segs if any(ch in (s.get("narration") or "") for ch in banned)]
+    if dirty_s or dirty_n:
+        ex = (dirty_s[0].get("text") if dirty_s else dirty_n[0].get("narration"))[:20]
+        bad.append(f"★구두점 금지(절대 규칙) — 자막 {len(dirty_s)}줄·나레이션 {len(dirty_n)}건에"
+                   f" 금지 글자({' '.join(banned)})가 있다. 마침표·말줄임은 지우고 쉼표는"
+                   f" 공백으로 바꿔라 (예: {ex})")
 
     # ── 원본·fps
     src = proj.get("source", {})

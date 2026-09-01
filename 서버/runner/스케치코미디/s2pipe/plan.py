@@ -10,6 +10,7 @@ import base64, json, os, re, subprocess, sys, time, urllib.request, urllib.error
 from . import gem
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from . import cfg
 from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
 MODELS = CFG.get("gemini", {}).get("models", ["gemini-3.5-flash"])
 
@@ -235,6 +236,8 @@ def prompt(dur, fps, sub_text, hot=(), focus=None, cands=()):
 - `hooks`: 롱폼 대사 중 **가장 후킹되는 것 3개**를 `t0`(원본 초)와 함께.
   ★**한 글자도 수정하지 마라.** 들린 그대로 적는다.
 - `subs`: 넣을 구간의 자막을 **숏폼 시각 기준**으로. 한 줄 {CFG['layout']['subtitle']['max_chars']}자 이내.
+  ★★**구두점 금지(절대 규칙)** — 자막·나레이션에 마침표·쉼표·말줄임(…)을 쓰지 마라.
+    물음표·느낌표만 허용. 쉼표 자리는 띄어쓰기로.
   - `kind`: 배우 대사면 `"line"`, 나레이션이면 `"narr"`.
   - ★**대사가 있는 동안 자막이 비면 안 된다.** 3초 이상 비는 구간을 만들지 마라.
 - `comment_picks`: 아래 댓글 후보 중 **이 편에 어울리는 것의 번호**를 고른 순서대로.
@@ -521,6 +524,13 @@ def main():
     if before != after:
         print(f"★Phase 순서로 다시 세웠다 — {before} → {after}", flush=True)
     total = sum(s["t1"] - s["t0"] for s in keep)
+
+    # ★절대 규칙(2026-09-01 사장님) — 나레이션·자막 구두점 걸러내기 (정답지 G-구두점)
+    for s in plan["segments"]:
+        if s.get("narration"):
+            s["narration"] = cfg.strip_punct(s["narration"])
+    for x in plan.get("subs", []):
+        x["text"] = cfg.strip_punct(x.get("text"))
 
     proj = {
         "slug": slug,

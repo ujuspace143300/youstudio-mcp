@@ -195,6 +195,16 @@ export function judge(proj: Project): Verdict {
   if (!(proj.hashtag ?? "").trim()) warn.push("서브 해시태그가 없다");
   if ((proj.hooks ?? []).length < spec.output.hook_lines) warn.push(`후킹 대사 ${(proj.hooks ?? []).length}개 — ${spec.output.hook_lines}개를 뽑는다`);
 
+  // ── ★구두점 금지 (정답지 G-구두점, hard · 2026-09-01 절대 규칙) — 나레이션·자막에 마침표·쉼표 등 금지
+  const banned: string[] = spec.layout.subtitle.구두점_금지 ?? [];
+  const hasBanned = (t: string) => banned.some((ch) => t.includes(ch));
+  const dirtySubs = (proj.subs ?? []).filter((s) => hasBanned(s.text ?? ""));
+  const dirtyNarr = segs.filter((s) => hasBanned(s.narration ?? ""));
+  if (dirtySubs.length || dirtyNarr.length)
+    bad.push(
+      `★구두점 금지(절대 규칙) — 자막 ${dirtySubs.length}줄·나레이션 ${dirtyNarr.length}건에 금지 글자(${banned.join(" ")})가 있다. 마침표·말줄임은 지우고 쉼표는 공백으로 바꿔라 (예: ${(dirtySubs[0]?.text ?? dirtyNarr[0]?.narration ?? "").slice(0, 20)})`,
+    );
+
   // ── 자막 (정답지 G-자막공백·G-자막자수)
   const subs = [...(proj.subs ?? [])].sort((a, b) => a.t - b.t);
   const gapWarn = G자막["G-자막공백"].빈구간_warn_sec;

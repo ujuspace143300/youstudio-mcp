@@ -829,6 +829,11 @@ const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video",
   const short = { ...SK, segments: SK.segments.map((s, i) => (i === 2 ? { ...s, t1: 320.0 } : s)) };
   const r8 = await skCall("sk_check", { payload: { ...SK_CARRY, project: short } });
   ok(r8.isError === true && (r8.structuredContent?.rejected ?? []).some((b) => b.includes("절대 규칙")), "sk_check(총 51초) → G-길이 반려(60~80 절대)", JSON.stringify(r8.structuredContent?.rejected));
+  // 절대 규칙 3(2026-09-01) — 나레이션·자막 구두점 금지 (물음표·느낌표는 허용)
+  const punct = { ...SK, subs: [...SK.subs, { t: 40, text: "마침표가 있다.", kind: "line" }, { t: 41, text: "물음표는 되나?", kind: "line" }] };
+  const r9 = await skCall("sk_check", { payload: { ...SK_CARRY, project: punct } });
+  const r9bad = r9.structuredContent?.rejected ?? [];
+  ok(r9.isError === true && r9bad.some((b) => b.includes("구두점 금지") && b.includes("자막 1줄")), "sk_check(자막 마침표) → G-구두점 반려(?·! 는 허용)", JSON.stringify(r9bad));
 }
 // S7) 유료 단계 — 비용 보고 지시가 박혀 있다
 {
