@@ -67,13 +67,12 @@ def main():
     run(["ffmpeg", "-y", "-v", "error", "-i", os.path.join(wdir, "narr01.wav"),
          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dst_nar])
 
-    # ② 껍데기 — 제목 비운 frame → 알파 구멍 → mov
-    import copy
+    # ② 껍데기 — 제목 포함 frame → 알파 구멍 → mov
+    #   ★제목은 껍데기에 굽는다(2026-09-01 사장님 — 정위치·검은색 보장). 도너 텍스트 견본으로
+    #   넣으면 신병 헤드라인 서식(노랑·상단)이 따라온다. 수정 가능해야 하는 것은 대사다.
     from PIL import Image
-    p2 = copy.deepcopy(proj)
-    p2["title"] = ["", ""]
-    frame_png = os.path.join(sdir, "_frame_notitle.png")
-    build.draw_frame(p2, frame_png)
+    frame_png = os.path.join(sdir, "_frame.png")
+    build.draw_frame(proj, frame_png)
     im = Image.open(frame_png).convert("RGBA")
     b = CFG["layout"]["video_box"]
     hole = Image.new("RGBA", (b["w"], b["y1"] - b["y0"]), (0, 0, 0, 0))
@@ -102,8 +101,7 @@ def main():
     narration = [{"t0": round(nar_t0, 3), "t1": round(nar_t0 + nar_dur, 3),
                   "wav": dst_nar, "text": nar_seg["narration"]}]
 
-    cues = [{"lane": "title", "t0": 0.0, "t1": round(total, 3), "text": proj["title"][0] + "\r" + proj["title"][1]}]
-    cues.append({"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]})
+    cues = [{"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]}]
     # 대사 큐 — 60fps 격자에서 끝 = min(시작+6초, 다음 시작) 로 겹침 0 을 보장한다
     F = 60
     lines = [x for x in subs if x.get("kind") != "narr"]
@@ -130,7 +128,7 @@ def main():
     out = os.path.join(out_root, "timeline_sk.json")
     json.dump(tl, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("생성:", out)
-    print(f"컷 {len(picture)} · 나레 {len(narration)} · 큐 {len(cues)} (제목1·나레1·대사 {len(lines)}) · 총 {total:.1f}s")
+    print(f"컷 {len(picture)} · 나레 {len(narration)} · 큐 {len(cues)} (나레1·대사 {len(lines)} — 제목은 껍데기에 굽는다) · 총 {total:.1f}s")
     print(f"상자: scale {scale}% · pos 0.5:{cy}")
 
 
