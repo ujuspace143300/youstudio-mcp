@@ -117,11 +117,102 @@ def main():
             t1f = t0f + 1
         cues.append({"lane": "dlg", "t0": round(t0f / F, 4), "t1": round(t1f / F, 4), "text": x["text"]})
 
-    # 상자 배치 — 1920×1080 원본을 상자(높이 y1-y0)에 세로 맞춤
-    box_h = b["y1"] - b["y0"]
-    scale = round(box_h / 1080 * 100, 3)
-    cy = round((b["y0"] + b["y1"]) / 2 / CFG["video"]["h"], 6)
+    # 상자 배치 — ★원본 번인 자막이 상자 밖으로 잘려나가게 확대하고, 컷마다 얼굴 중심을 맞춘다
+    #   (2026-09-01 사장님: 원본 자막과 우리 자막이 겹친다 — 확대+인물 포커싱으로 가리지 말고 잘라내라)
     src_info = ffprobe_info(dst_src)
+    box_h = b["y1"] - b["y0"]                       # 908
+    from s2pipe import build as B
+    from s2pipe import framing as FR
+    sub_top = B.find_burned_subs(dst_src, 1920, 1080, src_info["dur"]) or int(1080 * b["sub_zone_top"])
+    limit_y = sub_top - 12                          # 자막 윗변 위 여유 12px 까지만 담는다
+    s = min(1.20, max(box_h / limit_y, box_h / 1080) * 1.03)   # 3% 여유 · 과도 확대 방지
+    print(f"번인 자막 윗변 실측 y={sub_top} → 담는 한계 y={limit_y} · 확대 {s*100:.1f}%")
+    cy_lo = b["y1"] - (limit_y - b["y0"]) * s       # 이보다 내려가면 번인 자막이 보인다
+    cy_hi = b["y0"] + 540 * s                       # 이보다 올라가면 상단이 빈다
+    px_lo, px_hi = 1080 - 960 * s, 960 * s          # 좌우 빈틈 방지
+
+    def grab(t, tag):
+        """★frame_at 은 tag 로 캐시한다 — 같은 tag 면 다른 시각도 같은 프레임을 돌려준다(실측).
+           캐시를 우회해 ffmpeg 로 직접 뽑는다."""
+        import numpy as np
+        from PIL import Image as _I
+        p = os.path.join(wdir, f"_pv_{tag}.png")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
+                        "-frames:v", "1", p], check=True, capture_output=True)
+        return np.asarray(_I.open(p).convert("RGB"))
+
+    def face_center(t0, t1, tag):
+        """컷 구간에서 얼굴 중심 실측 (yunet, 3프레임 평균). 못 찾으면 화면 중상단."""
+        pts = []
+        for f in (0.3, 0.5, 0.7):
+            try:
+                rgb = grab(t0 + (t1 - t0) * f, f"f{tag}_{int(f*10)}")
+                faces = FR._faces_yunet(rgb, score=b.get("face_score", 0.45))
+                if faces is not None and len(faces):
+                    best = max(faces, key=lambda r: r[4] if len(r) > 4 else 0)
+                    x, y, w_, h_ = best[:4]
+                    pts.append((x + w_ / 2, y + h_ / 2))
+            except Exception:
+                pass
+        if not pts:
+            return 960.0, 430.0
+        xs = sorted(p[0] for p in pts)
+        ys = sorted(p[1] for p in pts)
+        # ★한 컷에 샷이 여러 개면(얼굴 위치 편차 큼) 평균이 아무도 안 맞춘다 — 중앙 크롭이 안전하다
+        if len(xs) >= 2 and xs[-1] - xs[0] > 350:
+            return 960.0, ys[len(ys) // 2]
+        return xs[len(xs) // 2], ys[len(ys) // 2]
+
+    def clamp(v, lo, hi):
+        return max(lo, min(hi, v))
+
+    def seg_has_burned(t0, t1):
+        """이 컷 구간의 하단 밴드에 **노란 번인 자막**이 있는가 (이 소재의 번인 자막은 노랑).
+           밝기만 보면 하늘·흰 차가 오탐된다(실측 — 결말 컷이 확대돼 중앙 반전 자막이 잘렸다).
+           ★없는 컷은 확대하지 않는다 — 중앙 화면 자막이 내용인 컷을 자르면 안 된다."""
+        hit = 0
+        for j, f in enumerate((0.15, 0.35, 0.5, 0.65, 0.85)):
+            try:
+                band = grab(t0 + (t1 - t0) * f, f"b{t0:.0f}_{j}")[int(1080 * 0.70):, :, :].astype(int)
+                r_, g_, b_ = band[:, :, 0], band[:, :, 1], band[:, :, 2]
+                # 마스크는 실측 보정값 (표본 RGB 209~246 · 172~210 · 40~68 — 2026-09-01)
+                yellow = (r_ > 170) & (g_ > 140) & (b_ < 140) & (r_ + g_ - 2 * b_ > 150)
+                if yellow.sum(axis=1).max() > 1920 * 0.02:
+                    hit += 1
+            except Exception:
+                pass
+        return hit >= 2
+
+    for i, (seg, pic) in enumerate(zip(segs, picture)):
+        if not seg_has_burned(seg["t0"], seg["t1"]):
+            pic["box"] = {"scale": round(box_h / 1080 * 100, 3),
+                          "pos": f"0.5:{(b['y0'] + b['y1']) / 2 / CFG['video']['h']:.6f}"}
+            print(f"  컷{i+1:02d}: 번인 자막 없음 → 풀샷 유지")
+            continue
+        xf, yf = face_center(seg["t0"], seg["t1"], i)
+        cy = clamp(970 - (yf - 540) * s, cy_lo, cy_hi)
+        px = clamp(540 - (xf - 960) * s, px_lo, px_hi)
+        pic["box"] = {"scale": round(s * 100, 3), "pos": f"{px / 1080:.6f}:{cy / 1920:.6f}"}
+        print(f"  컷{i+1:02d}: 번인 자막 있음 → 확대 {s*100:.0f}% · 얼굴 ({xf:.0f},{yf:.0f})")
+    # 미리보기 — 상자에 담길 화면을 컷별 box 값 그대로 잘라 확인용으로 남긴다
+    pvdir = os.path.join(out_root, "_미리보기")
+    os.makedirs(pvdir, exist_ok=True)
+    for i, (seg, pic) in enumerate(zip(segs, picture)):
+        try:
+            sc = pic["box"]["scale"] / 100.0
+            pxn, cyn = (float(v) for v in pic["box"]["pos"].split(":"))
+            px_, cy_ = pxn * 1080, cyn * 1920
+            x0 = clamp(960 + (0 - px_) / sc, 0, 1920 - 1080 / sc)
+            y0 = clamp(540 + (b["y0"] - cy_) / sc, 0, 1080 - box_h / sc)
+            mid = (seg["t0"] + seg["t1"]) / 2
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{mid:.2f}", "-i", dst_src,
+                            "-frames:v", "1", "-vf",
+                            f"crop={1080/sc:.0f}:{box_h/sc:.0f}:{x0:.0f}:{y0:.0f},scale=540:-2",
+                            os.path.join(pvdir, f"컷{i+1:02d}.png")], check=True)
+        except Exception as e:
+            print("  미리보기 실패:", e)
+    scale = round(s * 100, 3)
+    cy = round((b["y0"] + b["y1"]) / 2 / CFG["video"]["h"], 6)
 
     tl = {"title": f"스케치 {slug}", "total_s": round(total, 4),
           "source": dst_src, "source_dur_s": src_info["dur"],

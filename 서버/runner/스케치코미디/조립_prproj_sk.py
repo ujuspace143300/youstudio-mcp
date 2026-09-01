@@ -239,9 +239,11 @@ def main():
 
     new_blocks, links, v_refs, a_refs = [], [], [], []
 
-    # ── ① 컷 (V1+A1+Link) — 원본 하나를 in/out 으로 문다 (핸들 생존) ─────────
-    cut_params = {"위치": box["pos"], "비율 조정": box["scale"], "폭 비율 조정": box["scale"]}
+    # ── ① 컷 (V1+A1+Link) — 원본 하나를 in/out 으로 문다 (핸들 생존).
+    #    모션은 컷별(box) — 번인 자막 잘라내기 + 얼굴 중심 (2026-09-01)
     for cut in tl["picture"]:
+        cbox = cut.get("box", box)
+        cut_params = {"위치": cbox["pos"], "비율 조정": cbox["scale"], "폭 비율 조정": cbox["scale"]}
         t0, t1 = frame_ticks(cut["t0"]), frame_ticks(cut["t1"])
         si = int(cut["src_in"] * TPS)
         so = si + (t1 - t0)
