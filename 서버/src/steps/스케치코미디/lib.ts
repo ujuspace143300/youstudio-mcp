@@ -54,6 +54,8 @@ export interface Project {
   subs?: Sub[];
   comments?: unknown[];
   credit?: { channel?: string; title?: string };
+  /** 절대 지침(정답지 G-결말) — 이 편이 무엇으로 끝나는지. type: 반전|결론 */
+  ending?: { type?: string; desc?: string };
 }
 
 export function isProject(x: unknown): x is Project {

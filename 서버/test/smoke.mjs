@@ -748,6 +748,8 @@ const SK = {
   subs: Array.from({ length: 18 }, (_, i) => ({ t: i * 2.5, text: `자막 ${i}`, kind: "line" })),
   comments: [],
   credit: { channel: "띱 Deep", title: "테스트" },
+  // 절대 지침(정답지 G-결말, 2026-09-01) — 편은 반전 또는 결론으로 끝나야 한다
+  ending: { type: "결론", desc: "구겨진 박스를 새것으로 바꿔 주며 소동이 끝난다" },
 };
 const SK_CARRY = { workdir: "C:/sketch_work/test", project_path: "C:/sketch_work/test/projects/TESTID_A.json", source: SK.source };
 const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video", arguments: { step, preset: "스케치코미디", ...args } });
@@ -809,6 +811,13 @@ const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video",
   const narrP5 = { ...SK, segments: SK.segments.map((s, i) => (i === 4 ? { ...s, narration: "마무리 설명" } : s)) };
   const r4 = await skCall("sk_check", { payload: { ...SK_CARRY, project: narrP5 } });
   ok(r4.isError === true && (r4.structuredContent?.rejected ?? []).some((b) => b.includes("배우 말이 들려야 한다")), "sk_check(P5 나레이션) → 반려", "");
+  // 절대 지침(정답지 G-결말, 2026-09-01) — 결말 없이는 통과 못 한다
+  const { ending: _e, ...noEnd } = SK;
+  const r5 = await skCall("sk_check", { payload: { ...SK_CARRY, project: noEnd } });
+  ok(r5.isError === true && (r5.structuredContent?.rejected ?? []).some((b) => b.includes("ending 이 없다")), "sk_check(ending 없음) → G-결말 반려", JSON.stringify(r5.structuredContent?.rejected));
+  const weakEnd = { ...SK, segments: SK.segments.map((s, i) => (i === 4 ? { ...s, punch: 9 } : s)) };
+  const r6 = await skCall("sk_check", { payload: { ...SK_CARRY, project: weakEnd } });
+  ok(r6.isError === true && (r6.structuredContent?.rejected ?? []).some((b) => b.includes("결말이 약하다")), "sk_check(마지막 punch 9) → G-결말 반려", JSON.stringify(r6.structuredContent?.rejected));
 }
 // S7) 유료 단계 — 비용 보고 지시가 박혀 있다
 {
@@ -839,7 +848,7 @@ const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video",
   const res = await skCall("sk_deliver", { payload: SK_CARRY });
   const sc = res.structuredContent;
   ok(sc?.status === "done" && sc?.next_step === null, "sk_deliver → done/null", `${sc?.status}/${sc?.next_step}`);
-  ok(Array.isArray(sc?.사람확인) && sc.사람확인.length === 6, "sk_deliver → 사람확인 6항목", String(sc?.사람확인?.length));
+  ok(Array.isArray(sc?.사람확인) && sc.사람확인.length === 7, "sk_deliver → 사람확인 7항목(G-결말 사람몫 포함)", String(sc?.사람확인?.length));
   ok((sc?.instructions ?? []).join(" ").includes("_B"), "sk_deliver(A 편) → B 편 안내", "");
   const b = await skCall("sk_deliver", { payload: { ...SK_CARRY, source: { ...SK_CARRY.source, kind: "youtube", url: SK.source.url, slug: "TESTID_B" } } });
   ok((b.structuredContent?.instructions ?? []).join(" ").includes("두 채널에 나눠"), "sk_deliver(B 편) → 두 채널 안내", "");

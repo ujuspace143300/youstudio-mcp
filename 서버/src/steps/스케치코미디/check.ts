@@ -117,9 +117,19 @@ export function judge(proj: Project): Verdict {
       `★Climax 가 너무 빠르다 — ${climaxAt.toFixed(0)}초(${((climaxAt / total) * 100).toFixed(0)}% 지점). 전체의 ${minPos * 100}% 를 지나서 와야 한다`,
     );
 
+  // ── ★결말 (정답지 G-결말, hard) — 절대 지침: 끝에는 반전 또는 결론이 반드시 있다 (2026-09-01)
   const last = segs[segs.length - 1];
   if (last.phase !== 5) bad.push(`마지막 조각이 Phase 5(Punchline)가 아니다 — P${last.phase}`);
-  else if ((last.punch ?? 0) < PHASES.get(5)!.min_punch) warn.push(`마지막 punch ${last.punch} — 최고 웃음 포인트로 끝나야 한다`);
+  else if ((last.punch ?? 0) < PHASES.get(5)!.min_punch)
+    bad.push(
+      `★결말이 약하다 — 마지막 조각 punch ${last.punch} (Punchline 은 ${PHASES.get(5)!.min_punch} 이상). 딱지가 아니라 결말이 필요하다 — 상황이 뒤집히거나(반전) 닫히는(결론) 대목을 원본에서 찾아 마지막 조각으로 넣어라. 그 클러스터에 결말이 없으면 다른 클러스터(focus_sec)로 편을 다시 잡는다`,
+    );
+  const endType = (proj.ending?.type ?? "").trim();
+  const endDesc = (proj.ending?.desc ?? "").trim();
+  if (!["반전", "결론"].includes(endType) || !endDesc)
+    bad.push(
+      `★ending 이 없다(또는 type 이 반전/결론이 아니다) — 이 편이 무엇으로 끝나는지 한 문장(desc)으로 적어야 한다. 한 문장으로 적을 수 없다면 결말이 없는 것이다 — 결말 대목까지 범위를 잡거나 클러스터를 바꿔라. 없는 결말을 지어내지는 않는다`,
+    );
 
   for (const s of segs) {
     const ph = PHASES.get(s.phase ?? 0);
@@ -188,6 +198,7 @@ export function judge(proj: Project): Verdict {
     metrics: {
       total_sec: Math.round(total * 10) / 10,
       density: Math.round(dens * 1000) / 1000,
+      ending: endDesc ? `${endType} — ${endDesc}` : null,
       phase_seq: used,
       seg_count: segs.length,
       narr_count: nrs.length,
@@ -238,7 +249,7 @@ function mkCheck(name: Step, next: Step, when: string): StepHandler {
         next_step: next,
         message: `게이트 통과 (${when})${v.warn.length ? ` — 주의 ${v.warn.length}건` : ""}. ${next} 를 부르라.`,
         instructions: [
-          "① metrics 는 이 단계가 잰 숫자다. 사람에게 한 줄로 보여준다 (특히 밀도·길이).",
+          "① metrics 는 이 단계가 잰 숫자다. 사람에게 한 줄로 보여준다 (특히 밀도·길이·ending — 결말이 사람 마음에 안 들면 여기서 세운다, 렌더 뒤가 아니라).",
           `② carry 값(workdir·project_path·source·tts_est)을 payload 에 그대로 실어 ${next} 를 부른다. project 본문은 다시 싣지 않는다 — 러너가 파일에서 읽는다.`,
         ],
         then_call_with: [`step: '${next}'`, "payload: { workdir, project_path, source, tts_est }"],
