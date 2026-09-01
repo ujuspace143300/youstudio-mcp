@@ -528,6 +528,23 @@ def main():
     cleaned = doc.remove_many(rm2)
     print(f"도너 잔여 자산 청소 — 프로젝트 항목 {len(pruned)}개 정리 · 블록 {cleaned}개 제거", file=sys.stderr)
 
+    # ── ⑨ 도너 표시 이름 최종 청소 + 게이트 — 「신병」 이 한 글자라도 남으면 실패다 ──
+    a1_mc = mc_of(doc, track_items(doc, T["A1"])[0][0])
+    try:
+        doc.replace_uid(a1_mc, set_child(doc.get_uid(a1_mc), "Name", esc("원본 소리")))
+        for m in re.finditer(r'^\t<ClipProjectItem ObjectUID="([^"]+)"', doc.xml, re.M):
+            blk = doc.get_uid(m.group(1))
+            if f'<MasterClip ObjectURef="{a1_mc}"/>' in blk:
+                doc.replace_uid(m.group(1), set_child(blk, "Name", esc("원본 소리")))
+    except KeyError:
+        pass
+    for tag in ("Name", "ClipName", "InstanceName", "Title"):
+        doc.xml = re.sub(rf"<{tag}>[^<]*신병[^<]*</{tag}>", f"<{tag}>{esc(tl['title'])}</{tag}>", doc.xml)
+        doc.xml = re.sub(rf"<{tag}>원음 b\d+</{tag}>", f"<{tag}>원본 소리</{tag}>", doc.xml)
+    잔명 = doc.xml.count("신병") + len(re.findall(r"원음 b\d", doc.xml))
+    print(("  [OK] " if not 잔명 else "  [X] ") + f"도너 이름 흔적 0  남음 {잔명}")
+    assert not 잔명, "도너 이름 흔적이 남았다"
+
     save(out_path, doc.xml)
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),

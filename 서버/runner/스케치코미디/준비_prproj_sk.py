@@ -39,11 +39,30 @@ def main():
     segs = [s for s in proj["segments"] if s.get("keep")]
     total = sum(s["t1"] - s["t0"] for s in segs)
 
-    # ① 미디어
+    # ① 미디어 — ★프리미어가 읽는 코덱만 넣는다 (2026-09-01 실측: 유튜브 AV1 원본 → 비디오만
+    #   미디어 오프라인, 소리(AAC)는 정상. 경로·메타가 아니라 코덱이 원인이었다)
+    지원코덱 = {"h264", "hevc", "prores", "qtrle", "mpeg4", "mjpeg", "dnxhd"}
+
+    def vcodec(path):
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                              "-show_entries", "stream=codec_name", "-of", "csv=p=0", path],
+                             check=True, capture_output=True)
+        return out.stdout.decode().strip()
+
     dst_src = os.path.join(sdir, "원본.mp4")
+    if os.path.exists(dst_src) and vcodec(dst_src) not in 지원코덱:
+        os.remove(dst_src)                     # 이전에 복사된 미지원 코덱본 폐기
     if not os.path.exists(dst_src):
-        import shutil
-        shutil.copy2(src_orig, dst_src)
+        if vcodec(src_orig) in 지원코덱:
+            import shutil
+            shutil.copy2(src_orig, dst_src)
+        else:
+            print(f"원본 코덱 {vcodec(src_orig)} — 프리미어 미지원 → H.264 변환 (수 분)")
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src_orig,
+                            "-vf", "fps=24000/1001", "-c:v", "libx264", "-preset", "fast",
+                            "-crf", "16", "-pix_fmt", "yuv420p",
+                            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", dst_src], check=True)
+    assert vcodec(dst_src) in 지원코덱, "원본 변환 실패 — 코덱 " + vcodec(dst_src)
     dst_nar = os.path.join(sdir, "나레_00.wav")
     run(["ffmpeg", "-y", "-v", "error", "-i", os.path.join(wdir, "narr01.wav"),
          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dst_nar])
