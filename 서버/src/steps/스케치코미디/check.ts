@@ -50,9 +50,11 @@ export function judge(proj: Project): Verdict {
   const total = segs.reduce((a, s) => a + (s.t1 - s.t0), 0);
   const [lo, hi] = E.target_sec;
 
-  // ── 길이 (정답지 G-길이)
-  if (total > E.max_sec) bad.push(`완성 길이 ${total.toFixed(0)}초 — 상한 ${E.max_sec}초를 넘는다`);
-  else if (!(lo <= total && total <= hi)) warn.push(`완성 길이 ${total.toFixed(0)}초 — 목표 ${lo}~${hi}초 밖이다`);
+  // ── 길이 (정답지 G-길이, hard) — ★절대 규칙(2026-09-01): 기승전결을 담을 최소 길이
+  if (!(lo <= total && total <= hi))
+    bad.push(
+      `★완성 길이 ${total.toFixed(0)}초 — 절대 규칙 ${lo}~${hi}초 밖이다. ${total < lo ? "짧으면 기승전결이 안 담긴다 — 클러스터 안에서 핑퐁·절정을 더 담아라" : "길면 늘어진다 — 처지는 조각을 잘라라"}`,
+    );
 
   // ── 5-Phase (정답지 G-Phase완비)
   const used = segs.map((s) => s.phase ?? 0);
@@ -70,6 +72,15 @@ export function judge(proj: Project): Verdict {
       `★훅이 약하다 — 첫 조각 punch ${segs[0].punch} (Hook 은 ${p1.min_punch} 이상이어야 한다). 상황 설명으로 열지 말고 센 대사를 앞으로 끌어와라`,
     );
 
+  // ── ★훅은 대사다 (정답지 G-훅대사, hard · 2026-09-01) — 무언 컷 훅 금지
+  const hookTimes = (proj.hooks ?? [])
+    .map((h) => (typeof h === "object" && h !== null ? h.t0 : undefined))
+    .filter((t): t is number => typeof t === "number");
+  if (segs[0].phase === 1 && !hookTimes.some((t) => segs[0].t0 <= t && t <= segs[0].t1))
+    bad.push(
+      `★훅 조각(원본 ${segs[0].t0.toFixed(1)}~${segs[0].t1.toFixed(1)}초) 안에 hooks 의 대사가 없다 — 말 없는 컷은 화면이 좋아도 훅이 아니다. 전제가 서는 가장 센 대사를 훅으로 끌어와라 (제목이 던진 질문을 첫 대사가 받아야 한다)`,
+    );
+
   // ── 조각 겹침 (정답지 G-조각겹침)
   const ovMax = G구조["G-조각겹침"].겹침_max_sec;
   const order = [...segs].sort((a, b) => a.t0 - b.t0);
@@ -81,10 +92,14 @@ export function judge(proj: Project): Verdict {
       );
   }
 
-  // ── ★★★밀도 (정답지 G-밀도)
+  // ── ★★★밀도 (정답지 G-밀도) — 결말 점프(마지막 P5 조각 ≤ 규격 결말점프_최대_s)는 스팬에서 제외 (2026-09-01 A안)
   const [loD, hiD] = E.density;
-  const span = Math.max(...segs.map((s) => s.t1)) - Math.min(...segs.map((s) => s.t0));
-  const dens = span > 0 ? total / span : 1.0;
+  const tail = segs[segs.length - 1];
+  const isEndingJump = segs.length > 1 && tail.phase === 5 && tail.t1 - tail.t0 <= E.결말점프_최대_s;
+  const spanSegs = isEndingJump ? segs.slice(0, -1) : segs;
+  const span = Math.max(...spanSegs.map((s) => s.t1)) - Math.min(...spanSegs.map((s) => s.t0));
+  const clusterTotal = spanSegs.reduce((a, s) => a + (s.t1 - s.t0), 0);
+  const dens = span > 0 ? clusterTotal / span : 1.0;
   if (dens < loD)
     bad.push(
       `★밀도 ${(dens * 100).toFixed(0)}% — 원본 ${span.toFixed(0)}초에 걸쳐 ${total.toFixed(0)}초를 뽑았다. ${(loD * 100).toFixed(0)}% 이상이어야 한다. **넓게 퍼뜨리면 맥락이 끊겨 이야기가 안 이어진다** — 좋은 대목이 몰린 곳으로 범위를 좁혀라`,
@@ -250,7 +265,12 @@ function mkCheck(name: Step, next: Step, when: string): StepHandler {
         message: `게이트 통과 (${when})${v.warn.length ? ` — 주의 ${v.warn.length}건` : ""}. ${next} 를 부르라.`,
         instructions: [
           "① metrics 는 이 단계가 잰 숫자다. 사람에게 한 줄로 보여준다 (특히 밀도·길이·ending — 결말이 사람 마음에 안 들면 여기서 세운다, 렌더 뒤가 아니라).",
-          `② carry 값(workdir·project_path·source·tts_est)을 payload 에 그대로 실어 ${next} 를 부른다. project 본문은 다시 싣지 않는다 — 러너가 파일에서 읽는다.`,
+          ...(next === "sk_cut"
+            ? [
+                "② ★★렌더 전 사장님 승인(2026-09-01 절차) — 계획 표(조각·what·punch·ending·제목 후보)를 보여 드리고 「이대로 가자」를 받은 뒤에만 sk_cut 로 간다. 게이트는 산수만 보고 punch 는 모델 자기채점이다 — 재미의 판정자는 사람이다.",
+              ]
+            : []),
+          `${next === "sk_cut" ? "③" : "②"} carry 값(workdir·project_path·source·tts_est)을 payload 에 그대로 실어 ${next} 를 부른다. project 본문은 다시 싣지 않는다 — 러너가 파일에서 읽는다.`,
         ],
         then_call_with: [`step: '${next}'`, "payload: { workdir, project_path, source, tts_est }"],
         metrics: v.metrics,

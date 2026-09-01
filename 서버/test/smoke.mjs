@@ -737,13 +737,16 @@ const SK = {
   title: ["피규어 박스 좀", "구겨진 게 죄야?"],
   title_candidates: [["후보 하나!"], ["후보 둘?"], ["후보 셋..."], ["후보 넷!"], ["후보 다섯?"]],
   hashtag: "#피규어_박스",
-  hooks: ["훅1", "훅2", "훅3"],
+  // 훅은 대사(G-훅대사) — hooks[0].t0 이 Hook 조각(280~288) 안에 있어야 한다
+  hooks: [{ t0: 282, text: "박스 구겨졌다고 환불이요?" }, { t0: 330, text: "훅2" }, { t0: 472, text: "훅3" }],
+  // 절대 규칙(2026-09-01): 총 66초(60~80) · 클러스터 280~368 밀도 58/88=0.659 · Climax 60.6% 지점
+  // 마지막 P5(470~478, 8초)는 결말 점프 — 밀도 계산에서 빠진다
   segments: [
-    { t0: 358.5, t1: 363.0, punch: 10, phase: 1, keep: true },
-    { t0: 300.0, t1: 308.0, punch: 5, phase: 2, keep: true, narration: "친구의 피규어 박스가 구겨졌다" },
-    { t0: 326.0, t1: 344.0, punch: 8, phase: 3, keep: true },
-    { t0: 401.0, t1: 409.0, punch: 9, phase: 4, keep: true },
-    { t0: 413.0, t1: 419.0, punch: 10, phase: 5, keep: true },
+    { t0: 280.0, t1: 288.0, punch: 10, phase: 1, keep: true },
+    { t0: 292.0, t1: 304.0, punch: 5, phase: 2, keep: true, narration: "친구의 피규어 박스가 구겨졌다" },
+    { t0: 315.0, t1: 335.0, punch: 8, phase: 3, keep: true },
+    { t0: 350.0, t1: 368.0, punch: 9, phase: 4, keep: true },
+    { t0: 470.0, t1: 478.0, punch: 10, phase: 5, keep: true },
   ],
   subs: Array.from({ length: 18 }, (_, i) => ({ t: i * 2.5, text: `자막 ${i}`, kind: "line" })),
   comments: [],
@@ -794,8 +797,9 @@ const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video",
   const res = await skCall("sk_check", { payload: { ...SK_CARRY, project: SK } });
   const sc = res.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "sk_cut", "sk_check(정상) → 통과, next=sk_cut", `${sc?.status}/${sc?.next_step} ${JSON.stringify(sc?.rejected ?? [])}`);
-  ok(sc?.metrics?.total_sec === 44.5 && Math.abs(sc.metrics.density - 0.374) < 0.001, "sk_check → metrics(길이 44.5s·밀도 0.374)", JSON.stringify(sc?.metrics));
+  ok(sc?.metrics?.total_sec === 66 && Math.abs(sc.metrics.density - 0.659) < 0.001, "sk_check → metrics(길이 66s·밀도 0.659, 결말 점프 제외)", JSON.stringify(sc?.metrics));
   ok(sc?.tts_est?.chars === 16 && sc?.carry?.includes("tts_est"), "sk_check → TTS 예상 분량 carry(나레 16자)", JSON.stringify(sc?.tts_est));
+  ok((sc?.instructions ?? []).join(" ").includes("사장님 승인"), "sk_check 통과 → 렌더 전 사장님 승인 지시(2026-09-01 절차)", "");
 }
 // S6) sk_check — 반려들 (훅 약함 · Climax 위치 · sketch 대본 혼입 · P5 나레이션)
 {
@@ -818,6 +822,13 @@ const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video",
   const weakEnd = { ...SK, segments: SK.segments.map((s, i) => (i === 4 ? { ...s, punch: 9 } : s)) };
   const r6 = await skCall("sk_check", { payload: { ...SK_CARRY, project: weakEnd } });
   ok(r6.isError === true && (r6.structuredContent?.rejected ?? []).some((b) => b.includes("결말이 약하다")), "sk_check(마지막 punch 9) → G-결말 반려", JSON.stringify(r6.structuredContent?.rejected));
+  // 절대 규칙 2(2026-09-01) — 무언 컷 훅 반려 · 60초 미만 길이 반려
+  const muteHook = { ...SK, hooks: [{ t0: 400, text: "훅 조각 밖의 대사" }] };
+  const r7 = await skCall("sk_check", { payload: { ...SK_CARRY, project: muteHook } });
+  ok(r7.isError === true && (r7.structuredContent?.rejected ?? []).some((b) => b.includes("훅 조각")), "sk_check(무언 컷 훅) → G-훅대사 반려", JSON.stringify(r7.structuredContent?.rejected));
+  const short = { ...SK, segments: SK.segments.map((s, i) => (i === 2 ? { ...s, t1: 320.0 } : s)) };
+  const r8 = await skCall("sk_check", { payload: { ...SK_CARRY, project: short } });
+  ok(r8.isError === true && (r8.structuredContent?.rejected ?? []).some((b) => b.includes("절대 규칙")), "sk_check(총 51초) → G-길이 반려(60~80 절대)", JSON.stringify(r8.structuredContent?.rejected));
 }
 // S7) 유료 단계 — 비용 보고 지시가 박혀 있다
 {

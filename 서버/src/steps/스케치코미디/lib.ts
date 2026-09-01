@@ -49,7 +49,7 @@ export interface Project {
   title?: string | string[];
   title_candidates?: (string | string[])[];
   hashtag?: string;
-  hooks?: unknown[];
+  hooks?: ({ t0?: number; text?: string } | string)[];
   segments?: Segment[];
   subs?: Sub[];
   comments?: unknown[];
