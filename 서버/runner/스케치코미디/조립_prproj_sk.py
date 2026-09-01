@@ -334,6 +334,14 @@ def main():
         refs[lane].append(ref)
         if got != cue["text"]:
             blob_bad.append({"lane": lane, "want": cue["text"], "got": got})
+    # ★빈 비디오 트랙 금지 — V3 에 큐가 없으면(제목을 껍데기에 굽는 판) 화면 밖 공백
+    #   자리지킴 1프레임을 넣는다. 빈 V3 로 저장한 판을 프리미어가 「손상」으로 거부했다(2026-09-01 실측).
+    if not refs["title"]:
+        ref, _g, _u = clone_item(doc, tpl_map["dlg"], alloc, new_blocks,
+                                 span=(total - FRAME, total), inout=(GRAPHIC_IN, GRAPHIC_IN + FRAME),
+                                 name="(자리지킴)", texts=[" "] + [""] * (runs["dlg"] - 1),
+                                 params={"위치": "0.5:1.8"})
+        refs["title"].append(ref)
 
     # ── ④ 템플릿(V2) — 아이템 span·클립 out 연장 (미디어는 아래서 교체) ───────
     b = doc.get(track_items(doc, T["V2"])[0][0])
