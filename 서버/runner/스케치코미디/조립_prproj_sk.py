@@ -551,6 +551,19 @@ def main():
 
     save(out_path, doc.xml)
 
+    # ── ⑩ 마스터 트랙 오디오 이펙트 — 작업규칙 11번(2026-08-28 사장님 중요 규칙):
+    #    멀티밴드 압축기 «브로드캐스트» + 선택적 제한 −3dB. 프리셋은 코드로 못 걸므로
+    #    사장님이 손으로 걸어 저장한 도너(2026-09-01, 도너/마스터이펙트_도너_스케치.prproj)에서
+    #    볼트 키트의 마스터효과심기 로 통째 복제한다. 없으면 이 prproj 는 미완이다.
+    심기 = os.path.expanduser("~/Desktop/유스튜디오-규격서/스크립트/린박스/키트/도구/마스터효과심기.py")
+    이펙트도너 = os.path.join(ROOT, "도너", "마스터이펙트_도너_스케치.prproj")
+    import subprocess as _sp
+    _sp.run([sys.executable, 심기, out_path, "--도너", 이펙트도너], check=True, capture_output=True)
+    chk = _sp.run([sys.executable, 심기, out_path, "--확인만"], capture_output=True)
+    마스터ok = chk.returncode == 0 and b"\xeb\xa9\x80\xed\x8b\xb0\xeb\xb0\xb4\xeb\x93\x9c" in chk.stdout  # «멀티밴드»
+    print(("  [OK] " if 마스터ok else "  [X] ") + "마스터 트랙 이펙트(브로드캐스트·−3dB 제한) 주입")
+    assert 마스터ok, "마스터 이펙트 주입 실패 — 작업규칙 11번"
+
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
             "A3": (T["A3"], 0), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
             "V4": (T["V4"], len(refs["narr"])), "V5": (T["V5"], len(refs["dlg"]))}
