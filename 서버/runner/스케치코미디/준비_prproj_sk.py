@@ -23,8 +23,9 @@ def run(argv):
     subprocess.run(argv, check=True, capture_output=True)
 
 
-def 텍스트검출(rgb, row_min=15, tot_min=40):   # tot 60 은 짧은 대사 자막을 놓쳤다(컷05 실측) → 40
-    """외곽선 자막 검출 — 밝은 픽셀(≥200)에 맞닿은 어두운 픽셀(≤70)을 센다. 색 무관."""
+def 텍스트검출(rgb, row_min=15, tot_min=40, top=False):   # tot 60 은 짧은 대사 자막을 놓쳤다(컷05 실측) → 40
+    """외곽선 자막 검출 — 밝은 픽셀(≥200)에 맞닿은 어두운 픽셀(≤70)을 센다. 색 무관.
+       top=True 면 (검출여부, 검출 최상단 행) 을 돌려준다 — 자막 윗변 실측용."""
     import numpy as np
     g = np.asarray(rgb).astype(int)
     if g.ndim == 3:
@@ -37,7 +38,12 @@ def 텍스트검출(rgb, row_min=15, tot_min=40):   # tot 60 은 짧은 대사 �
     bd[:, 1:] |= bright[:, :-1]
     bd[:, :-1] |= bright[:, 1:]
     c = bd & dark
-    return int(c.sum(axis=1).max()) >= row_min and int(c.sum()) >= tot_min
+    rows = c.sum(axis=1)
+    hit = int(rows.max()) >= row_min and int(c.sum()) >= tot_min
+    if not top:
+        return hit
+    strong = np.where(rows >= max(6, row_min // 2))[0]
+    return hit, (int(strong[0]) if hit and len(strong) else None)
 
 
 def 배경맞춤(img, bg):
@@ -181,8 +187,8 @@ def main():
             c = c.resize((w2, h2))
             cp = os.path.join(sdir, f"_cmt{i:02d}.png")
             c.save(cp)
-            cmt_overlays.append((cp, i * each, (i + 1) * each,
-                                 (1080 - w2) // 2, zone0 + (zone_h - h2) // 2))
+            # ★상단 정렬(2026-09-01 사장님) — 영상 바로 아래 붙이되(침범 없음) 세로 중앙이 아니라 위로
+            cmt_overlays.append((cp, i * each, (i + 1) * each, (1080 - w2) // 2, zone0))
         print(f"댓글 {len(picked)}장 → 슬롯 {each:.1f}초씩 · 자리 y{zone0}~{zone1}")
     if cmt_overlays:
         args = ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba]
@@ -208,6 +214,15 @@ def main():
         picture.append({"t0": round(cum, 4), "t1": round(cum + d, 4), "src_in": s["t0"],
                         "name": f'{i + 1:02d} P{s["phase"]} {s["what"][:24]}'})
         cum += d
+    # ★끝맺음 여운(2026-09-01 사장님: 하드컷이 너무 급하다) — 마지막 컷을 원본에서 여운만큼
+    #   연장한다. 말끝이 잘리지 않고 화면·소리가 자연스럽게 내려앉는다.
+    여운 = 1.8
+    ext = max(0.0, min(여운, proj["source"]["dur"] - 0.3 - segs[-1]["t1"]))
+    if ext:
+        picture[-1]["t1"] = round(picture[-1]["t1"] + ext, 4)
+        segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext)   # 미리보기·번인 검사도 여운을 본다
+        total = round(total + ext, 4)
+        print(f"끝맺음 여운 +{ext:.1f}s → 총 {total:.1f}s")
 
     subs = sorted(proj["subs"], key=lambda x: x["t"])
     nar_seg = next(s for s in segs if s.get("narration"))
@@ -257,12 +272,6 @@ def main():
     from s2pipe import build as B
     from s2pipe import framing as FR
     sub_top = B.find_burned_subs(dst_src, 1920, 1080, src_info["dur"]) or int(1080 * b["sub_zone_top"])
-    limit_y = sub_top - 12                          # 자막 윗변 위 여유 12px 까지만 담는다
-    s = min(1.20, max(box_h / limit_y, box_h / 1080) * 1.03)   # 3% 여유 · 과도 확대 방지
-    print(f"번인 자막 윗변 실측 y={sub_top} → 담는 한계 y={limit_y} · 확대 {s*100:.1f}%")
-    cy_lo = b["y1"] - (limit_y - b["y0"]) * s       # 이보다 내려가면 번인 자막이 보인다
-    cy_hi = b["y0"] + 540 * s                       # 이보다 올라가면 상단이 빈다
-    px_lo, px_hi = 1080 - 960 * s, 960 * s          # 좌우 빈틈 방지
 
     def grab(t, tag):
         """★frame_at 은 tag 로 캐시한다 — 같은 tag 면 다른 시각도 같은 프레임을 돌려준다(실측).
@@ -309,16 +318,38 @@ def main():
         #   실측: 자막 프레임 행최대 22~35·총 400+ vs 무자막 0~10·총 ≤65.
         #   ★한 순간이라도 검출되면 「있음」이다 — 자막이 드문드문한 컷(컷05 실측: 8샘플 중 1~2개만
         #   강검출)을 「없음」으로 놓치는 것이 오탐보다 치명적이다(사장님 절대 요구).
+        #   자막 윗변도 함께 실측한다 — 전역 중앙값(find_burned_subs)만 믿었다가 여운 구간의
+        #   더 높은 자막(전역 840 vs 실측 ~830)이 한계선을 뚫었다(잔존 게이트가 잡음, 2026-09-01).
+        band0 = int(1080 * 0.70)
+        tops = []
+        found = False
         for j, f in enumerate((0.1, 0.2, 0.35, 0.5, 0.6, 0.7, 0.85, 0.95)):
             try:
-                if 텍스트검출(grab(t0 + (t1 - t0) * f, f"b{t0:.0f}_{j}")[int(1080 * 0.70):, :, :]):
-                    return True
+                hit, top = 텍스트검출(grab(t0 + (t1 - t0) * f, f"b{t0:.0f}_{j}")[band0:, :, :], top=True)
+                if hit:
+                    found = True
+                    if top is not None:
+                        tops.append(band0 + top)
             except Exception:
                 pass
-        return False
+        return found, (min(tops) if tops else None)
+
+    # 1차 — 컷별 번인 유무·자막 윗변 실측
+    burn, tops_all = [], []
+    for seg in segs:
+        f_, t_ = seg_has_burned(seg["t0"], seg["t1"])
+        burn.append(f_)
+        if t_ is not None:
+            tops_all.append(t_)
+    limit_y = min([sub_top] + tops_all) - 12          # 전역 + 컷 실측 중 최솟값 위 여유 12px
+    s = min(1.25, max(box_h / (limit_y - 0), box_h / 1080) * 1.03)
+    print(f"번인 자막 윗변 — 전역 {sub_top} · 컷 실측 최소 {min(tops_all) if tops_all else '없음'} → 한계 y={limit_y} · 확대 {s*100:.1f}%")
+    cy_lo = b["y1"] - (limit_y - b["y0"]) * s
+    cy_hi = b["y0"] + 540 * s
+    px_lo, px_hi = 1080 - 960 * s, 960 * s
 
     for i, (seg, pic) in enumerate(zip(segs, picture)):
-        if not seg_has_burned(seg["t0"], seg["t1"]):
+        if not burn[i]:
             pic["box"] = {"scale": round(box_h / 1080 * 100, 3),
                           "pos": f"0.5:{(b['y0'] + b['y1']) / 2 / CFG['video']['h']:.6f}"}
             print(f"  컷{i+1:02d}: 번인 자막 없음 → 풀샷 유지")
@@ -331,7 +362,9 @@ def main():
     # 미리보기 — 상자에 담길 화면을 컷별 box 값 그대로 잘라 확인용으로 남긴다
     pvdir = os.path.join(out_root, "_미리보기")
     os.makedirs(pvdir, exist_ok=True)
-    for i, (seg, pic) in enumerate(zip(segs, picture)):
+
+    def 미리보기생성():
+      for i, (seg, pic) in enumerate(zip(segs, picture)):
         try:
             sc = pic["box"]["scale"] / 100.0
             pxn, cyn = (float(v) for v in pic["box"]["pos"].split(":"))
@@ -346,19 +379,48 @@ def main():
         except Exception as e:
             print("  미리보기 실패:", e)
 
+    미리보기생성()
+
     # ★잔존 번인 게이트 (절대 재발 금지 — 2026-09-01 사장님 반려 2회) — 상자에 담길 화면의
     #   하단 40% 에서 외곽선 자막이 검출되면 실패다. 판정이 틀려도 여기서 걸린다.
+    #   ★걸린 컷은 자동으로 확대로 승격해 다시 만들고 재검사한다 — 표본 추첨(드문드문한 자막)에
+    #   판정이 흔들려도 게이트가 최종 판정자다.
     import numpy as np
-    잔존 = []
-    for i in range(len(picture)):
-        pv = os.path.join(pvdir, f"컷{i+1:02d}.png")
-        if not os.path.exists(pv):
-            continue
-        a = np.asarray(Image.open(pv).convert("RGB"))
-        if 텍스트검출(a[int(a.shape[0] * 0.60):, :, :], row_min=8, tot_min=30):   # 미리보기는 절반 해상도
-            잔존.append(i + 1)
+
+    def 컷잔존(i):
+        seg, pic = segs[i], picture[i]
+        sc = pic["box"]["scale"] / 100.0
+        pxn, cyn = (float(v) for v in pic["box"]["pos"].split(":"))
+        px_, cy_ = pxn * 1080, cyn * 1920
+        x0 = clamp(960 + (0 - px_) / sc, 0, 1920 - 1080 / sc)
+        y0 = clamp(540 + (b["y0"] - cy_) / sc, 0, 1080 - box_h / sc)
+        for f in (0.2, 0.4, 0.6, 0.8):
+            t = seg["t0"] + (seg["t1"] - seg["t0"]) * f
+            p = os.path.join(wdir, "_gatechk.png")
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
+                            "-frames:v", "1", "-vf",
+                            f"crop={1080/sc:.0f}:{box_h/sc:.0f}:{x0:.0f}:{y0:.0f}", p],
+                           check=True, capture_output=True)
+            a = np.asarray(Image.open(p).convert("RGB"))
+            if 텍스트검출(a[int(a.shape[0] * 0.60):, :, :]):
+                return True
+        return False
+
+    for round_ in range(3):
+        걸림 = [i for i in range(len(picture)) if 컷잔존(i)]
+        if not 걸림:
+            break
+        print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 확대로 승격해 다시 잡는다")
+        for i in 걸림:
+            seg = segs[i]
+            xf, yf = face_center(seg["t0"], seg["t1"], f"g{i}")
+            cy = clamp(970 - (yf - 540) * s, cy_lo, cy_hi)
+            px = clamp(540 - (xf - 960) * s, px_lo, px_hi)
+            picture[i]["box"] = {"scale": round(s * 100, 3), "pos": f"{px / 1080:.6f}:{cy / 1920:.6f}"}
+    잔존 = [i + 1 for i in range(len(picture)) if 컷잔존(i)]
     print(("  [OK] " if not 잔존 else "  [X] ") + f"컷 하단 잔존 번인 자막 0  걸린 컷 {잔존}")
-    assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대·배치를 다시 잡아야 한다"
+    assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대 후에도 남는다"
+    미리보기생성()          # 승격된 컷의 미리보기 갱신
     scale = round(s * 100, 3)
     cy = round((b["y0"] + b["y1"]) / 2 / CFG["video"]["h"], 6)
 
