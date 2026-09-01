@@ -242,6 +242,31 @@ def blob_set_texts(b64: str, texts: list[str]) -> tuple[str, str, dict]:
     assert [r["text"] for r in info["runs"]] == texts, "재파싱 텍스트 불일치"
     return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
 
+def blob_set_fonts(b64: str, font: str) -> tuple[str, str, dict]:
+    """폰트 벡터의 모든 항목을 font 로 바꾼 새 블롭 — blob_set_texts 와 같은 tail relocation.
+    (확정사실 §6 의 폰트 교체 기법. 문자열을 끝에 붙이고 uoffset 만 돌린다 — 서식은 안 건드린다.)
+    2026-09-01 사장님 지시(페이퍼로지 전환)로 도입."""
+    raw = bytearray(base64.b64decode(re.sub(r"\s+", "", b64)))
+    b = bytes(raw)
+    assert struct.unpack_from("<Q", b, 0)[0] == len(raw) - 12 and b[8:12] == MAGIC, "블롭 헤더/매직"
+    root = 12 + _u32(b, 12); p = _fpos(b, root, 0); main = p + _u32(b, p)
+    fp = _fpos(b, main, 1); assert fp is not None, "폰트 벡터 없음"
+    vec = fp + _u32(b, fp); n = _u32(b, vec)
+    els = [vec + 4 + 4 * i for i in range(n)]
+    data = font.encode("utf-8")
+    for el in els:
+        while len(raw) % 4: raw.append(0)
+        new_pos = len(raw)
+        raw += struct.pack("<I", len(data)) + data + bytes([0])
+        while len(raw) % 4: raw.append(0)
+        struct.pack_into("<I", raw, el, new_pos - el)
+    struct.pack_into("<Q", raw, 0, len(raw) - 12)
+    out = base64.b64encode(bytes(raw)).decode("ascii")
+    info = parse_blob(out)
+    assert all(f == font for f in info["fonts"]), "재파싱 폰트 불일치"
+    return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
+
+
 BLOB_RE = re.compile(r'(<StartKeyframeValue Encoding="base64" BinaryHash=")([^"]+)(">)([^<]+)(</StartKeyframeValue>)', re.S)
 
 # 빈 블롭 — 프리미어는 **같은 내용의 블롭을 두 번 쓰지 않는다**. 둘째부터는 본문 없이

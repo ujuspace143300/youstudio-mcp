@@ -20,7 +20,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, os.path.join(ROOT, "도너"))
 from prproj_lib import (Doc, load, save, esc, rewire, set_child, child, collect_lineage,
                         track_set_items, track_items, verify, parse_blob, blob_set_texts,
-                        param_blob, param_set_blob, is_source_text, GRAPHIC_IN, 빈블롭_RE, TPS)
+                        blob_set_fonts, param_blob, param_set_blob, is_source_text,
+                        GRAPHIC_IN, 빈블롭_RE, TPS)
+
+# ★자막 글꼴(2026-09-01 사장님: 페이퍼로지) — 도너 서체(강원교육모두체)를 이걸로 갈아 끼운다.
+#   PS 명은 fontTools 실측. 웨이트는 신병4 납품이 실제로 쓰던 9Black.
+자막폰트 = "Paperlogy-9Black"
 
 DONOR = {
     "트랙": {"V1": "8cc1efd9-3aa0-49be-88c6-70447b6a0d65", "V2": "e3e60490-5a16-4e51-8152-587962bb9260",
@@ -180,6 +185,7 @@ def clone_item(doc, item, alloc, new_blocks, span=None, inout=None, name=None,
                 채움 = param_blob(doc.get(k), doc.xml)
                 b = 빈블롭_RE.sub(lambda m: f'<StartKeyframeValue Encoding="base64" BinaryHash="{m.group(1)}">{채움}</StartKeyframeValue>', b, count=1)
             b64, binhash, info = blob_set_texts(param_blob(b), texts)
+            b64, binhash, info = blob_set_fonts(b64, 자막폰트)     # 페이퍼로지(2026-09-01)
             b = param_set_blob(b, b64, binhash)
             blob_got = "".join(r["text"] for r in info["runs"])
         elif params:
@@ -563,6 +569,27 @@ def main():
     마스터ok = chk.returncode == 0 and b"\xeb\xa9\x80\xed\x8b\xb0\xeb\xb0\xb4\xeb\x93\x9c" in chk.stdout  # «멀티밴드»
     print(("  [OK] " if 마스터ok else "  [X] ") + "마스터 트랙 이펙트(브로드캐스트·−3dB 제한) 주입")
     assert 마스터ok, "마스터 이펙트 주입 실패 — 작업규칙 11번"
+
+    # ── ⑪ 자막 꾸미기 — 그림자 + 아모르 등장 팝 (2026-09-01 사장님: 아모르팝업 프리셋).
+    #    볼트 키트 꾸미기.py — 부품을 새로 만들지 않고 텍스트 «비율 조정» 키프레임만 넣는
+    #    검증된 방식(신병4 납품). 키트 모듈은 평면 복사로 스테이징(볼트 한글 경로 import 함정 회피).
+    import shutil as _sh, tempfile as _tf, unicodedata as _ud
+    kit_src = os.path.expanduser("~/Desktop/유스튜디오-규격서/스크립트/린박스/키트")
+    stage = _tf.mkdtemp(prefix="_kit_")
+    # ★파일명 NFC 정규화 — 볼트 파일명은 NFD 라 import 소스텍스트 가 파일을 못 찾는다(실측)
+    _sh.copy2(os.path.join(kit_src, "꾸미기.py"), os.path.join(stage, "꾸미기.py"))
+    for f in os.listdir(os.path.join(kit_src, "도구")):
+        if f.endswith(".py"):
+            _sh.copy2(os.path.join(kit_src, "도구", f), os.path.join(stage, _ud.normalize("NFC", f)))
+    r = _sp.run([sys.executable, os.path.join(stage, "꾸미기.py"), out_path], capture_output=True)
+    꾸밈ok = r.returncode == 0 and ("넣었다".encode() in r.stdout)
+    print(("  [OK] " if 꾸밈ok else "  [X] ") + "자막 꾸미기(그림자+아모르 팝) — " +
+          (r.stdout.decode(errors="replace").strip().splitlines()[0] if r.stdout else r.stderr.decode(errors="replace")[:80]))
+    assert 꾸밈ok, "자막 꾸미기 실패"
+    # 꾸미기가 옆에 남기는 «꾸미기전» 백업은 납품 폴더를 어지럽히므로 걷는다
+    for f in os.listdir(os.path.dirname(out_path)):
+        if "꾸미기전" in f:
+            os.remove(os.path.join(os.path.dirname(out_path), f))
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
             "A3": (T["A3"], 0), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
