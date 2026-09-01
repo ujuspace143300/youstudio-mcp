@@ -65,13 +65,18 @@ def mc_of(doc, item):
     return re.search(r'<MasterClip ObjectURef="([^"]+)"', doc.get(sub)).group(1)
 
 
-def media_uid(doc, key):
+def media_uids(doc, key):
+    """key 를 경로에 품은 Media **전부** — 키트 도너는 같은 파일에 미디어 객체를 컷마다 만든다(실측 17개).
+       하나만 바꾸면 마스터클립이 다른 객체를 물어 오프라인이 난다 (2026-09-01 실측)."""
+    out = []
     for m in re.finditer(r'<Media ObjectUID="([0-9a-f-]+)"', doc.xml):
         b = doc.get_uid(m.group(1))
         p = re.search(r"<ActualMediaFilePath>([^<]*)</ActualMediaFilePath>", b)
         if p and key in p.group(1):
-            return m.group(1)
-    raise KeyError(key)
+            out.append(m.group(1))
+    if not out:
+        raise KeyError(key)
+    return out
 
 
 def set_param_value(b, value):
@@ -81,15 +86,18 @@ def set_param_value(b, value):
     return b
 
 
-def swap_media(doc, uid, new_path, dur_s, vrect=None, v_rate=None, a_rate=None):
+def swap_media(doc, uid, new_path, dur_s, vrect=None, v_rate=None, a_rate=None, old_key=None):
     """미디어 파일 교체 — 어긋나도 프리미어 「미디어 다시 연결」로 복구 가능한 층."""
     b = doc.get_uid(uid)
     fname = os.path.basename(new_path)
     for tag, val in (("FilePath", new_path), ("ActualMediaFilePath", new_path),
                      ("Title", fname), ("RelativePath", fname), ("MediaFileHistory0", fname),
-                     ("FileKey", str(uuid.uuid4()))):
+                     ("FileKey", str(uuid.uuid4())),
+                     ("ConformedAudioPath", ""), ("PeakFilePath", "")):   # 캐시 경로는 비우면 재생성된다
         if f"<{tag}>" in b:
             b = set_child(b, tag, esc(val))
+    if old_key:   # RelativePath 등이 블록 안에 여러 번(히스토리) — 옛 이름이 든 텍스트 노드 전부 치환
+        b = re.sub(r">([^<]*" + re.escape(old_key) + r"[^<]*)<", ">" + esc(fname) + "<", b)
     doc.replace_uid(uid, b)
     b = doc.get_uid(uid)
     for tag in ("VideoStream", "AudioStream"):
@@ -107,7 +115,11 @@ def swap_media(doc, uid, new_path, dur_s, vrect=None, v_rate=None, a_rate=None):
             sb = set_child(sb, "Duration", str(dur))
             if vrect and tag == "VideoStream":
                 sb = re.sub(r"<FrameRect>0,0,\d+,\d+</FrameRect>", f"<FrameRect>0,0,{vrect[0]},{vrect[1]}</FrameRect>", sb)
+            if old_key:
+                sb = re.sub(r">([^<]*" + re.escape(old_key) + r"[^<]*)<", ">" + esc(fname) + "<", sb)
             doc.replace(int(r), sb)
+    if a_rate and "<ConformedAudioRate>" in doc.get_uid(uid):
+        doc.replace_uid(uid, set_child(doc.get_uid(uid), "ConformedAudioRate", str(a_rate)))
     for m in re.finditer(r'^\t<(\w+MediaSource) ObjectID="(\d+)"', doc.xml, re.M):
         blk = doc.get(int(m.group(2)))
         if f'<Media ObjectURef="{uid}"/>' not in blk:
@@ -116,6 +128,12 @@ def swap_media(doc, uid, new_path, dur_s, vrect=None, v_rate=None, a_rate=None):
             blk = set_child(blk, "OriginalDuration", str(int(dur_s * TPS)))
         if vrect:
             blk = re.sub(r"<FrameRect>0,0,\d+,\d+</FrameRect>", f"<FrameRect>0,0,{vrect[0]},{vrect[1]}</FrameRect>", blk)
+        if v_rate and m.group(1).startswith("Video") and "<FrameRate>" in blk:
+            blk = set_child(blk, "FrameRate", str(v_rate))
+        if a_rate and m.group(1).startswith("Audio") and "<FrameRate>" in blk:
+            blk = set_child(blk, "FrameRate", str(a_rate))
+        if old_key:
+            blk = re.sub(r">([^<]*" + re.escape(old_key) + r"[^<]*)<", ">" + esc(fname) + "<", blk)
         doc.replace(int(m.group(2)), blk)
 
 
@@ -303,6 +321,7 @@ def main():
     refs = {"title": [], "narr": [], "dlg": []}
     tpl_map = {"title": tpl_v3, "narr": tpl_v4, "dlg": tpl_v5}
     blob_bad = []
+    lane_params = {"title": {"위치": tl.get("title_pos", "0.5:0.158854")}, "narr": None, "dlg": None}
     for cue in tl["cues"]:
         lane = cue["lane"]
         t0, t1 = frame_ticks(cue["t0"]), max(frame_ticks(cue["t1"]), frame_ticks(cue["t0"]) + FRAME)
@@ -310,7 +329,8 @@ def main():
         gi = GRAPHIC_IN
         ref, got, _u = clone_item(doc, tpl_map[lane], alloc, new_blocks, span=(t0, t1),
                                   inout=(gi, gi + (t1 - t0)),
-                                  name=cue["text"].replace("\r", " ")[:40], texts=texts)
+                                  name=cue["text"].replace("\r", " ")[:40], texts=texts,
+                                  params=lane_params[lane])
         refs[lane].append(ref)
         if got != cue["text"]:
             blob_bad.append({"lane": lane, "want": cue["text"], "got": got})
@@ -381,10 +401,117 @@ def main():
     items = "".join(f'\n\t\t\t\t<Item Index="{i}" ObjectURef="{u}"/>' for i, u in enumerate(kept + new_cpis))
     doc.replace_uid(root_m.group(1), root[:im.start()] + im.group(1) + items + "\n\t\t\t" + im.group(3) + root[im.end():])
 
-    # ── ⑦ 미디어 교체 — 원본(1920×1080 23.976)·템플릿(길이만) ────────────────
-    swap_media(doc, media_uid(doc, DONOR["미디어키"]["원본"]), tl["source"], tl["source_dur_s"],
-               vrect=(1920, 1080), v_rate=10594584000, a_rate=tl.get("src_audio_tickrate"))
-    swap_media(doc, media_uid(doc, DONOR["미디어키"]["템플릿"]), tl["template"], tl["total_s"] + 1)
+    # ── ⑦ 미디어 교체 — 스트림 메타를 실제 파일 물성과 **전부** 일치시킨다.
+    #    (실측 2026-09-01: 템플릿·나레는 메타=실물이라 정상, 원본은 도너 29.97fps·960 잔재로 오프라인.
+    #     길이만 바꾼 판도 오프라인 — 프리미어는 비디오 메타 불일치에 엄격하다)
+    src_uids = media_uids(doc, DONOR["미디어키"]["원본"])
+    print(f"원본 미디어 객체 {len(src_uids)}개 전부 교체", file=sys.stderr)
+    for mu in src_uids:
+        swap_media(doc, mu, tl["source"], tl["source_dur_s"], old_key=DONOR["미디어키"]["원본"],
+                   vrect=(1920, 1080), v_rate=10594584000, a_rate=tl.get("src_audio_tickrate"))
+    for mu in media_uids(doc, DONOR["미디어키"]["템플릿"]):
+        swap_media(doc, mu, tl["template"], tl["total_s"] + 1)   # 새 파일명이 같아 old_key 스크럽 금지(자기 경로를 뭉갠다)
+    # 로깅 블록(ClipLoggingInfo)의 옛 파일명·캐시 경로도 갈아 준다 — 잔재 46개가 전부 여기 있었다(실측)
+    for m in re.finditer(r'^\t<ClipLoggingInfo ObjectID="(\d+)"', doc.xml, re.M):
+        blk = doc.get(int(m.group(1)))
+        if DONOR["미디어키"]["원본"] not in blk:
+            continue
+        for tag, val in (("ClipName", os.path.basename(tl["source"])),
+                         ("RelativePath", os.path.basename(tl["source"])),
+                         ("ConformedAudioPath", ""), ("PeakFilePath", "")):
+            if f"<{tag}>" in blk:
+                blk = set_child(blk, tag, esc(val))
+        doc.replace(int(m.group(1)), blk)
+    # 되읽기 게이트 ① — 파일 전체에 도너 원본 경로·물성 잔재가 없어야 한다
+    잔재 = [tok for tok in (DONOR["미디어키"]["원본"], "8475667200", "0,0,1920,960") if tok in doc.xml]
+    print(("  [OK] " if not 잔재 else "  [X] ") + f"도너 원본 잔재 0  남음 {잔재}")
+    for tok in 잔재:
+        for m in list(re.finditer(re.escape(tok), doc.xml))[:3]:
+            s = doc.xml.rfind("\n\t<", 0, m.start())
+            tag = re.search(r"<(\w+)>[^<]*$", doc.xml[max(0, m.start() - 80):m.start()])
+            print(f"    잔재 「{tok}」 in {doc.xml[s:s+80].strip().splitlines()[0][:70]} · 태그 {tag and tag.group(1)}", file=sys.stderr)
+    # 되읽기 게이트 ② — V1 첫 컷의 마스터클립 사슬을 따라간 실제 미디어 경로 = 우리 원본
+    it0 = track_items(doc, T["V1"])[0][0]
+    mc0 = mc_of(doc, it0)
+    ids0, uids0 = collect_lineage(doc, [mc0])
+    got_paths = set()
+    for u in uids0 | {mc0}:
+        try:
+            p = re.search(r"<ActualMediaFilePath>([^<]*)</ActualMediaFilePath>", doc.get_uid(u))
+            if p:
+                got_paths.add(p.group(1))
+        except KeyError:
+            pass
+    ok_path = got_paths == {tl["source"]}
+    print(("  [OK] " if ok_path else "  [X] ") + f"컷 마스터클립 → 미디어 경로 = 원본.mp4  실제 {sorted(got_paths)}")
+    assert not 잔재 and ok_path, "미디어 교체 불완전 — 위 게이트 참조"
+    # 패널 표시 이름 — 컷 마스터클립·해당 프로젝트 항목의 도너 이름을 우리 원본으로
+    src_name = os.path.basename(tl["source"])
+    doc.replace_uid(mc0, set_child(doc.get_uid(mc0), "Name", esc(src_name)))
+    for m in re.finditer(r'^\t<ClipProjectItem ObjectUID="([^"]+)"', doc.xml, re.M):
+        blk = doc.get_uid(m.group(1))
+        if f'<MasterClip ObjectURef="{mc0}"/>' in blk:
+            doc.replace_uid(m.group(1), set_child(blk, "Name", esc(src_name)))
+
+    # ── ⑧ 도너 잔여 자산 청소 — 트랙이 안 쓰는 마스터클립(신병 원음·나레·효과음·옛 그래픽)을
+    #    프로젝트 패널에서 걷어낸다. 참조 GC 가 공유물(원본 Media 등)은 지키므로 안전하다.
+    used_mcs = set()
+    for uid in T.values():
+        for it in track_items(doc, uid)[0]:
+            try:
+                used_mcs.add(mc_of(doc, it))
+            except Exception:
+                pass
+    # 시퀀스 계보 전체 = 살아있는 집합. 시퀀스 자신의 마스터클립도 여기 포함된다(실측 — 빠뜨리면
+    # 시퀀스가 통째로 쓸려나간다). 후보에서 무조건 뺀다.
+    alive_i, alive_u = collect_lineage(doc, [seq_uid])
+    alive = {str(x) for x in alive_i} | alive_u | {seq_uid}
+    used_mcs |= {u for u in alive_u if u in {m.group(1) for m in re.finditer(r'^\t<MasterClip ObjectUID="([0-9a-f-]+)"', doc.xml, re.M)}}
+    root_m = re.search(r'^\t<RootProjectItem ObjectUID="([^"]+)"', doc.xml, re.M)
+    root = doc.get_uid(root_m.group(1))
+    im = re.search(r'(<Items Version="\d+">)(.*?)(</Items>)', root, re.S)
+    kept2, pruned = [], []
+    for u in re.findall(r'<Item Index="\d+" ObjectURef="([^"]+)"/>', im.group(2)):
+        try:
+            mc = re.search(r'<MasterClip ObjectURef="([^"]+)"', doc.get_uid(u))
+        except KeyError:
+            kept2.append(u)          # 블록을 못 읽으면 건드리지 않는다
+            continue
+        # 마스터클립이 없는 항목(시퀀스·빈)은 무조건 남긴다 — 지우면 시퀀스가 통째로 쓸려나간다(실측)
+        (pruned if (mc and mc.group(1) not in used_mcs) else kept2).append(u)
+    items2 = "".join(f'\n\t\t\t\t<Item Index="{i}" ObjectURef="{u}"/>' for i, u in enumerate(kept2))
+    doc.replace_uid(root_m.group(1), root[:im.start()] + im.group(1) + items2 + "\n\t\t\t" + im.group(3) + root[im.end():])
+    cand_i, cand_u = set(), set(pruned)
+    for u in pruned:
+        try:
+            i_, u_ = collect_lineage(doc, [u])
+            cand_i |= i_
+            cand_u |= u_
+        except KeyError:
+            pass
+    for m in re.finditer(r'^\t<MasterClip ObjectUID="([0-9a-f-]+)"', doc.xml, re.M):
+        if m.group(1) in used_mcs:
+            continue
+        try:
+            i_, u_ = collect_lineage(doc, [m.group(1)])
+            cand_i |= i_
+            cand_u |= u_ | {m.group(1)}
+        except KeyError:
+            pass
+    rm2 = ({str(x) for x in cand_i} | cand_u) - alive
+    referrers2 = {}
+    for bm in re.finditer(r'^\t<(\w+) (?:ObjectU?ID)="([^"]+)"[^>]*>(.*?)^\t</\1>', doc.xml, re.M | re.S):
+        for t in re.findall(r'Object(?:Ref|URef)="([^"]+)"', bm.group(3)):
+            referrers2.setdefault(t, set()).add(bm.group(2))
+    changed = True
+    while changed:
+        changed = False
+        for cand in list(rm2):
+            if any(r not in rm2 for r in referrers2.get(cand, ())):
+                rm2.discard(cand)
+                changed = True
+    cleaned = doc.remove_many(rm2)
+    print(f"도너 잔여 자산 청소 — 프로젝트 항목 {len(pruned)}개 정리 · 블록 {cleaned}개 제거", file=sys.stderr)
 
     save(out_path, doc.xml)
 
