@@ -366,6 +366,7 @@ def main():
     refs = {"title": [], "narr": [], "dlg": []}
     tpl_map = {"title": tpl_v3, "narr": tpl_v4, "dlg": tpl_v5}
     blob_bad = []
+    dlg_colors = []                     # refs["dlg"] 와 나란히 — 층 분리(⑥b)에 쓴다
     # 제목 클론은 화면 밖(y 1.8)으로 — 보이는 제목은 껍데기가 담당한다 (2026-09-01)
     lane_params = {"title": {"위치": tl.get("title_pos", "0.5:1.8")}, "narr": None, "dlg": None}
     for cue in tl["cues"]:
@@ -378,6 +379,8 @@ def main():
                                   name=cue["text"].replace("\r", " ")[:40], texts=texts,
                                   params=lane_params[lane], color=cue.get("color"))
         refs[lane].append(ref)
+        if lane == "dlg":
+            dlg_colors.append(tuple(cue["color"]) if cue.get("color") else None)
         if got != cue["text"]:
             blob_bad.append({"lane": lane, "want": cue["text"], "got": got})
     assert refs["title"], "제목 클론이 없다 — V3 를 비우면 프리미어가 거부한다(2026-09-01 실측). 준비 스크립트가 title 큐를 내야 한다"
@@ -409,7 +412,45 @@ def main():
     track_set_items(doc, T["A3"], a3_sfx, transitions=[])
     track_set_items(doc, T["V3"], refs["title"], transitions=[])
     track_set_items(doc, T["V4"], refs["narr"], transitions=[])
-    track_set_items(doc, T["V5"], refs["dlg"], transitions=[])
+
+    # ── ⑥b 화자별 층 분리 (2026-09-02 사장님: 색깔별로 트랙을 나눠라) ─────────
+    #    V5 = 기본색(화자1). 다른 색은 V5 블록을 본떠 만든 새 트랙 V6·V7·… 에 얹는다.
+    #    실측 구조: 트랙 = VideoClipTrack 블록(ObjectUID·<ID>·<Index>×3) +
+    #    VideoTrackGroup 의 Track 목록·NextTrackID 등록이 전부다.
+    색순서 = []
+    for c in dlg_colors:
+        if c is not None and c not in 색순서:
+            색순서.append(c)
+    v5_refs = [r for r, c in zip(refs["dlg"], dlg_colors) if c is None]
+    분리 = [(c, [r for r, c2 in zip(refs["dlg"], dlg_colors) if c2 == c]) for c in 색순서]
+    if not v5_refs and 분리:            # 기본색 줄이 없으면 첫 그룹이 V5 를 지킨다(빈 트랙 방지)
+        v5_refs = 분리.pop(0)[1]
+    새트랙 = []                          # (라벨, uid, refs, color)
+    if 분리:
+        tg_m = re.search(r'^\t<VideoTrackGroup ObjectID="(\d+)"', doc.xml, re.M)
+        tg_id = int(tg_m.group(1))
+        tg = doc.get(tg_id)
+        assert T["V5"] in tg, "비디오 트랙 그룹에 V5 가 없다"
+        base_blk = doc.get_uid(T["V5"])
+        기존트랙 = re.findall(r'<Track Index="\d+" ObjectURef="([^"]+)"/>', tg)
+        next_tid = int(child(tg, "NextTrackID"))
+        for k, (color, grp) in enumerate(분리):
+            nu = str(uuid.uuid4())
+            nb = base_blk.replace(f'ObjectUID="{T["V5"]}"', f'ObjectUID="{nu}"', 1)
+            nb = re.sub(r"<ID>\d+</ID>", f"<ID>{next_tid + k}</ID>", nb, count=1)
+            nb = re.sub(r"<Index>\d+</Index>", f"<Index>{len(기존트랙) + k}</Index>", nb)
+            doc.append([nb])
+            track_set_items(doc, nu, grp)
+            새트랙.append((f"V{6 + k}", nu, grp, color))
+        rows = "".join(f'\n\t\t\t\t<Track Index="{i}" ObjectURef="{u}"/>'
+                       for i, u in enumerate(기존트랙 + [t[1] for t in 새트랙]))
+        tg = re.sub(r'(<Tracks Version="1">).*?(</Tracks>)',
+                    lambda m: m.group(1) + rows + "\n\t\t\t" + m.group(2), tg, count=1, flags=re.S)
+        tg = set_child(tg, "NextTrackID", str(next_tid + len(새트랙)))
+        doc.replace(tg_id, tg)
+        print("화자별 층 분리 — V5(기본색) " + str(len(v5_refs)) + "장 · " +
+              " · ".join(f"{lb} {len(g)}장 RGB{tuple(c)}" for lb, _u, g, c in 새트랙), file=sys.stderr)
+    track_set_items(doc, T["V5"], v5_refs)
 
     seq = doc.get_uid(seq_uid)
     links_inner = "".join(f'\n\t\t\t\t\t<Link Index="{i}" ObjectRef="{l}"/>' for i, l in enumerate(links))
@@ -749,10 +790,29 @@ def main():
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
             "A3": (T["A3"], len(a3_sfx)), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
-            "V4": (T["V4"], len(refs["narr"])), "V5": (T["V5"], len(refs["dlg"]))}
+            "V4": (T["V4"], len(refs["narr"])), "V5": (T["V5"], len(v5_refs))}
+    for lb, nu, grp, _c in 새트랙:
+        want[lb] = (nu, len(grp))
     res = verify(out_path, want)
     res["checks"].append({"check": "블롭 재파싱 = 넣은 텍스트", "pass": not blob_bad, "detail": f"불일치 {len(blob_bad)}"})
-    ok = res["pass"] and not blob_bad
+    # 되읽기 게이트(2026-09-02) — 층 = 색. 트랙마다 자막 채움색이 그 트랙 색과 전부 같아야 한다.
+    doc2 = Doc(load(out_path))
+    층색오류 = []
+    분리색들 = {tuple(t[3]) for t in 새트랙}
+    for lb, uid, _grp, color in [("V5", T["V5"], v5_refs, None)] + [(t[0], t[1], t[2], t[3]) for t in 새트랙]:
+        for it in track_items(doc2, uid)[0]:
+            ids_, _u, _s = lineage_stopped(doc2, it)
+            st = [i for i in ids_ if is_source_text(doc2.get(i))]
+            if not st:
+                층색오류.append((lb, it, "소스텍스트 없음")); continue
+            got = parse_blob(param_blob(doc2.get(st[0]), doc2.xml))["runs"][0].get("color")
+            if color is not None and got != list(color):
+                층색오류.append((lb, it, got))
+            if color is None and got and tuple(got) in 분리색들:
+                층색오류.append((lb, it, got))          # 기본색 트랙에 다른 화자 색이 섞임
+    res["checks"].append({"check": "트랙별 자막 색 단일(층=색)", "pass": not 층색오류,
+                          "detail": f"트랙 {1 + len(새트랙)}개 · 오류 {len(층색오류)} {층색오류[:3]}"})
+    ok = res["pass"] and not blob_bad and not 층색오류
     for c in res["checks"]:
         print(("  [OK] " if c["pass"] else "  [X] ") + str(c["check"]) + "  " + str(c.get("detail", "")))
     print(f"저장 {out_path}: 컷 {len(v_refs)} · 나레 {len(a2_refs)} · 제목 {len(refs['title'])} · "
