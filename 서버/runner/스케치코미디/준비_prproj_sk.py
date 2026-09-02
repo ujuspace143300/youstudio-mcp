@@ -90,22 +90,33 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
               f"  사람을 비추는 컷(리버스샷)이 많다. 입 움직임·목소리·대화 맥락(질문과 대답은\n"
               f"  보통 화자가 교대한다)으로 판정하라.\n"
               f"- 사람이 말하는 대사가 아닌 줄(상황 설명·괄호·효과)은 \"효과\" 로.\n"
-              f"JSON 만: {{\"cast\":{{\"1\":\"겉모습\",...}},\"who\":[줄별 값,...]}} — "
-              f"who 는 줄 수 {len(lines)}개와 같아야 한다.\n\n{목록}")
+              f"JSON 만, 공백 없이 한 줄로. ★who 를 먼저: {{\"who\":[줄별 값,...],"
+              f"\"cast\":{{\"1\":\"겉모습\",...}}}} — who 는 줄 수 {len(lines)}개와 같아야 한다.\n\n{목록}")
     표, cast = [], {}
+    import re as _re2
     for n회 in range(회수):
         try:
             payload = {"contents": [{"role": "user", "parts": [
                 {"inline_data": {"mime_type": "video/mp4", "data": vid}},
                 {"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 2500, "responseMimeType": "application/json"}}
+                "generationConfig": {"maxOutputTokens": 6000, "responseMimeType": "application/json"}}
             txt, _r, _m = gem.ask(payload, models, timeout=600)
-            j = json.loads(txt)
-            who = [str(w) for w in j["who"]]
-            assert len(who) == len(lines)
+            try:
+                j = json.loads(txt)
+                who = [str(w) for w in j["who"]]
+                c = {str(k): str(v) for k, v in (j.get("cast") or {}).items()}
+            except Exception:
+                # ★응답이 뒤에서 잘려도(2026-09-03 3회 연속 실측) who 배열만 온전하면 살린다
+                #   — 그래서 프롬프트가 who 를 앞에 쓰게 한다.
+                m = _re2.search(r'"who"\s*:\s*\[(.*?)\]', txt or "", _re2.S)
+                if not m:
+                    raise
+                who = [w.strip().strip('"') for w in m.group(1).split(",")]
+                c = {}
+            assert len(who) == len(lines), f"who {len(who)}개 ≠ 줄 {len(lines)}개"
             표.append(who)
-            if not cast:
-                cast = {str(k): str(v) for k, v in (j.get("cast") or {}).items()}
+            if not cast and c:
+                cast = c
         except Exception as e:
             print(f"화자 판정 {n회 + 1}회차 실패:", str(e)[:60])
     if not 표:
@@ -165,17 +176,19 @@ def 댓글선별(pngs, logline, want=(10, 15)):
                                       "data": base64.b64encode(open(p, "rb").read()).decode()}})
     payload = {"contents": [{"role": "user", "parts": parts}],
                "generationConfig": {"maxOutputTokens": 1000, "responseMimeType": "application/json"}}
-    try:
-        txt, _r, _m = gem.ask(payload, models, timeout=300)
-        import re as _re
-        m = _re.search(r"\[[\d,\s]+\]", txt or "")
-        picks = [i for i in json.loads(m.group(0) if m else "x") if 0 <= int(i) < len(pngs)]
-        picks = list(dict.fromkeys(int(i) for i in picks))
-        assert len(picks) >= want[0]
-        return [pngs[i] for i in picks[:want[1]]]
-    except Exception as e:
-        print("댓글 선별 실패 — 앞 12장 사용:", str(e)[:60])
-        return pngs[:12]
+    import re as _re
+    for 시도 in range(2):                      # ★빈 응답이 잦다(2026-09-03 실측) — 한 번 더 준다
+        try:
+            txt, _r, _m = gem.ask(payload, models, timeout=300)
+            m = _re.search(r"\[[\d,\s]+\]", txt or "")
+            picks = [i for i in json.loads(m.group(0) if m else "x") if 0 <= int(i) < len(pngs)]
+            picks = list(dict.fromkeys(int(i) for i in picks))
+            assert len(picks) >= want[0]
+            return [pngs[i] for i in picks[:want[1]]]
+        except Exception as e:
+            print(f"댓글 선별 {시도 + 1}차 실패:", str(e)[:60])
+    print("댓글 선별 실패 — 앞 12장 사용")
+    return pngs[:12]
 
 
 def main():
