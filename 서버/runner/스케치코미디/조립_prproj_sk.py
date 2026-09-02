@@ -654,7 +654,17 @@ def main():
                 except Exception:
                     pass"""
     assert _OLD in 아모르src, "아모르입히기 패치 지점을 못 찾았다 — 도구가 바뀌었나"
-    open(os.path.join(stage, "아모르입히기.py"), "w", encoding="utf-8").write(아모르src.replace(_OLD, _NEW))
+    아모르src = 아모르src.replace(_OLD, _NEW)
+    # ★패치 2 — 볼트 아모르_부품의 파라미터 이름은 «위치 (Position)» 처럼 영문 꼬리가 붙는다.
+    #   도구의 정확 일치 비교가 전부 스킵돼 붙박이 값·원본 키프레임이 그대로 복제됐다(2026-09-02
+    #   실측: 자막이 위로 솟고 175% 로 커짐 — 문서가 경고한 바로 그 사고). 접두 일치로 바꾼다.
+    _fixes = [("if 이름 in ('위치', '기준점'):", "if 이름.startswith(('위치', '기준점')):"),
+              ("elif 이름 == '비율 조정':", "elif 이름.startswith('비율 조정'):"),
+              ("elif 이름 in ('폭 비율 조정', '회전'):", "elif 이름.startswith(('폭 비율 조정', '회전')):")]
+    for _o, _n in _fixes:
+        assert _o in 아모르src, "아모르입히기 패치 2 지점을 못 찾았다: " + _o
+        아모르src = 아모르src.replace(_o, _n)
+    open(os.path.join(stage, "아모르입히기.py"), "w", encoding="utf-8").write(아모르src)
     ass_p = os.path.join(os.path.dirname(out_path), "_아모르팝.ass")
     with open(ass_p, "w", encoding="utf-8") as f:
         f.write("[Script Info]\nScriptType: v4.00+\n\n[Events]\n"
