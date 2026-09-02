@@ -56,6 +56,32 @@ def 배경맞춤(img, bg):
     return _I.fromarray(a, "RGBA")
 
 
+def 화자판정(lines, cut_mp4, logline):
+    """대사 줄마다 화자 번호(1·2·3…) 또는 «효과»(상황·효과 자막)를 모델이 배정한다 (EvoLink 무료).
+       실패하면 전부 None(현상 유지 — 색 구분 없이)."""
+    import base64
+    from s2pipe import gem
+    from s2pipe.cfg import CFG as _C
+    models = _C.get("gemini", {}).get("models", ["gemini-3.5-flash"])
+    목록 = "\n".join(f"{i}. {t}" for i, t in enumerate(lines))
+    try:
+        payload = {"contents": [{"role": "user", "parts": [
+            {"inline_data": {"mime_type": "video/mp4",
+                             "data": base64.b64encode(open(gem.shrink_for_inline(cut_mp4), "rb").read()).decode()}},
+            {"text": (f"숏폼({logline})의 자막 줄 목록이다. 영상을 보고 줄마다 **말하는 사람**을 배정하라.\n"
+                      f"- 등장인물마다 1·2·3… 번호를 **일관되게** 붙인다(같은 사람은 항상 같은 번호).\n"
+                      f"- 사람이 말하는 대사가 아닌 줄(상황 설명·괄호·효과)은 \"효과\" 로.\n"
+                      f"JSON 만: {{\"who\":[줄별 값,...]}} — 줄 수 {len(lines)}개와 같아야 한다.\n\n{목록}")},
+        ]}], "generationConfig": {"maxOutputTokens": 2000, "responseMimeType": "application/json"}}
+        txt, _r, _m = gem.ask(payload, models, timeout=600)
+        who = json.loads(txt)["who"]
+        assert len(who) == len(lines)
+        return [str(w) for w in who]
+    except Exception as e:
+        print("화자 판정 실패 — 색 구분 없이 간다:", str(e)[:60])
+        return [None] * len(lines)
+
+
 def 댓글선별(pngs, logline, want=(10, 15)):
     """댓글 카드 PNG 중 편 내용과 어울리는 것을 모델이 고른다 (EvoLink 무료 한도).
        ★최소 10장(2026-09-01 사장님). 판정이 실패하면 앞에서 12장을 그대로 쓴다."""
@@ -287,6 +313,23 @@ def main():
         cues.append({"lane": "dlg", "t0": round(t0f / F, 4), "t1": round(t1f / F, 4), "text": x["text"]})
     if 숨김:
         print(f"나레이션과 겹쳐 감춘 대사 자막 {숨김}줄")
+
+    # ★화자별 자막 색 (2026-09-02 사장님) — 화자마다 색, 효과자막은 나레와 같은 노랑.
+    #   화자1 은 기본색 유지(주인공), 파스텔 팔레트라 눈이 편하다. 나레(V4)는 건드리지 않는다.
+    dlg_cues = [c for c in cues if c["lane"] == "dlg"]
+    who = 화자판정([c["text"] for c in dlg_cues], os.path.join(wdir, "cut.mp4"), proj.get("logline", ""))
+    팔레트 = {"효과": (245, 244, 37), "2": (135, 206, 250), "3": (255, 182, 193),
+              "4": (144, 238, 144), "5": (255, 200, 150)}          # 4·5는 예비(화자가 더 많을 때)
+    from collections import Counter
+    if any(w for w in who):
+        # 가장 많이 말한 화자 = 1번(기본색) 로 정규화 — 모델이 번호를 어떤 순서로 매겨도 주인공은 기본색
+        말수 = Counter(w for w in who if w and w != "효과")
+        순위 = [w for w, _n in 말수.most_common()]
+        재배 = {w: str(i + 1) for i, w in enumerate(순위)}
+        for c, w in zip(dlg_cues, who):
+            key = "효과" if w == "효과" else (재배.get(w) if w else None)
+            c["color"] = list(팔레트[key]) if key in 팔레트 else None
+        print("화자 분포:", dict(Counter(("효과" if w == "효과" else 재배.get(w, "?")) for w in who if w)))
 
     # 상자 배치 — ★원본 번인 자막이 상자 밖으로 잘려나가게 확대하고, 컷마다 얼굴 중심을 맞춘다
     #   (2026-09-01 사장님: 원본 자막과 우리 자막이 겹친다 — 확대+인물 포커싱으로 가리지 말고 잘라내라)

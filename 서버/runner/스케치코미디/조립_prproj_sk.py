@@ -20,8 +20,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, os.path.join(ROOT, "도너"))
 from prproj_lib import (Doc, load, save, esc, rewire, set_child, child, collect_lineage,
                         track_set_items, track_items, verify, parse_blob, blob_set_texts,
-                        blob_set_fonts, param_blob, param_set_blob, is_source_text,
-                        GRAPHIC_IN, 빈블롭_RE, TPS)
+                        blob_set_fonts, blob_set_colors, param_blob, param_set_blob,
+                        is_source_text, GRAPHIC_IN, 빈블롭_RE, TPS)
 
 # ★자막 글꼴(2026-09-01 사장님: 페이퍼로지) — 도너 서체(강원교육모두체)를 이걸로 갈아 끼운다.
 #   PS 명은 fontTools 실측. 웨이트는 신병4 납품이 실제로 쓰던 9Black.
@@ -154,7 +154,7 @@ def lineage_stopped(doc, item):
 
 
 def clone_item(doc, item, alloc, new_blocks, span=None, inout=None, name=None,
-               params=None, texts=None):
+               params=None, texts=None, color=None):
     """아이템 전 계보 복제 (마스터클립은 공유). texts 를 주면 소스 텍스트 블롭도 바꾼다."""
     ids, uids, _stop = lineage_stopped(doc, item)
     ids = sorted(ids, key=int)
@@ -186,6 +186,8 @@ def clone_item(doc, item, alloc, new_blocks, span=None, inout=None, name=None,
                 b = 빈블롭_RE.sub(lambda m: f'<StartKeyframeValue Encoding="base64" BinaryHash="{m.group(1)}">{채움}</StartKeyframeValue>', b, count=1)
             b64, binhash, info = blob_set_texts(param_blob(b), texts)
             b64, binhash, info = blob_set_fonts(b64, 자막폰트)     # 페이퍼로지(2026-09-01)
+            if color:                                              # 화자별 색(2026-09-02)
+                b64, binhash, info = blob_set_colors(b64, [list(color)] * len(info["runs"]))
             b = param_set_blob(b, b64, binhash)
             blob_got = "".join(r["text"] for r in info["runs"])
         elif params:
@@ -374,7 +376,7 @@ def main():
         ref, got, _u = clone_item(doc, tpl_map[lane], alloc, new_blocks, span=(t0, t1),
                                   inout=(gi, gi + (t1 - t0)),
                                   name=cue["text"].replace("\r", " ")[:40], texts=texts,
-                                  params=lane_params[lane])
+                                  params=lane_params[lane], color=cue.get("color"))
         refs[lane].append(ref)
         if got != cue["text"]:
             blob_bad.append({"lane": lane, "want": cue["text"], "got": got})
