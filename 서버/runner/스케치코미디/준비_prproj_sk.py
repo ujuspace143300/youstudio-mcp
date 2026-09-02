@@ -56,30 +56,78 @@ def 배경맞춤(img, bg):
     return _I.fromarray(a, "RGBA")
 
 
-def 화자판정(lines, cut_mp4, logline):
-    """대사 줄마다 화자 번호(1·2·3…) 또는 «효과»(상황·효과 자막)를 모델이 배정한다 (EvoLink 무료).
-       실패하면 전부 None(현상 유지 — 색 구분 없이)."""
+def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회수=3):
+    """대사 줄마다 화자 번호(1·2·3…) 또는 «효과»를 배정한다 (EvoLink 무료 경로).
+
+    ★2026-09-02 사장님 지시(같은 화자 색 바뀜 재발 금지)로 전면 개편 —
+      한 번 판정을 그대로 믿다가 같은 사람이 두 색으로 갈렸다. 원인 셋:
+      ① 줄에 시각이 없어 모델이 자막↔영상 정렬을 혼자 맞춰야 했다 → 시각을 준다.
+      ② 인물 정체를 고정하는 장치가 없어 장면이 바뀌면 같은 사람에 새 번호가 붙었다
+         → 겉모습(cast) 목록을 먼저 쓰게 강제하고, 사람이 아는 화자 수를 힌트로 준다.
+      ③ 검증 없이 1회 판정 → 독립 3회 판정 후 번호를 정렬해 다수결. 과반 미달 줄은
+         «불안정»으로 보고한다(게이트).
+
+    반환 (who, 불안정줄번호목록, cast설명). 전부 실패하면 ([None]*n, [], {})."""
     import base64
+    from collections import Counter
     from s2pipe import gem
     from s2pipe.cfg import CFG as _C
     models = _C.get("gemini", {}).get("models", ["gemini-3.5-flash"])
-    목록 = "\n".join(f"{i}. {t}" for i, t in enumerate(lines))
-    try:
-        payload = {"contents": [{"role": "user", "parts": [
-            {"inline_data": {"mime_type": "video/mp4",
-                             "data": base64.b64encode(open(gem.shrink_for_inline(cut_mp4), "rb").read()).decode()}},
-            {"text": (f"숏폼({logline})의 자막 줄 목록이다. 영상을 보고 줄마다 **말하는 사람**을 배정하라.\n"
-                      f"- 등장인물마다 1·2·3… 번호를 **일관되게** 붙인다(같은 사람은 항상 같은 번호).\n"
-                      f"- 사람이 말하는 대사가 아닌 줄(상황 설명·괄호·효과)은 \"효과\" 로.\n"
-                      f"JSON 만: {{\"who\":[줄별 값,...]}} — 줄 수 {len(lines)}개와 같아야 한다.\n\n{목록}")},
-        ]}], "generationConfig": {"maxOutputTokens": 2000, "responseMimeType": "application/json"}}
-        txt, _r, _m = gem.ask(payload, models, timeout=600)
-        who = json.loads(txt)["who"]
-        assert len(who) == len(lines)
-        return [str(w) for w in who]
-    except Exception as e:
-        print("화자 판정 실패 — 색 구분 없이 간다:", str(e)[:60])
-        return [None] * len(lines)
+    if times:
+        목록 = "\n".join(f"{i}. [{t:.1f}초] {s}" for i, (t, s) in enumerate(zip(times, lines)))
+    else:
+        목록 = "\n".join(f"{i}. {s}" for i, s in enumerate(lines))
+    힌트 = (f"- 이 영상의 화자는 {예상화자수}명으로 알려져 있다(효과 제외). "
+            f"그보다 많게 나누려거든 정말 다른 사람인지 겉모습을 다시 확인하라.\n") if 예상화자수 else ""
+    vid = base64.b64encode(open(gem.shrink_for_inline(cut_mp4), "rb").read()).decode()
+    prompt = (f"숏폼({logline})의 자막 줄 목록이다. 줄 앞 [초]는 그 자막이 영상에 뜨는 시각이다.\n"
+              f"영상을 보고 줄마다 **말하는 사람**을 배정하라.\n"
+              f"- 먼저 등장인물 목록(cast)을 만들어라 — 번호마다 겉모습(성별·옷·자리)을 한 줄로.\n"
+              f"  같은 사람은 장면이 바뀌어도 **반드시 같은 번호**다. 목소리도 근거로 써라.\n"
+              f"{힌트}"
+              f"- 시각을 이용해 그 순간 말하는 사람을 확인하라.\n"
+              f"- 사람이 말하는 대사가 아닌 줄(상황 설명·괄호·효과)은 \"효과\" 로.\n"
+              f"JSON 만: {{\"cast\":{{\"1\":\"겉모습\",...}},\"who\":[줄별 값,...]}} — "
+              f"who 는 줄 수 {len(lines)}개와 같아야 한다.\n\n{목록}")
+    표, cast = [], {}
+    for n회 in range(회수):
+        try:
+            payload = {"contents": [{"role": "user", "parts": [
+                {"inline_data": {"mime_type": "video/mp4", "data": vid}},
+                {"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 2500, "responseMimeType": "application/json"}}
+            txt, _r, _m = gem.ask(payload, models, timeout=600)
+            j = json.loads(txt)
+            who = [str(w) for w in j["who"]]
+            assert len(who) == len(lines)
+            표.append(who)
+            if not cast:
+                cast = {str(k): str(v) for k, v in (j.get("cast") or {}).items()}
+        except Exception as e:
+            print(f"화자 판정 {n회 + 1}회차 실패:", str(e)[:60])
+    if not 표:
+        print("화자 판정 전부 실패 — 색 구분 없이 간다")
+        return [None] * len(lines), [], {}
+    # 회차마다 번호 체계가 다를 수 있다 — 1회차 기준으로 겹침 최대 매칭(그리디)으로 재명명
+    기준 = 표[0]
+    맞춘 = [기준]
+    for run in 표[1:]:
+        쌍 = Counter((a, b) for a, b in zip(run, 기준) if a != "효과" and b != "효과")
+        사상, 씀 = {}, set()
+        for (a, b), _n in 쌍.most_common():
+            if a not in 사상 and b not in 씀:
+                사상[a] = b
+                씀.add(b)
+        맞춘.append(["효과" if w == "효과" else 사상.get(w, w) for w in run])
+    who, 불안정 = [], []
+    for i in range(len(lines)):
+        표결 = Counter(r[i] for r in 맞춘)
+        값, 표수 = 표결.most_common(1)[0]
+        who.append(값)
+        if 표수 * 2 <= len(맞춘):                      # 과반 미달 = 회차끼리 갈렸다
+            불안정.append(i)
+    print(f"화자 판정 {len(맞춘)}회 표결 — 과반 일치 {len(lines) - len(불안정)}/{len(lines)}줄")
+    return who, 불안정, cast
 
 
 def 댓글선별(pngs, logline, want=(10, 15)):
@@ -317,7 +365,9 @@ def main():
     # ★화자별 자막 색 (2026-09-02 사장님) — 화자마다 색, 효과자막은 나레와 같은 노랑.
     #   화자1 은 기본색 유지(주인공), 파스텔 팔레트라 눈이 편하다. 나레(V4)는 건드리지 않는다.
     dlg_cues = [c for c in cues if c["lane"] == "dlg"]
-    who = 화자판정([c["text"] for c in dlg_cues], os.path.join(wdir, "cut.mp4"), proj.get("logline", ""))
+    who, 불안정, cast = 화자판정([c["text"] for c in dlg_cues], os.path.join(wdir, "cut.mp4"),
+                                proj.get("logline", ""), times=[c["t0"] for c in dlg_cues],
+                                예상화자수=proj.get("화자수"))
     팔레트 = {"효과": (245, 244, 37), "2": (135, 206, 250), "3": (255, 182, 193),
               "4": (144, 238, 144), "5": (255, 200, 150)}          # 4·5는 예비(화자가 더 많을 때)
     from collections import Counter
@@ -330,6 +380,16 @@ def main():
             key = "효과" if w == "효과" else (재배.get(w) if w else None)
             c["color"] = list(팔레트[key]) if key in 팔레트 else None
         print("화자 분포:", dict(Counter(("효과" if w == "효과" else 재배.get(w, "?")) for w in who if w)))
+        for 원, 겉 in cast.items():
+            print(f"  화자{재배.get(원, 원)}: {겉}")
+        # ★게이트(2026-09-02) — 회차끼리 갈린 줄은 색이 틀렸을 확률이 높다. 명단을 보고하고
+        #   완성 보고에 «화자 검사» 항목으로 남긴다. 불안정 줄이 있으면 사람 눈 확인 필수.
+        if 불안정:
+            print(f"★화자 불안정 {len(불안정)}줄 — 눈으로 확인 필요:")
+            for i in 불안정:
+                print(f"   [{dlg_cues[i]['t0']:.1f}초] {dlg_cues[i]['text'][:30]}")
+        if proj.get("화자수") and len(말수) != int(proj["화자수"]):
+            print(f"★화자 수 불일치 — 판정 {len(말수)}명 vs 사장님 확인 {proj['화자수']}명. 보고 필요.")
 
     # 상자 배치 — ★원본 번인 자막이 상자 밖으로 잘려나가게 확대하고, 컷마다 얼굴 중심을 맞춘다
     #   (2026-09-01 사장님: 원본 자막과 우리 자막이 겹친다 — 확대+인물 포커싱으로 가리지 말고 잘라내라)
