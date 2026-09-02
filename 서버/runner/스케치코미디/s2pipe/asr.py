@@ -77,22 +77,35 @@ def words_of(job_id):
 
 
 def to_lines(words, max_chars, gap=0.55):
-    """단어를 자막 줄로 묶는다. 말이 끊기는 자리(공백)와 글자수로 끊는다."""
-    lines, cur, start = [], [], None
+    """단어를 자막 줄로 묶는다 — 말 쉼(gap)이 1순위. 글자수에 걸리면 문장 한중간을
+    싹둑 자르지 않고 ★뭉치 안에서 가장 크게 쉰 자리로 되끊는다(2026-09-03,
+    «…다음 / 주까지야» «잠 / 오는 사람» 실측 후 개정)."""
+    lines, cur = [], []                       # cur: [{"w","t","e"}...]
+
+    def emit(part):
+        if part:
+            lines.append({"t": round(part[0]["t"], 2), "text": " ".join(x["w"] for x in part)})
+
     for i, w in enumerate(words):
         if w["type"] == "punctuation":
             if cur:
-                cur[-1] += w["w"]
+                cur[-1]["w"] += w["w"]
             continue
-        if start is None:
-            start = w["t"]
-        cur.append(w["w"])
-        nxt = words[i + 1] if i + 1 < len(words) else None
-        long_gap = nxt and (nxt["t"] - w["e"]) >= gap
-        too_long = len(" ".join(cur)) >= max_chars
-        if long_gap or too_long or nxt is None:
-            lines.append({"t": round(start, 1), "text": " ".join(cur)})
-            cur, start = [], None
+        cur.append({"w": w["w"], "t": w["t"], "e": w["e"]})
+        nxt = next((x for x in words[i + 1:] if x["type"] != "punctuation"), None)
+        if nxt is None or (nxt["t"] - w["e"]) >= gap:
+            emit(cur)
+            cur = []
+        elif len(" ".join(x["w"] for x in cur)) >= max_chars:
+            if len(cur) > 1:
+                gaps = [cur[k + 1]["t"] - cur[k]["e"] for k in range(len(cur) - 1)]
+                k = max(range(len(gaps)), key=lambda j: gaps[j])
+                emit(cur[:k + 1])
+                cur = cur[k + 1:]
+            else:
+                emit(cur)
+                cur = []
+    emit(cur)
     return lines
 
 

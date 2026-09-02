@@ -1,27 +1,23 @@
 # -*- coding: utf-8 -*-
-"""자막의 **시각만** 실제 발화에 맞춘다. 문구는 건드리지 않는다.
-요금이 나가지 않는다 — 이미 받아 둔 ASR 결과를 쓴다.
+"""대사 자막을 **ASR(단어 전사) 기준으로 다시 짠다** — 시각·커버리지는 ASR, 문구는 모델.
 
     python -m s2pipe.asr  projects/<편>.json     먼저 (★ASR 요금)
-    python -m s2pipe.sync projects/<편>.json     그다음 (공짜)
+    python -m s2pipe.sync projects/<편>.json     그다음 (EvoLink 무료 경로 1회)
 
-■ 왜 필요한가
-    모델은 영상을 **보고 시각을 추정한다.** 실측하니 줄마다 -1.1 ~ +1.6초로
-    제각각 어긋났다(중앙은 +0.12초라 「전체가 밀린」 것도 아니다). 그래서 보정이
-    아니라 **줄 단위로 맞춰야** 한다.
+■ 왜 이 구조인가 (2026-09-03 Deep02 사건으로 전면 개정)
+    이전엔 「모델이 쓴 자막표」를 원천으로 두고 시각만 ASR 에 맞췄다. 그런데 표가
+    통째로 틀린 편에서 두 결함이 같이 터졌다 — ① 표에 없는 대사(14.4·16.7초)는
+    자막이 **아예 없고**, ② 의역이라 글자 정렬 닻이 약해 보간 잔차가 ±2초 남았다.
+    근본 원인은 원천이 추정이라는 것. 그래서 뒤집는다:
+      · **시각·줄 나눔·커버리지 = subs_asr** (Speechmatics 단어 실측 — 참값)
+      · **문구 = 모델이 영상을 보며 ASR 줄을 제자리에서 다듬는다** (오인식 교정 —
+        「잭팟→책팟」 실측이 있어 ASR 문구를 그대로 쓰지 않는다. 줄 수·순서 불변을
+        기계로 강제하고, 다듬기가 실패하면 ASR 원문에서 구두점만 걷어 쓴다)
+      · **괄호 효과자막**(`(샤프 탁)` 류 — 소리에 없음)만 옛 모델 표에서 가져오되,
+        강근거 글자 정렬로 매핑한 시각에 놓는다.
 
-■ 어떻게
-    ASR 단어를 이어 붙인 글자열과 자막을 이어 붙인 글자열을 맞대어(difflib),
-    각 자막의 첫 글자가 ASR 의 어느 글자에 닿는지 찾고 그 글자가 속한 단어의
-    시각을 쓴다. 강제정렬을 글자 단위로 흉내 낸 것이다.
-
-■ ★문구는 ASR 것을 쓰지 않는다
-    오인식이 많다 — 실측에서 「잭팟」이 「책팟」, 「지명아」가 「안녕아」로 나왔다.
-    읽는 재미가 생명인 채널이라 문구는 모델이 다듬은 것을 그대로 둔다.
-
-■ ★괄호 자막은 ASR 에 없다
-    `(샤프 탁)` 같은 상황 자막은 소리로 안 잡히므로 맞출 수가 없다 —
-    **앞뒤로 맞춰진 줄 사이에 고르게 끼워 넣는다.**
+■ 다시 돌려도 같은 결과 — 원천이 subs_asr·subs_before_sync(옛 모델 표)라 몇 번을
+    돌려도 이미 옮긴 값에 다시 맞추는 일이 없다.
 """
 import difflib
 import json
@@ -29,15 +25,62 @@ import os
 import re
 import sys
 
-# ★한 번 맞춘 뒤 다시 돌리면 이미 옮긴 값에 또 맞추게 된다. `subs_before_sync` 가
-#   있으면 **거기서부터** 다시 맞춘다 — 그래야 몇 번을 돌려도 같은 결과가 나온다.
-
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, HERE)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 CLEAN = re.compile(r"[\s.,!?~…()（）\[\]\"'·]")
+구두점 = re.compile(r"[.,…·]")          # 채널 절대규칙 — 마침표·쉼표 금지 (? ! 허용)
+
+
+def 정돈(text):
+    return re.sub(r"\s+", " ", 구두점.sub("", text)).strip()
+
+
+def 작표(words, slug, logline):
+    """★2026-09-03 구조 — 모델은 «몇 번 단어부터 한 줄인지»(경계)와 문구만 고른다.
+       각 줄의 시각은 무조건 그 시작 단어의 실측 시각이다 — 모델이 시각을 틀릴 방법이 없다.
+       (기계 휴리스틱은 «…다음 / 주까지야» 같은 어중간한 경계를 남겼고, 모델 자유작표는
+        시각·커버리지를 통째로 틀렸다 — 각자 잘하는 것만 맡긴다.)
+       반환: [{"t", "text"}] 또는 None(실패 — 호출부가 쉼 기준 묶음으로 폴백)."""
+    말 = [(i, w) for i, w in enumerate(words) if w.get("type") != "punctuation"]
+    try:
+        import base64
+        from s2pipe import gem
+        from s2pipe.cfg import CFG as _C
+        models = _C.get("gemini", {}).get("models", ["gemini-3.5-flash"])
+        cut = os.path.join(HERE, _C["paths"]["work"], slug, "cut.mp4")
+        목록 = " ".join(f"{i}:{w['w']}({w['t']:.1f})" for i, w in 말)
+        prompt = (f"숏폼({logline})의 단어 전사다. 형식 = 번호:단어(초).\n"
+                  f"영상을 보고 자막 줄을 짜라 — 각 줄은 «시작 단어 번호(i)»와 «문구(text)»만 낸다.\n"
+                  f"- 줄 경계는 말 뭉치·호흡 단위로. 한 줄 화면 표시 8~16자.\n"
+                  f"- 문구는 그 줄 구간의 말을 다듬은 것 — 오인식 교정, 추임새 정리, 뜻·말투 유지.\n"
+                  f"  없는 말을 지어내지 마라.\n"
+                  f"- i 는 오름차순, 첫 줄은 i={말[0][0]}. 마침표·쉼표·말줄임표 금지(? ! 허용).\n"
+                  f"JSON 만, 공백 없이 한 줄: {{\"lines\":[{{\"i\":번호,\"text\":\"문구\"}},...]}}\n\n{목록}")
+        payload = {"contents": [{"role": "user", "parts": [
+            {"inline_data": {"mime_type": "video/mp4",
+                             "data": base64.b64encode(open(gem.shrink_for_inline(cut), "rb").read()).decode()}},
+            {"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 8000, "responseMimeType": "application/json"}}
+        txt, _r, _m = gem.ask(payload, models, timeout=600)
+        rows = json.loads(txt)["lines"]
+        out, last = [], -1
+        for r in rows:
+            i, tx = int(r["i"]), 정돈(str(r["text"]))
+            assert 0 <= i < len(words), f"단어 번호 밖: {i}"
+            if i <= last or not tx:
+                continue                                   # 역행·빈 문구는 앞 줄에 흡수
+            out.append({"t": round(float(words[i]["t"]), 2), "text": tx})
+            last = i
+        assert 8 <= len(out) <= 80, f"줄 수 이상: {len(out)}"
+        assert rows and int(rows[0]["i"]) == 말[0][0], "첫 발화가 자막 밖이다"
+        return out
+    except Exception as e:
+        print("모델 작표 실패 — 쉼 기준 묶음(ASR 원문)으로 간다:", str(e)[:70])
+        return None
 
 
 def main():
@@ -48,134 +91,104 @@ def main():
     proj = json.load(open(pj, encoding="utf-8"))
 
     words = proj.get("asr_words") or []
-    if not words:
+    asr_lines = proj.get("subs_asr") or []
+    if not words or not asr_lines:
         print("ASR 결과가 없다 — 먼저 `python -m s2pipe.asr` 를 돌려라 (★요금)")
         return 1
 
+    # 옛 모델 표 — 괄호 효과자막의 출처이자, 재실행 시 항상 같은 원천
     src = proj.get("subs_before_sync") or proj.get("subs", [])
-    subs = sorted([dict(s) for s in src if s.get("kind") != "narr"],
-                  key=lambda x: x["t"])
-    if not subs:
-        print("맞출 자막이 없다")
-        return 1
+    narr = [s for s in src if s.get("kind") == "narr"]
+    model_dlg = sorted([dict(s) for s in src if s.get("kind") != "narr"], key=lambda x: x["t"])
 
-    # ASR — 글자마다 시각을 달아 둔다.
-    # ★단어 글자는 `w` 키다(`text` 가 아니다). 한 번 틀려서 **0자**가 나왔고,
-    #   그대로 진행돼 자막이 통째로 0.8초 간격으로 뭉개졌다 — 아래 안전장치 참고.
-    achars, atimes = [], []
+    # ── ① 대사 자막 — 시각 = 시작 단어 실측, 경계·문구 = 모델 (실패 시 쉼 기준 묶음) ──
+    dlg = 작표(words, proj["slug"], proj.get("logline", ""))
+    출처 = "모델 경계·문구 + 단어 실측 시각"
+    if dlg is None:
+        출처 = "쉼 기준 묶음(ASR 원문)"
+        dlg = [{"t": round(float(l["t"]), 2), "text": 정돈(l["text"])}
+               for l in asr_lines if 정돈(l["text"])]
+    print(f"대사 자막 {len(dlg)}줄 — {출처}")
+
+    # ── ② 괄호 효과자막 — 옛 모델 표에서 가져와 강근거 정렬로 시각 매핑 ────────
+    괄호 = [s for s in model_dlg if s.get("text", "").lstrip().startswith("(")]
+    if 괄호:
+        achars, atimes = [], []
+        for w in words:
+            for ch in CLEAN.sub("", w.get("w") or w.get("text") or ""):
+                achars.append(ch)
+                atimes.append(w["t"])
+        sub_s, heads = "", []
+        for s in model_dlg:
+            heads.append(len(sub_s))
+            sub_s += CLEAN.sub("", s.get("text", ""))
+        blocks = [b for b in difflib.SequenceMatcher(None, sub_s, "".join(achars),
+                                                     autojunk=False).get_matching_blocks() if b.size > 0]
+
+        def at(pos):
+            for a, b, size in blocks:
+                if a <= pos < a + size and size >= 8:      # 8자 이상 = 우연일 수 없는 닻
+                    return atimes[b + (pos - a)]
+            return None
+        닻 = [(model_dlg[i]["t"], t) for i in range(len(model_dlg))
+              if (t := at(heads[i])) is not None]
+        def 매핑(t원):
+            if not 닻:
+                return t원
+            앞 = [(o, n) for o, n in 닻 if o <= t원]
+            뒤 = [(o, n) for o, n in 닻 if o > t원]
+            if 앞 and 뒤:
+                (o0, n0), (o1, n1) = 앞[-1], 뒤[0]
+                r = (t원 - o0) / (o1 - o0) if o1 > o0 else 0.5
+                return n0 + r * (n1 - n0)
+            base = (앞[-1] if 앞 else 뒤[0])
+            return t원 + (base[1] - base[0])
+        for s in 괄호:
+            새 = round(매핑(s["t"]), 2)
+            print(f"  괄호 자막 {s['t']:6.2f} → {새:6.2f}  {s['text'][:20]}")
+            dlg.append({"t": 새, "text": 정돈(s["text"]) or s["text"]})
+
+    # 버린 모델 줄 보고 — 말로 실재하는 것은 ASR 줄이 이미 덮는다
+    버림 = len(model_dlg) - len(괄호)
+    if 버림:
+        print(f"옛 모델 표의 대사 {버림}줄은 ASR 줄이 대신한다 (커버리지·시각 참값)")
+
+    # ── ②b 6초 넘게 걸치는 줄 쪼개기 — 가사처럼 느린 발화는 한 줄이 10초를 덮는다(실측).
+    #    자막 표시 최대(6초)를 넘는 구간은 넘친 첫 단어부터 ASR 원문으로 줄을 보강한다.
+    dlg.sort(key=lambda x: x["t"])
+    말들 = [w for w in words if w.get("type") != "punctuation"]
+    보강 = []
+    for k, d in enumerate(dlg):
+        끝 = dlg[k + 1]["t"] if k + 1 < len(dlg) else 10 ** 9
+        넘침 = [w for w in 말들 if d["t"] + 5.5 < w["t"] < 끝]
+        while 넘침:
+            t0 = 넘침[0]["t"]
+            그룹 = [w for w in 넘침 if w["t"] - t0 <= 5.5]
+            tx = 정돈(" ".join(w["w"] for w in 그룹))
+            if tx:
+                보강.append({"t": round(t0, 2), "text": tx})
+            넘침 = [w for w in 넘침 if w["t"] - t0 > 5.5]
+    if 보강:
+        print(f"  6초 초과 줄 보강 {len(보강)}줄: " + " · ".join(f"{b['t']:.1f}s" for b in 보강))
+        dlg += 보강
+
+    # ── ③ 커버리지 게이트 — 모든 발화 단어는 자기 자막 줄 시작에서 6초(표시 최대) 안 ──
+    dlg.sort(key=lambda x: x["t"])
+    시작들 = [d["t"] for d in dlg]
+    구멍 = []
     for w in words:
-        for ch in CLEAN.sub("", w.get("w") or w.get("text") or ""):
-            achars.append(ch)
-            atimes.append(w["t"])
-    asr_s = "".join(achars)
-    if len(asr_s) < 10:
-        print(f"★ASR 글자가 {len(asr_s)}자뿐이다 — 단어를 못 읽었다."
-              f"\n  키를 확인하라(첫 단어: {json.dumps(words[0], ensure_ascii=False)})")
-        return 1
-
-    # 자막 — 각 줄의 첫 글자가 몇 번째인지
-    sub_s, heads = "", []
-    for s in subs:
-        heads.append(len(sub_s))
-        sub_s += CLEAN.sub("", s.get("text", ""))
-
-    sm = difflib.SequenceMatcher(None, sub_s, asr_s, autojunk=False)
-    blocks = [b for b in sm.get_matching_blocks() if b.size > 0]
-    matched = sum(b.size for b in blocks)
-    print(f"ASR {len(words)}단어({len(asr_s)}자) · 자막 {len(subs)}줄({len(sub_s)}자)"
-          f" · 맞물린 덩어리 {len(blocks)}개({matched}자, {matched/max(len(sub_s),1)*100:.0f}%)")
-    # ★★**안 맞으면 손대지 않는다.** 한 번 매칭 0개인 채로 진행해 자막을 통째로
-    #   뭉개 먹었다. 고칠 근거가 없으면 그대로 두는 편이 언제나 낫다.
-    if matched < len(sub_s) * 0.25:
-        print("★맞물린 글자가 너무 적다 — 자막을 건드리지 않고 멈춘다."
-              "\n  ASR 이 다른 영상 것이거나 말이 거의 없는 편일 수 있다.")
-        return 1
-
-    def at(pos):
-        """자막 글자 위치 → ASR 시각. 못 찾으면 None."""
-        for a, b, size in blocks:
-            if a <= pos < a + size:
-                return atimes[b + (pos - a)]
-        nxt = [(a, b) for a, b, _ in blocks if a > pos]
-        return atimes[nxt[0][1]] if nxt else None
-
-    # ★★**너무 멀리 옮기는 것은 맞춘 게 아니라 잘못 붙은 것이다.** 대사가 적은 편은
-    #   ASR 글자가 짧아 엉뚱한 곳에 매칭된다 — 실측에서 8.85초를 옮기려 한 적이
-    #   있다. 그런 줄은 **원래 시각을 지킨다**(모델 추정이 8초 틀릴 리는 없다).
-    lim = float(os.environ.get("SYNC_MAX_SHIFT", "2.5"))
-
-    def anchor_size(pos):
-        """줄 머리글자가 들어 있는 맞물린 덩어리의 길이 — 정렬 근거의 세기."""
-        for a, _b, size in blocks:
-            if a <= pos < a + size:
-                return size
-        return 0
-
-    # ★2026-09-03 Deep02 사건 — 모델 자막표가 통째로(최대 ±9초) 틀린 편에서는
-    #   2.5초 제한이 **고쳐야 할 줄 21/24를 되돌려** 싱크가 다 어긋난 채 나갔다.
-    #   8글자 이상 연속으로 맞물린 정렬은 우연히 붙을 수 없다 — 그런 줄은 멀리도 옮긴다.
-    #   제한은 근거가 약한 줄(머리글자가 덩어리 밖·짧은 덩어리)에만 적용한다.
-    강근거 = int(os.environ.get("SYNC_STRONG_ANCHOR", "8"))
-    fixed, moved, wild = [], [], 0
-    for i, s in enumerate(subs):
-        t = at(heads[i])
-        if t is not None and abs(t - s["t"]) > lim and anchor_size(heads[i]) < 강근거:
-            wild += 1
-            t = None
-        fixed.append(t)
-        if t is not None:
-            moved.append(t - s["t"])
-    if wild:
-        print(f"  ★{lim:.1f}초 넘게 튀었는데 근거도 약해({강근거}자 미만) 되돌린 줄 "
-              f"{wild}/{len(subs)} — 그 줄은 원래 시각을 지킨다")
-
-    # 못 맞춘 줄(괄호 자막·되돌린 줄) — ★2026-09-03 개정: 원래 시각을 절대값으로 믿지
-    #   않는다. 표가 통째로 틀린 편에서 그대로 두면 강근거 줄과 순서가 꼬여 0.25초
-    #   간격으로 뭉개졌다(실측). **이웃 강근거 줄 사이에 원래 간격 비례로 끼워 넣는다.**
-    #   (예전에 끼워 넣기가 실패한 것은 강근거 줄까지 되돌리던 시절 얘기다 — 지금은
-    #    닻이 믿을 만하다. 표가 멀쩡한 편에서는 이동이 거의 0이라 무해하다.)
-    strong = [i for i, t in enumerate(fixed) if t is not None]
-    for i in range(len(fixed)):
-        if fixed[i] is not None:
+        if w.get("type") == "punctuation":
             continue
-        prev = max((j for j in strong if j < i), default=None)
-        nxt = min((j for j in strong if j > i), default=None)
-        if prev is not None and nxt is not None:
-            o0, o1 = subs[prev]["t"], subs[nxt]["t"]
-            r = (subs[i]["t"] - o0) / (o1 - o0) if o1 > o0 else 0.5
-            fixed[i] = fixed[prev] + r * (fixed[nxt] - fixed[prev])
-        elif prev is not None:
-            fixed[i] = subs[i]["t"] + (fixed[prev] - subs[prev]["t"])
-        elif nxt is not None:
-            fixed[i] = subs[i]["t"] + (fixed[nxt] - subs[nxt]["t"])
-        else:
-            fixed[i] = subs[i]["t"]
+        덮는 = max((t for t in 시작들 if t <= w["t"] + 0.05), default=None)
+        if 덮는 is None or w["t"] - 덮는 > 6.0:
+            구멍.append(round(w["t"], 1))
+    print(("  [OK] " if not 구멍 else "  [X] ") +
+          f"발화 커버리지 — 단어 {sum(1 for w in words if w.get('type') != 'punctuation')}개 중 "
+          f"자막 밖 {len(구멍)}개 {구멍[:6]}")
+    assert not 구멍, "커버리지 구멍 — 위 목록"
 
-    # 순서가 뒤집히지 않게 — 앞줄보다 뒤로만 간다
-    for i in range(1, len(fixed)):
-        if fixed[i] <= fixed[i - 1]:
-            fixed[i] = fixed[i - 1] + 0.25
-
-    big = 0
-    for i, s in enumerate(subs):
-        d = fixed[i] - s["t"]
-        if abs(d) > 0.3:
-            big += 1
-            print(f"  {s['t']:6.2f} → {fixed[i]:6.2f}  {d:+.2f}  {s['text'][:22]}")
-        s["t"] = round(fixed[i], 2)
-
-    if moved:
-        moved.sort()
-        n = len(moved)
-        print(f"\n  맞춰진 줄 {n}/{len(subs)} · 옮긴 폭 중앙 {moved[n//2]:+.2f}초"
-              f" · 최대 {max(abs(moved[0]), abs(moved[-1])):.2f}초")
-    print(f"  0.3초 넘게 옮긴 줄 {big}/{len(subs)}")
-
-    # ★손대기 전 자막을 남겨 둔다 — 잘못 맞추면 되돌릴 데가 있고, 다시 돌릴 때
-    #   **이미 옮긴 값이 아니라 원본에서부터** 맞추게 된다.
     proj.setdefault("subs_before_sync", [dict(x) for x in src])
-    other = [s for s in src if s.get("kind") == "narr"]
-    proj["subs"] = sorted(subs + other, key=lambda x: x["t"])
+    proj["subs"] = sorted(dlg + narr, key=lambda x: x["t"])
     json.dump(proj, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     print(f"\n저장: {pj}\n★대본이 바뀌었으니 다시 검사해야 제작할 수 있다.")
     return 0
