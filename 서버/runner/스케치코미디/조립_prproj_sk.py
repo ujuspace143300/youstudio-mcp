@@ -660,7 +660,17 @@ def main():
     #   실측: 자막이 위로 솟고 175% 로 커짐 — 문서가 경고한 바로 그 사고). 접두 일치로 바꾼다.
     _fixes = [("if 이름 in ('위치', '기준점'):", "if 이름.startswith(('위치', '기준점')):"),
               ("elif 이름 == '비율 조정':", "elif 이름.startswith('비율 조정'):"),
-              ("elif 이름 in ('폭 비율 조정', '회전'):", "elif 이름.startswith(('폭 비율 조정', '회전')):")]
+              ("elif 이름 in ('폭 비율 조정', '회전'):", "elif 이름.startswith(('폭 비율 조정', '회전')):"),
+              # ★패치 3 — 되튐 보간 보존(2026-09-02 사장님 «원래대로 안 튄다»).
+              #   도구의 줄 재작성은 보간 필드를 평평하게 갈아 밋밋해진다. 부품 원본 키프레임
+              #   (베지어 오버슈트 5·-134.31·137.03)을 그대로 두고 **값만 끝=100 으로 정규화**한다.
+              ("            줄 = ''.join('%d,%g.,0,0,0,0.16666666666666666,0,0.16666666666666666;'\n"
+               "                         % (int(round(t3 * TICK)), v * 100.0 / 끝값) for t3, v in 점)",
+               "            _kf0 = re.search(r'<Keyframes>([^<]*)</Keyframes>', 도막)\n"
+               "            _entries = [e for e in (_kf0.group(1) if _kf0 else '').split(';') if e.strip()]\n"
+               "            _끝 = float(_entries[-1].split(',')[1]) if _entries else 100.0\n"
+               "            줄 = ''.join(','.join([p[0], '%.6f' % (float(p[1]) * 100.0 / _끝)] + p[2:]) + ';'\n"
+               "                         for p in (e.split(',') for e in _entries))")]
     for _o, _n in _fixes:
         assert _o in 아모르src, "아모르입히기 패치 2 지점을 못 찾았다: " + _o
         아모르src = 아모르src.replace(_o, _n)
