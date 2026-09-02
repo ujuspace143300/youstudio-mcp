@@ -12,21 +12,37 @@ import argparse, json, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from 준비_prproj_sk import 화자판정  # noqa: E402
+from 준비_prproj_sk import 화자판정, 화자교정적용  # noqa: E402
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("timeline")
-    ap.add_argument("--cut", required=True)
+    ap.add_argument("--cut", default=None)
     ap.add_argument("--화자수", type=int, default=None)
     ap.add_argument("--logline", default="")
+    ap.add_argument("--project", default=None, help="projects/<슬러그>.json — 화자교정을 읽는다")
+    ap.add_argument("--교정만", action="store_true", help="재판정 없이 사장님 화자교정만 적용")
     a = ap.parse_args()
 
     tl = json.load(open(a.timeline, encoding="utf-8"))
     dlg = [c for c in tl["cues"] if c.get("lane") == "dlg"]
     assert dlg, "대사 큐가 없다"
+    팔레트교 = {"효과": (245, 244, 37), "2": (135, 206, 250), "3": (255, 182, 193),
+                "4": (144, 238, 144), "5": (255, 200, 150)}
+    교정 = (json.load(open(a.project, encoding="utf-8")).get("화자교정") if a.project else None) or {}
 
+    if a.교정만:
+        이전 = [list(c["color"]) if c.get("color") else None for c in dlg]
+        n = 화자교정적용(dlg, 교정, 팔레트교)
+        for c, old in zip(dlg, 이전):
+            if c.get("color") != old:
+                print(f"  [{c['t0']:6.1f}초] {old} → {c.get('color')}  {c['text'][:24]}")
+        json.dump(tl, open(a.timeline, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        print(f"교정 {n}줄 적용 · 저장: {a.timeline}")
+        return
+
+    assert a.cut, "--cut 이 필요하다 (--교정만이 아니면)"
     who, 불안정, cast = 화자판정([c["text"] for c in dlg], a.cut, a.logline,
                                 times=[c["t0"] for c in dlg], 예상화자수=a.화자수)
     assert any(w for w in who), "판정 전부 실패 — 색을 바꾸지 않는다"
@@ -57,6 +73,9 @@ def main():
             print(f"   [{dlg[i]['t0']:.1f}초] {dlg[i]['text'][:30]}")
     if a.화자수 and len(말수) != a.화자수:
         print(f"★화자 수 불일치 — 판정 {len(말수)}명 vs 지정 {a.화자수}명")
+    n교정 = 화자교정적용(dlg, 교정, 팔레트교)
+    if n교정:
+        print(f"사장님 화자교정 {n교정}줄 강제 적용 — 판정보다 우선한다")
 
     json.dump(tl, open(a.timeline, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("저장:", a.timeline)
