@@ -237,6 +237,29 @@ def main():
     # 제목 텍스트 클론은 유지하되 **화면 밖**에 둔다 — 보이는 제목은 껍데기에 굽는다.
     #   (구조를 열렸던 판과 동일하게 유지하기 위함. V3 를 비우거나 다른 견본을 넣은 판은
     #    프리미어가 「손상」으로 거부했다 — 2026-09-01 실측 2회)
+    # 효과음 (2026-09-02 사장님 승인 — 최소 원칙 3개): 훅=dun · 절정(P4)=dudun · 반전(P5)=gaze.
+    #   아모르 팩 mp3 → 모노 48k wav(끝 0.4s 페이드·-6dB). 위치는 이야기 구조(phase 경계)에서 자동.
+    sfx_dir = os.path.expanduser("~/Desktop/볼케이노 MCP/린박스_배포키트/자산/sfx_amor")
+    sfx = []
+    if os.path.isdir(sfx_dir):
+        i4 = next((i for i, s_ in enumerate(segs) if s_["phase"] == 4), None)
+        i5 = next((i for i, s_ in enumerate(segs) if s_["phase"] == 5), None)
+        for 이름, 라벨, pi in (("dun", "훅", 0), ("dudun", "절정", i4), ("gaze", "반전", i5)):
+            if pi is None:
+                continue
+            srcm = os.path.join(sfx_dir, 이름 + ".mp3")
+            if not os.path.exists(srcm):
+                continue
+            w = os.path.join(sdir, f"효과음_{라벨}.wav")
+            dur0 = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                         "-of", "csv=p=0", srcm], check=True, capture_output=True).stdout)
+            run(["ffmpeg", "-y", "-v", "error", "-i", srcm, "-ac", "1", "-ar", "48000",
+                 "-c:a", "pcm_s16le", "-af", f"afade=t=out:st={max(0, dur0-0.4):.2f}:d=0.4,volume=-6dB", w])
+            t0_ = picture[pi]["t0"]
+            sfx.append({"wav": w, "t0": round(t0_, 3), "t1": round(min(t0_ + dur0, total), 3),
+                        "text": f"효과음 {라벨} {이름}"})
+        print(f"효과음 {len(sfx)}개: " + " · ".join(s_['text'] for s_ in sfx))
+
     cues = [{"lane": "title", "t0": 0.0, "t1": round(total, 3), "text": proj["title"][0] + "\r" + proj["title"][1]}]
     cues.append({"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]})
     # 대사 큐 — 60fps 격자에서 끝 = min(시작+6초, 다음 시작) 로 겹침 0 을 보장한다.
@@ -429,7 +452,7 @@ def main():
           "src_audio_tickrate": src_info["audio_tickrate"],
           "template": dst_tpl,
           "box": {"scale": scale, "pos": f"0.5:{cy}"},
-          "picture": picture, "narration": narration, "cues": cues}
+          "picture": picture, "narration": narration, "sfx": sfx, "cues": cues}
     out = os.path.join(out_root, "timeline_sk.json")
     json.dump(tl, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("생성:", out)

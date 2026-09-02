@@ -295,14 +295,16 @@ def main():
         print(f"나레 덕킹 조각 {duck_cnt}개 (-15dB)", file=sys.stderr)
 
     # ── ② 나레 (A2) — 계보 복제 + 우리 wav (미디어까지 새로) ────────────────
-    a2_refs, new_cpis = [], []
+    a2_refs, a3_sfx, new_cpis = [], [], []
     mc_nar = mc_of(doc, tpl_a2)
     cpi_nar = None
     for m in re.finditer(r'^\t<ClipProjectItem ObjectUID="([^"]+)"', doc.xml, re.M):
         if f'<MasterClip ObjectURef="{mc_nar}"/>' in doc.get_uid(m.group(1)):
             cpi_nar = m.group(1)
             break
-    for nar in tl["narration"]:
+    # 나레(A2) + 효과음(A3, 2026-09-02 사장님 승인) — 둘 다 wav 클립이라 같은 복제 경로를 쓴다
+    소리들 = [(n, "A2") for n in tl["narration"]] + [(s, "A3") for s in tl.get("sfx", [])]
+    for nar, 소리트랙 in 소리들:
         wav = os.path.normpath(nar["wav"])
         fname = os.path.basename(wav)
         w = wave.open(wav)
@@ -331,7 +333,8 @@ def main():
                 if child(b, "InPoint") is not None:
                     b = set_child(set_child(b, "InPoint", "0"), "OutPoint", str(length))
             elif k == "SubClip":
-                b = set_child(b, "Name", esc("나레 " + nar["text"][:20]))
+                라벨 = nar["text"][:24] if 소리트랙 == "A3" else "나레 " + nar["text"][:20]
+                b = set_child(b, "Name", esc(라벨))
             elif k == "AudioStream":
                 b = set_child(set_child(b, "FrameRate", str(tick_rate)), "Duration", str(dur_ticks))
             elif k == "AudioMediaSource":
@@ -354,7 +357,7 @@ def main():
             new_blocks.append(emit(rewire(doc.get(k), idmap, uidmap)))
         for u in uids:
             new_blocks.append(emit(rewire(doc.get_uid(u), idmap, uidmap)))
-        a2_refs.append(idmap[int(tpl_a2)])
+        (a2_refs if 소리트랙 == "A2" else a3_sfx).append(idmap[int(tpl_a2)])
         new_cpis.append(uidmap[cpi_nar])
 
     # ── ③ 텍스트 — 제목(V3)·나레 자막(V4)·대사(V5) ──────────────────────────
@@ -401,7 +404,7 @@ def main():
     track_set_items(doc, T["V1"], v_refs)
     track_set_items(doc, T["A1"], a_refs, transitions=[])
     track_set_items(doc, T["A2"], a2_refs, transitions=[])
-    track_set_items(doc, T["A3"], [], transitions=[])
+    track_set_items(doc, T["A3"], a3_sfx, transitions=[])
     track_set_items(doc, T["V3"], refs["title"], transitions=[])
     track_set_items(doc, T["V4"], refs["narr"], transitions=[])
     track_set_items(doc, T["V5"], refs["dlg"], transitions=[])
@@ -743,7 +746,7 @@ def main():
     print(f"  [OK] 팝 키프레임 보정 — 컨테이너 {shifted}개를 소재 구간으로 리베이스 + 스톱워치 켬")
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
-            "A3": (T["A3"], 0), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
+            "A3": (T["A3"], len(a3_sfx)), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
             "V4": (T["V4"], len(refs["narr"])), "V5": (T["V5"], len(refs["dlg"]))}
     res = verify(out_path, want)
     res["checks"].append({"check": "블롭 재파싱 = 넣은 텍스트", "pass": not blob_bad, "detail": f"불일치 {len(blob_bad)}"})
