@@ -812,7 +812,14 @@ def main():
                 층색오류.append((lb, it, got))          # 기본색 트랙에 다른 화자 색이 섞임
     res["checks"].append({"check": "트랙별 자막 색 단일(층=색)", "pass": not 층색오류,
                           "detail": f"트랙 {1 + len(새트랙)}개 · 오류 {len(층색오류)} {층색오류[:3]}"})
-    ok = res["pass"] and not blob_bad and not 층색오류
+    # 게이트(2026-09-02 사장님 «템플릿 빠짐») — 템플릿 실물 길이가 시퀀스 총길이 이상이어야 한다
+    import subprocess as _sp
+    tpl_dur = float(_sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "csv=p=0", tl["template"]], check=True, capture_output=True).stdout)
+    tpl_ok = tpl_dur + 1e-3 >= tl["total_s"]
+    res["checks"].append({"check": "템플릿 길이 ≥ 시퀀스 총길이", "pass": tpl_ok,
+                          "detail": f"템플릿 {tpl_dur:.2f}s vs 총 {tl['total_s']:.2f}s"})
+    ok = res["pass"] and not blob_bad and not 층색오류 and tpl_ok
     for c in res["checks"]:
         print(("  [OK] " if c["pass"] else "  [X] ") + str(c["check"]) + "  " + str(c.get("detail", "")))
     print(f"저장 {out_path}: 컷 {len(v_refs)} · 나레 {len(a2_refs)} · 제목 {len(refs['title'])} · "

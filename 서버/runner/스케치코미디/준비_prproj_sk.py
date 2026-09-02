@@ -173,6 +173,15 @@ def main():
 
     segs = [s for s in proj["segments"] if s.get("keep")]
     total = sum(s["t1"] - s["t0"] for s in segs)
+    # ★끝맺음 여운(2026-09-01 사장님: 하드컷이 너무 급하다) — 마지막 컷을 원본에서 연장.
+    #   ★반드시 템플릿 굽기·댓글 슬롯 계산 «앞»에서 늘린다 — 뒤에서 늘렸다가 템플릿 mov 가
+    #   여운만큼 짧아 끝 0.8초에 껍데기가 통째로 비었다(2026-09-02 사장님 실측 «템플릿 빠짐»).
+    여운 = 1.8
+    ext = max(0.0, min(여운, proj["source"]["dur"] - 0.3 - segs[-1]["t1"]))
+    if ext:
+        segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext)
+        total = round(total + ext, 4)
+        print(f"끝맺음 여운 +{ext:.1f}s → 총 {total:.1f}s")
 
     # ① 미디어 — ★프리미어가 읽는 코덱만 넣는다 (2026-09-01 실측: 유튜브 AV1 원본 → 비디오만
     #   미디어 오프라인, 소리(AAC)는 정상. 경로·메타가 아니라 코덱이 원인이었다)
@@ -280,6 +289,10 @@ def main():
     else:
         run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba, "-t", f"{total + 1:.3f}",
              "-r", "30", "-c:v", "qtrle", "-pix_fmt", "argb", dst_tpl])
+    # 되읽기 게이트(2026-09-02) — 템플릿이 총길이보다 짧으면 끝에서 껍데기가 빈다
+    tpl_dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                    "-of", "csv=p=0", dst_tpl], check=True, capture_output=True).stdout)
+    assert tpl_dur >= total, f"템플릿 {tpl_dur:.2f}s < 총길이 {total:.2f}s — 껍데기가 끝에서 빈다"
 
     # ③ timeline
     picture, cum = [], 0.0
@@ -288,15 +301,7 @@ def main():
         picture.append({"t0": round(cum, 4), "t1": round(cum + d, 4), "src_in": s["t0"],
                         "name": f'{i + 1:02d} P{s["phase"]} {s["what"][:24]}'})
         cum += d
-    # ★끝맺음 여운(2026-09-01 사장님: 하드컷이 너무 급하다) — 마지막 컷을 원본에서 여운만큼
-    #   연장한다. 말끝이 잘리지 않고 화면·소리가 자연스럽게 내려앉는다.
-    여운 = 1.8
-    ext = max(0.0, min(여운, proj["source"]["dur"] - 0.3 - segs[-1]["t1"]))
-    if ext:
-        picture[-1]["t1"] = round(picture[-1]["t1"] + ext, 4)
-        segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext)   # 미리보기·번인 검사도 여운을 본다
-        total = round(total + ext, 4)
-        print(f"끝맺음 여운 +{ext:.1f}s → 총 {total:.1f}s")
+    # (끝맺음 여운은 위 — 템플릿 굽기 전 — 로 옮겼다. 2026-09-02)
 
     subs = sorted(proj["subs"], key=lambda x: x["t"])
     nar_seg = next(s for s in segs if s.get("narration"))
