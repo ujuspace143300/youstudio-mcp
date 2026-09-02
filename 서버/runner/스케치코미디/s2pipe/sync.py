@@ -103,24 +103,52 @@ def main():
     #   ASR 글자가 짧아 엉뚱한 곳에 매칭된다 — 실측에서 8.85초를 옮기려 한 적이
     #   있다. 그런 줄은 **원래 시각을 지킨다**(모델 추정이 8초 틀릴 리는 없다).
     lim = float(os.environ.get("SYNC_MAX_SHIFT", "2.5"))
+
+    def anchor_size(pos):
+        """줄 머리글자가 들어 있는 맞물린 덩어리의 길이 — 정렬 근거의 세기."""
+        for a, _b, size in blocks:
+            if a <= pos < a + size:
+                return size
+        return 0
+
+    # ★2026-09-03 Deep02 사건 — 모델 자막표가 통째로(최대 ±9초) 틀린 편에서는
+    #   2.5초 제한이 **고쳐야 할 줄 21/24를 되돌려** 싱크가 다 어긋난 채 나갔다.
+    #   8글자 이상 연속으로 맞물린 정렬은 우연히 붙을 수 없다 — 그런 줄은 멀리도 옮긴다.
+    #   제한은 근거가 약한 줄(머리글자가 덩어리 밖·짧은 덩어리)에만 적용한다.
+    강근거 = int(os.environ.get("SYNC_STRONG_ANCHOR", "8"))
     fixed, moved, wild = [], [], 0
     for i, s in enumerate(subs):
         t = at(heads[i])
-        if t is not None and abs(t - s["t"]) > lim:
+        if t is not None and abs(t - s["t"]) > lim and anchor_size(heads[i]) < 강근거:
             wild += 1
             t = None
         fixed.append(t)
         if t is not None:
             moved.append(t - s["t"])
     if wild:
-        print(f"  ★{lim:.1f}초 넘게 튀어 되돌린 줄 {wild}/{len(subs)}"
-              f" — 그 줄은 원래 시각을 지킨다")
+        print(f"  ★{lim:.1f}초 넘게 튀었는데 근거도 약해({강근거}자 미만) 되돌린 줄 "
+              f"{wild}/{len(subs)} — 그 줄은 원래 시각을 지킨다")
 
-    # 못 맞춘 줄(괄호 자막·되돌린 줄)은 **원래 시각을 그대로 쓴다.**
-    # ★앞뒤 사이에 끼워 넣어 봤더니 원래 자리에서 더 멀어졌다 — 고칠 근거가
-    #   없으면 손대지 않는 편이 낫다.
+    # 못 맞춘 줄(괄호 자막·되돌린 줄) — ★2026-09-03 개정: 원래 시각을 절대값으로 믿지
+    #   않는다. 표가 통째로 틀린 편에서 그대로 두면 강근거 줄과 순서가 꼬여 0.25초
+    #   간격으로 뭉개졌다(실측). **이웃 강근거 줄 사이에 원래 간격 비례로 끼워 넣는다.**
+    #   (예전에 끼워 넣기가 실패한 것은 강근거 줄까지 되돌리던 시절 얘기다 — 지금은
+    #    닻이 믿을 만하다. 표가 멀쩡한 편에서는 이동이 거의 0이라 무해하다.)
+    strong = [i for i, t in enumerate(fixed) if t is not None]
     for i in range(len(fixed)):
-        if fixed[i] is None:
+        if fixed[i] is not None:
+            continue
+        prev = max((j for j in strong if j < i), default=None)
+        nxt = min((j for j in strong if j > i), default=None)
+        if prev is not None and nxt is not None:
+            o0, o1 = subs[prev]["t"], subs[nxt]["t"]
+            r = (subs[i]["t"] - o0) / (o1 - o0) if o1 > o0 else 0.5
+            fixed[i] = fixed[prev] + r * (fixed[nxt] - fixed[prev])
+        elif prev is not None:
+            fixed[i] = subs[i]["t"] + (fixed[prev] - subs[prev]["t"])
+        elif nxt is not None:
+            fixed[i] = subs[i]["t"] + (fixed[nxt] - subs[nxt]["t"])
+        else:
             fixed[i] = subs[i]["t"]
 
     # 순서가 뒤집히지 않게 — 앞줄보다 뒤로만 간다

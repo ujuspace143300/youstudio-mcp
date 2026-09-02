@@ -336,6 +336,12 @@ def main():
         cum += d
     # (끝맺음 여운은 위 — 템플릿 굽기 전 — 로 옮겼다. 2026-09-02)
 
+    # ★게이트(2026-09-03 Deep02 사건 — 싱크 단계를 건너뛰어 자막이 통째로 어긋났다)
+    #   자막은 완성본 재전사(s2pipe.asr)와 단어 정렬(s2pipe.sync)을 거쳐야 믿을 수 있다.
+    assert proj.get("subs_before_sync"), (
+        "★자막 싱크 단계를 안 거쳤다 — 먼저:\n"
+        "  python -m s2pipe.asr projects/<슬러그>.json   (★유료 · 완성본 재전사)\n"
+        "  python -m s2pipe.sync projects/<슬러그>.json")
     subs = sorted(proj["subs"], key=lambda x: x["t"])
     nar_seg = next(s for s in segs if s.get("narration"))
     nar_sub = next((x for x in subs if x.get("kind") == "narr"), None)
