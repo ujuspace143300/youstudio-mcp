@@ -613,11 +613,64 @@ def main():
     for f in os.listdir(os.path.join(kit_src, "도구")):
         if f.endswith(".py"):
             _sh.copy2(os.path.join(kit_src, "도구", f), os.path.join(stage, _ud.normalize("NFC", f)))
-    r = _sp.run([sys.executable, os.path.join(stage, "꾸미기.py"), out_path], capture_output=True)
+    r = _sp.run([sys.executable, os.path.join(stage, "꾸미기.py"), out_path, "--팝없이"], capture_output=True)
     꾸밈ok = r.returncode == 0 and ("넣었다".encode() in r.stdout)
-    print(("  [OK] " if 꾸밈ok else "  [X] ") + "자막 꾸미기(그림자+아모르 팝) — " +
+    print(("  [OK] " if 꾸밈ok else "  [X] ") + "자막 꾸미기(그림자) — " +
           (r.stdout.decode(errors="replace").strip().splitlines()[0] if r.stdout else r.stderr.decode(errors="replace")[:80]))
     assert 꾸밈ok, "자막 꾸미기 실패"
+
+    # ── ⑪c 진짜 아모르 팝 — 사장님 프리셋 «팝업자막_아모르» 의 벡터 모션 부품을 단다.
+    #    (꾸미기의 텍스트 팝은 기준점이 달라 «이상하게 튄다» — 2026-09-02 사장님 반려.
+    #     아모르입히기 = 신병4 납품 검증 도구. 팝 곡선은 아모르 사전설정 150→175/0.182s,
+    #     도구가 끝값 100% 로 정규화해 글자 중심에서 되튀게 단다.)
+    아모르도구 = os.path.expanduser("~/Desktop/볼케이노 MCP/23. 신병4/ep_0212-0352/아모르입히기.py")
+    아모르본 = os.path.expanduser("~/Desktop/유스튜디오-규격서/스크립트/린박스/키트/스타일/아모르_부품.prproj")
+    # ★스테이징 사본에 «상자 없음 폴백» 패치 — 우리 블롭은 점 텍스트라 상자 필드(2·3)가 없다.
+    #   위치 x = 글자 가로 중심(실측), 세로는 글꼴 크기 절반. 볼트/원본 도구는 건드리지 않는다.
+    아모르src = open(아모르도구, encoding="utf-8").read()
+    _OLD = ("            상자w = _st.unpack_from('<f', buf, FF[2])[0]\n"
+            "            상자h = _st.unpack_from('<f', buf, FF[3])[0]")
+    _NEW = """            if 2 in FF and 3 in FF:
+                상자w = _st.unpack_from('<f', buf, FF[2])[0]
+                상자h = _st.unpack_from('<f', buf, FF[3])[0]
+            else:
+                상자w = 0.0
+                상자h = 65.0
+                try:
+                    _vt2 = t2 - i32(t2)
+                    _r0 = t2 + u16(_vt2 + 4)
+                    _vec = _r0 + u32(_r0)
+                    _el = _vec + 4
+                    _rt = _el + u32(_el)
+                    _vt3 = _rt - i32(_rt)
+                    _sto = u16(_vt3 + 4 + 2)
+                    if _sto:
+                        _st4 = _rt + _sto
+                        _stt = _st4 + u32(_st4)
+                        _vt4 = _stt - i32(_stt)
+                        _szo = u16(_vt4 + 4 + 2)
+                        if _szo:
+                            상자h = _st.unpack_from('<f', buf, _stt + _szo)[0]
+                except Exception:
+                    pass"""
+    assert _OLD in 아모르src, "아모르입히기 패치 지점을 못 찾았다 — 도구가 바뀌었나"
+    open(os.path.join(stage, "아모르입히기.py"), "w", encoding="utf-8").write(아모르src.replace(_OLD, _NEW))
+    ass_p = os.path.join(os.path.dirname(out_path), "_아모르팝.ass")
+    with open(ass_p, "w", encoding="utf-8") as f:
+        f.write("[Script Info]\nScriptType: v4.00+\n\n[Events]\n"
+                "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+        for cue in tl["cues"]:
+            층 = {"dlg": "band_dlg", "narr": "band_narr"}.get(cue["lane"], "title")
+            팝 = "{\\fscx150\\t(0,182,\\fscx175)}" if 층 != "title" else ""
+            텍 = cue["text"].replace("\r", " ")
+            f.write(f"Dialogue: 0,0:00:00.00,0:00:05.00,{층},,0,0,0,,{팝}{텍}\n")
+    r = _sp.run([sys.executable, os.path.join(stage, "아모르입히기.py"), out_path, ass_p,
+                 "--본", 아모르본], capture_output=True)
+    아모르ok = r.returncode == 0
+    tail_out = (r.stdout.decode(errors="replace").strip().splitlines() or [""])[-1]
+    print(("  [OK] " if 아모르ok else "  [X] ") + "아모르 팝 부품 — " +
+          (tail_out if 아모르ok else r.stderr.decode(errors="replace")[-200:]))
+    assert 아모르ok, "아모르 팝 부품 달기 실패"
     # 꾸미기가 옆에 남기는 «꾸미기전» 백업은 납품 폴더를 어지럽히므로 걷는다
     for f in os.listdir(os.path.dirname(out_path)):
         if "꾸미기전" in f:
@@ -626,44 +679,48 @@ def main():
     # ── ⑪b 팝 키프레임 시각 보정 — 키트 자막은 소재 0초에서 시작하지만 우리 그래픽 클립은
     #    GRAPHIC_IN(3600초)에서 시작한다. 0초대 키프레임은 재생 구간 밖이라 팝이 안 보인다
     #    (2026-09-01 사장님 «아모르팝업 적용 안 됨» 실측 원인). 시각에 GRAPHIC_IN 을 더한다.
-    doc2 = Doc(load(out_path))
+    #   ★블록이 줄바꿈 없이 붙어 나오기도 해서(아모르 도구 출력 실측) 줄 앵커 없이 전수 훑고,
+    #   컨테이너 첫 키프레임을 기준으로 GRAPHIC_IN 에 «리베이스»한다 — 꾸미기(0초대)든
+    #   부품 원본 시각(10초대)이든 클립 소재 구간 안으로 들어온다.
+    xml2 = load(out_path)
     shifted = 0
-    for m in re.finditer(r'^\t<(\w+ComponentParam) ObjectID="(\d+)"', doc2.xml, re.M):
-        blk = doc2.get(int(m.group(2)))
-        if "<Keyframes>" not in blk:
-            continue
-        nm = re.search(r"<Name>([^<]*)</Name>", blk)
-        if not nm or nm.group(1) not in ("비율 조정", "폭 비율 조정", "위치", "불투명도"):
-            continue
 
-        def _shift(mm):
+    def _param_fix(pm):
+        nonlocal shifted
+        blk = pm.group(0)
+        nm = re.search(r"<Name>([^<]*)</Name>", blk)
+        if not nm or not any(nm.group(1).startswith(k) for k in ("비율 조정", "폭 비율 조정", "위치", "불투명도", "기준점")):
+            return blk
+        if "<Keyframes>" not in blk:
+            return blk
+
+        def _rebase(mm):
             nonlocal shifted
+            entries = [seg for seg in mm.group(1).split(";") if seg.strip()]
+            if not entries:
+                return mm.group(0)
+            base = int(float(entries[0].split(",")[0]))
+            if base >= GRAPHIC_IN:
+                return mm.group(0)               # 이미 소재 구간 안
             segs = []
-            changed = False
-            for seg in mm.group(1).split(";"):
-                if not seg.strip():
-                    continue
+            for seg in entries:
                 parts = seg.split(",")
-                t = int(float(parts[0]))
-                if 0 <= t < GRAPHIC_IN:          # 0초대 = 꾸미기가 넣은 것. 이미 3600초대면 그대로
-                    parts[0] = str(t + GRAPHIC_IN)
-                    changed = True
+                parts[0] = str(int(float(parts[0])) - base + GRAPHIC_IN)
                 segs.append(",".join(parts))
-            if changed:
-                shifted += 1
+            shifted += 1
             return "<Keyframes>" + ";".join(segs) + ";</Keyframes>"
 
-        nb = re.sub(r"<Keyframes>(.*?)</Keyframes>", _shift, blk, flags=re.S)
-        # ★스톱워치 켜기 — IsTimeVarying=true 가 없으면 프리미어가 키프레임을 통째로 무시한다
-        #   (아모르_부품 작동 견본과 필드 대조로 확정, 2026-09-02 «팝 안 보임» 진범)
+        nb = re.sub(r"<Keyframes>(.*?)</Keyframes>", _rebase, blk, flags=re.S)
+        # ★스톱워치 — IsTimeVarying=true 없으면 프리미어가 키프레임을 통째로 무시한다(실측)
         if "<IsTimeVarying>" in nb:
             nb = re.sub(r"<IsTimeVarying>[^<]*</IsTimeVarying>", "<IsTimeVarying>true</IsTimeVarying>", nb)
         else:
             nb = nb.replace("<StartKeyframe>", "<IsTimeVarying>true</IsTimeVarying>\n\t\t<StartKeyframe>", 1)
-        if nb != blk:
-            doc2.replace(int(m.group(2)), nb)
-    save(out_path, doc2.xml)
-    print(f"  [OK] 팝 키프레임 보정 — 파라미터 {shifted}개 시각 이동 + 스톱워치(IsTimeVarying) 켬")
+        return nb
+
+    xml2 = re.sub(r"<(\w+ComponentParam) ObjectID=\"\d+\"[^>]*>(?:(?!</\1>).)*?</\1>", _param_fix, xml2, flags=re.S)
+    save(out_path, xml2)
+    print(f"  [OK] 팝 키프레임 보정 — 컨테이너 {shifted}개를 소재 구간으로 리베이스 + 스톱워치 켬")
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
             "A3": (T["A3"], 0), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
