@@ -654,10 +654,16 @@ def main():
             return "<Keyframes>" + ";".join(segs) + ";</Keyframes>"
 
         nb = re.sub(r"<Keyframes>(.*?)</Keyframes>", _shift, blk, flags=re.S)
+        # ★스톱워치 켜기 — IsTimeVarying=true 가 없으면 프리미어가 키프레임을 통째로 무시한다
+        #   (아모르_부품 작동 견본과 필드 대조로 확정, 2026-09-02 «팝 안 보임» 진범)
+        if "<IsTimeVarying>" in nb:
+            nb = re.sub(r"<IsTimeVarying>[^<]*</IsTimeVarying>", "<IsTimeVarying>true</IsTimeVarying>", nb)
+        else:
+            nb = nb.replace("<StartKeyframe>", "<IsTimeVarying>true</IsTimeVarying>\n\t\t<StartKeyframe>", 1)
         if nb != blk:
             doc2.replace(int(m.group(2)), nb)
     save(out_path, doc2.xml)
-    print(f"  [OK] 팝 키프레임 시각 보정 — 파라미터 {shifted}개를 소재 시간(3600s대)으로")
+    print(f"  [OK] 팝 키프레임 보정 — 파라미터 {shifted}개 시각 이동 + 스톱워치(IsTimeVarying) 켬")
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
             "A3": (T["A3"], 0), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
