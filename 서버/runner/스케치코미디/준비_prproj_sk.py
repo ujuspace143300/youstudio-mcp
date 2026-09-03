@@ -369,6 +369,24 @@ def main():
     tpl_dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                     "-of", "csv=p=0", dst_tpl], check=True, capture_output=True).stdout)
     assert tpl_dur >= total, f"템플릿 {tpl_dur:.2f}s < 총길이 {total:.2f}s — 껍데기가 끝에서 빈다"
+    # ★파일명에 내용 지문(2026-09-03 사장님 «화면 뒤섞임» 캡쳐) — 같은 이름으로 제자리
+    #   교체를 반복하면 프리미어가 옛 미디어 캐시 조각과 섞어 그린다(파일 자체는 멀쩡함을
+    #   프레임 추출로 실측). 내용이 바뀌면 이름이 바뀌어 항상 새 미디어로 읽힌다.
+    import hashlib as _hl
+    _h = _hl.md5()
+    with open(dst_tpl, "rb") as _f:
+        for _chunk in iter(lambda: _f.read(1 << 20), b""):
+            _h.update(_chunk)
+    _새tpl = os.path.join(sdir, f"그래픽_템플릿_{_h.hexdigest()[:8]}.mov")
+    os.replace(dst_tpl, _새tpl)
+    for _fn in os.listdir(sdir):
+        if _fn.startswith("그래픽_템플릿") and _fn != os.path.basename(_새tpl):
+            try:
+                os.remove(os.path.join(sdir, _fn))
+            except OSError:
+                pass
+    dst_tpl = _새tpl
+    print(f"템플릿 = {os.path.basename(dst_tpl)} (내용 지문 이름 — 프리미어 캐시 충돌 차단)")
 
     # ③ timeline — ★조각 길이는 계획값이 아니라 **굽기 실측(beats.json)** 을 쓴다
     #   (2026-09-03 근본 수리: 조각마다 인코딩 꼬리 +0.04~0.06s 가 붙어 누적 0.3s 밀렸다.

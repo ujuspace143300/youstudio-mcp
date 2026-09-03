@@ -502,10 +502,15 @@ def main():
     # 로깅 블록(ClipLoggingInfo)의 옛 파일명·캐시 경로도 갈아 준다 — 잔재 46개가 전부 여기 있었다(실측)
     for m in re.finditer(r'^\t<ClipLoggingInfo ObjectID="(\d+)"', doc.xml, re.M):
         blk = doc.get(int(m.group(1)))
-        if DONOR["미디어키"]["원본"] not in blk:
+        # 원본·템플릿 각각의 로깅 잔재를 그 쪽 새 파일명으로 간다 (2026-09-03 템플릿도 추가 —
+        # 지문 이름 도입 후 옛 «그래픽_템플릿.mov» RelativePath 가 남아 재연결 위험)
+        if DONOR["미디어키"]["원본"] in blk:
+            새이름 = os.path.basename(tl["source"])
+        elif DONOR["미디어키"]["템플릿"] in blk:
+            새이름 = os.path.basename(tl["template"])
+        else:
             continue
-        for tag, val in (("ClipName", os.path.basename(tl["source"])),
-                         ("RelativePath", os.path.basename(tl["source"])),
+        for tag, val in (("ClipName", 새이름), ("RelativePath", 새이름), ("Title", 새이름),
                          ("ConformedAudioPath", ""), ("PeakFilePath", "")):
             if f"<{tag}>" in blk:
                 blk = set_child(blk, tag, esc(val))
