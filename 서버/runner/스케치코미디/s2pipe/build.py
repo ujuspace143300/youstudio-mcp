@@ -333,14 +333,21 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
                   key=lambda x: x["t"])
     body = []
     hi = s["max_chars"]
+    # ★검수용 완성본도 프리미어판과 «동일하게» (2026-09-03 사장님 — 산출물 둘이 다르면
+    #   검수가 어긋난다): 아모르 팝(86→104→100 튀기)과 말 끝 종료 시각을 같이 넣는다.
+    팝 = "{\\fscx86\\fscy86\\t(0,120,\\fscx104\\fscy104)\\t(120,182,\\fscx100\\fscy100)}"
     for i, cur in enumerate(subs):
-        end = subs[i + 1]["t"] if i + 1 < len(subs) else min(cur["t"] + 3.0, total)
+        다음t = subs[i + 1]["t"] if i + 1 < len(subs) else total
+        if cur.get("t1"):
+            end = min(max(cur["t1"] + 0.25, cur["t"] + 1.0), 다음t, total)
+        else:
+            end = min(다음t, cur["t"] + 3.0, total)
         if end <= cur["t"]:
             continue
         txt = (cur.get("text") or "").replace("\n", " ")
         if len(txt) > hi:                                # 넘치면 화면 밖으로 나간다
             txt = txt[:hi - 1] + "…"
-        body.append(f"Dialogue: 0,{_ts(cur['t'])},{_ts(end)},main,,0,0,0,,{txt}")
+        body.append(f"Dialogue: 0,{_ts(cur['t'])},{_ts(end)},main,,0,0,0,,{팝}{txt}")
 
     # 나레이션 — 실제로 구운 음성과 **같은 문구·같은 길이**로 얹는다
     seg_narr = {}
@@ -360,7 +367,8 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         except Exception:                                # noqa: BLE001
             d = 3.0
         spans.append((a, a + d))
-        body.append(f"Dialogue: 0,{_ts(a)},{_ts(a + d)},narr,,0,0,0,,{t}")
+        body.append(f"Dialogue: 0,{_ts(a)},{_ts(a + d)},narr,,0,0,0,,"
+                    "{\\fscx86\\fscy86\\t(0,120,\\fscx104\\fscy104)\\t(120,182,\\fscx100\\fscy100)}" + t)
 
     # ★★나레이션이 뜨는 동안 **대사 자막을 감춘다.** 둘이 겹쳐 자막이 2줄로 뭉쳐
     #   나왔다. 그 구간은 원음도 죽였으니 읽을 대사가 없다.
