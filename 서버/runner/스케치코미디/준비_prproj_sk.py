@@ -511,6 +511,33 @@ def main():
             run(["ffmpeg", "-y", "-v", "error", "-i", srcm, "-ac", "1", "-ar", "48000",
                  "-c:a", "pcm_s16le", "-af", f"afade=t=out:st={max(0, dur0-0.4):.2f}:d=0.4,volume=-6dB", w])
             t0_ = picture[pi]["t0"]
+            # ★말 틈 스냅(2026-09-03 사장님 «배속처럼 들림» — 절정 dudun 이 대사 위에 통째로
+            #   깔려 말이 몰아치는 느낌을 만들었다). 절정·반전은 ±2.5s 안의 가장 가까운
+            #   말 없는 틈으로 옮기고, 틈이 없으면 제자리 -12dB. 훅은 오프닝 임팩트라 예외.
+            if 라벨 != "훅":
+                말들 = [(x["t"], x["e"]) for x in (proj.get("asr_words") or [])
+                        if x.get("type") != "punctuation"]
+                창 = dur0 * 0.7
+                best = None
+                for k in range(0, 26):
+                    for 부호 in (1, -1):
+                        cand = t0_ + 부호 * k * 0.1
+                        if cand < 0 or cand + 창 > total:
+                            continue
+                        if not any(not (e_ <= cand or t_ >= cand + 창) for t_, e_ in 말들):
+                            best = cand
+                            break
+                    if best is not None:
+                        break
+                if best is None:
+                    print(f"  ★효과음 {라벨}: 말 틈 없음(±2.5s) — 제자리 · -12dB 로 낮춤")
+                    run(["ffmpeg", "-y", "-v", "error", "-i", srcm, "-ac", "1", "-ar", "48000",
+                         "-c:a", "pcm_s16le",
+                         "-af", f"afade=t=out:st={max(0, dur0-0.4):.2f}:d=0.4,volume=-12dB", w])
+                else:
+                    if abs(best - t0_) > 0.05:
+                        print(f"  효과음 {라벨}: 대사 겹침 → {t0_:.2f}s → {best:.2f}s 말 틈으로 이동")
+                    t0_ = best
             sfx.append({"wav": w, "t0": round(t0_, 3), "t1": round(min(t0_ + dur0, total), 3),
                         "text": f"효과음 {라벨} {이름}"})
         print(f"효과음 {len(sfx)}개: " + " · ".join(s_['text'] for s_ in sfx))
