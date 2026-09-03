@@ -46,11 +46,18 @@ def 텍스트검출(rgb, row_min=12, tot_min=80, top=False):
     # ★외곽선 없는 노란 예능자막(Deep03 실측 2026-09-03 — 밝음·어둠 접촉이 0이라 통과했다):
     #   채도 높은 노랑 픽셀 덩어리로 따로 잡는다. 원본 실측 자막 = 2천~1만 픽셀.
     a3 = np.asarray(rgb).astype(int)
-    yrows = None
+    yrows = srows = None
     if a3.ndim == 3:
         노랑 = (a3[:, :, 0] >= 200) & (a3[:, :, 1] >= 170) & (a3[:, :, 2] <= 140)
         yrows = 노랑.sum(axis=1)
         if int(노랑.sum()) >= 1500 and int(yrows.max()) >= row_min:
+            hit = True
+        # ★유채색 자막 전반(파랑·분홍 등 — Deep04 «딱 먹고» 실측 2026-09-03):
+        #   채도 큰 픽셀 덩어리. 자막 1,493~14,295px vs 무자막 0 — 깨끗이 갈린다.
+        mx3 = a3.max(axis=2)
+        채도 = ((mx3 - a3.min(axis=2)) >= 80) & (mx3 >= 150)
+        srows = 채도.sum(axis=1)
+        if int(채도.sum()) >= 1200 and int(srows.max()) >= row_min:
             hit = True
     if not top:
         return hit
@@ -62,6 +69,10 @@ def 텍스트검출(rgb, row_min=12, tot_min=80, top=False):
         ys = np.where(yrows >= row_min)[0]
         if len(ys) and int(yrows.sum()) >= 1500:
             후보.append(int(ys[0]))
+    if srows is not None:
+        ss = np.where(srows >= row_min)[0]
+        if len(ss) and int(srows.sum()) >= 1200:
+            후보.append(int(ss[0]))
     return hit, (min(후보) if hit and 후보 else None)
 
 
@@ -589,12 +600,19 @@ def main():
         #   강검출)을 「없음」으로 놓치는 것이 오탐보다 치명적이다(사장님 절대 요구).
         #   자막 윗변도 함께 실측한다 — 전역 중앙값(find_burned_subs)만 믿었다가 여운 구간의
         #   더 높은 자막(전역 840 vs 실측 ~830)이 한계선을 뚫었다(잔존 게이트가 잡음, 2026-09-01).
+        # ★촘촘히 훑는다(0.5초 간격 · 2026-09-03 Deep04 «딱 먹고» 사건) — 8프레임 성긴
+        #   샘플은 순간 떠 있는 큰 예능자막을 놓쳤다. 자막 윗변은 순간마다 다르므로
+        #   컷 전체를 훑어 **가장 높은 윗변**을 쓴다.
         band0 = int(1080 * 0.70)
         tops = []
         found = False
-        for j, f in enumerate((0.1, 0.2, 0.35, 0.5, 0.6, 0.7, 0.85, 0.95)):
+        타임들, t = [], t0 + 0.25
+        while t < t1 - 0.05 and len(타임들) < 70:
+            타임들.append(t)
+            t += 0.5
+        for j, tt in enumerate(타임들):
             try:
-                hit, top = 텍스트검출(grab(t0 + (t1 - t0) * f, f"b{t0:.0f}_{j}")[band0:, :, :], top=True)
+                hit, top = 텍스트검출(grab(tt, f"b{t0:.0f}_{j}")[band0:, :, :], top=True)
                 if hit:
                     found = True
                     if top is not None:
@@ -603,21 +621,33 @@ def main():
                 pass
         return found, (min(tops) if tops else None)
 
-    # 1차 — 컷별 번인 유무·자막 윗변 실측
-    burn, tops_all = [], []
+    # 1차 — 컷별 번인 유무·자막 윗변 실측 (0.5초 간격 전수)
+    burn, 컷탑들 = [], []
     for seg in segs:
         f_, t_ = seg_has_burned(seg["t0"], seg["t1"])
         burn.append(f_)
-        if t_ is not None:
-            tops_all.append(t_)
-    limit_y = min([sub_top] + tops_all) - 12          # 전역 + 컷 실측 중 최솟값 위 여유 12px
-    # ★상한 1.25 → 1.35 (2026-09-03 Deep04: 자막 윗변 745 는 125.6% 가 필요한데 125% 에서
-    #   잘려 잔존 게이트가 섰다). 실제 적용값은 계산값이라 필요한 만큼만 확대된다.
-    s = min(1.35, max(box_h / (limit_y - 0), box_h / 1080) * 1.03)
-    print(f"번인 자막 윗변 — 전역 {sub_top} · 컷 실측 최소 {min(tops_all) if tops_all else '없음'} → 한계 y={limit_y} · 확대 {s*100:.1f}%")
-    cy_lo = b["y1"] - (limit_y - b["y0"]) * s
-    cy_hi = b["y0"] + 540 * s
-    px_lo, px_hi = 1080 - 960 * s, 960 * s
+        컷탑들.append(t_)
+    print(f"번인 자막 윗변 — 전역 {sub_top} · 컷별 실측 {[t for t in 컷탑들 if t]}")
+
+    # ★확대율은 컷별(2026-09-03 사장님 «고친다고 인물 포커싱 나가면 안 된다») —
+    #   그 컷의 자막이 요구하는 만큼만 확대한다. 전역 최솟값으로 다 키우면
+    #   멀쩡한 컷의 얼굴까지 커진다.
+    유효탑 = {}
+
+    def 상자잡기(i, top_i):
+        limit_i = max(560, top_i) - 12
+        s_i = min(1.35, max(box_h / limit_i, box_h / 1080) * 1.03)
+        # ★cy_lo 공식 수리(2026-09-03 근본 원인) — 원본 좌표는 캔버스에 cy+(Y-540)·s 로
+        #   놓이므로, 상자 밑변(b.y1)이 한계선(limit_i)을 넘지 않으려면 기준이 540 이어야
+        #   한다. b.y0 을 쓰던 옛 식은 얼굴 낮은 컷에서 자막 구역을 34px 까지 새게 했다.
+        cy_lo = b["y1"] - (limit_i - 540) * s_i
+        cy_hi = b["y0"] + 540 * s_i
+        px_lo, px_hi = 1080 - 960 * s_i, 960 * s_i
+        xf, yf = face_center(segs[i]["t0"], segs[i]["t1"], i)
+        cy = clamp(970 - (yf - 540) * s_i, cy_lo, cy_hi)
+        px = clamp(540 - (xf - 960) * s_i, px_lo, px_hi)
+        picture[i]["box"] = {"scale": round(s_i * 100, 3), "pos": f"{px / 1080:.6f}:{cy / 1920:.6f}"}
+        return s_i, xf, yf
 
     for i, (seg, pic) in enumerate(zip(segs, picture)):
         if not burn[i]:
@@ -625,11 +655,9 @@ def main():
                           "pos": f"0.5:{(b['y0'] + b['y1']) / 2 / CFG['video']['h']:.6f}"}
             print(f"  컷{i+1:02d}: 번인 자막 없음 → 풀샷 유지")
             continue
-        xf, yf = face_center(seg["t0"], seg["t1"], i)
-        cy = clamp(970 - (yf - 540) * s, cy_lo, cy_hi)
-        px = clamp(540 - (xf - 960) * s, px_lo, px_hi)
-        pic["box"] = {"scale": round(s * 100, 3), "pos": f"{px / 1080:.6f}:{cy / 1920:.6f}"}
-        print(f"  컷{i+1:02d}: 번인 자막 있음 → 확대 {s*100:.0f}% · 얼굴 ({xf:.0f},{yf:.0f})")
+        유효탑[i] = min(v for v in (컷탑들[i], sub_top, int(1080 * 0.872)) if v)
+        s_i, xf, yf = 상자잡기(i, 유효탑[i])
+        print(f"  컷{i+1:02d}: 번인 자막 있음(윗변 {유효탑[i]}) → 확대 {s_i*100:.0f}% · 얼굴 ({xf:.0f},{yf:.0f})")
     # 미리보기 — 상자에 담길 화면을 컷별 box 값 그대로 잘라 확인용으로 남긴다
     pvdir = os.path.join(out_root, "_미리보기")
     os.makedirs(pvdir, exist_ok=True)
@@ -665,8 +693,11 @@ def main():
         px_, cy_ = pxn * 1080, cyn * 1920
         x0 = clamp(960 + (0 - px_) / sc, 0, 1920 - 1080 / sc)
         y0 = clamp(540 + (b["y0"] - cy_) / sc, 0, 1080 - box_h / sc)
-        for f in (0.2, 0.4, 0.6, 0.8):
-            t = seg["t0"] + (seg["t1"] - seg["t0"]) * f
+        타임들, tt = [], seg["t0"] + 0.25
+        while tt < seg["t1"] - 0.05 and len(타임들) < 70:   # ★0.5초 간격 전수(성긴 샘플 금지)
+            타임들.append(tt)
+            tt += 0.5
+        for t in 타임들:
             p = os.path.join(wdir, "_gatechk.png")
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
                             "-frames:v", "1", "-vf",
@@ -681,18 +712,15 @@ def main():
         걸림 = [i for i in range(len(picture)) if 컷잔존(i)]
         if not 걸림:
             break
-        print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 확대로 승격해 다시 잡는다")
+        print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 윗변을 45px 올려 다시 잡는다")
         for i in 걸림:
-            seg = segs[i]
-            xf, yf = face_center(seg["t0"], seg["t1"], f"g{i}")
-            cy = clamp(970 - (yf - 540) * s, cy_lo, cy_hi)
-            px = clamp(540 - (xf - 960) * s, px_lo, px_hi)
-            picture[i]["box"] = {"scale": round(s * 100, 3), "pos": f"{px / 1080:.6f}:{cy / 1920:.6f}"}
+            유효탑[i] = 유효탑.get(i, sub_top or int(1080 * 0.872)) - 45
+            상자잡기(i, 유효탑[i])
     잔존 = [i + 1 for i in range(len(picture)) if 컷잔존(i)]
     print(("  [OK] " if not 잔존 else "  [X] ") + f"컷 하단 잔존 번인 자막 0  걸린 컷 {잔존}")
     assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대 후에도 남는다"
     미리보기생성()          # 승격된 컷의 미리보기 갱신
-    scale = round(s * 100, 3)
+    scale = round(box_h / 1080 * 100, 3)
     cy = round((b["y0"] + b["y1"]) / 2 / CFG["video"]["h"], 6)
 
     tl = {"title": f"스케치 {slug}", "total_s": round(total, 4),
