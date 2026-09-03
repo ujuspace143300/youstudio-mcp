@@ -40,10 +40,26 @@ def 텍스트검출(rgb, row_min=15, tot_min=40, top=False):   # tot 60 은 짧�
     c = bd & dark
     rows = c.sum(axis=1)
     hit = int(rows.max()) >= row_min and int(c.sum()) >= tot_min
+    # ★외곽선 없는 노란 예능자막(Deep03 실측 2026-09-03 — 밝음·어둠 접촉이 0이라 통과했다):
+    #   채도 높은 노랑 픽셀 덩어리로 따로 잡는다. 원본 실측 자막 = 2천~1만 픽셀.
+    a3 = np.asarray(rgb).astype(int)
+    yrows = None
+    if a3.ndim == 3:
+        노랑 = (a3[:, :, 0] >= 200) & (a3[:, :, 1] >= 170) & (a3[:, :, 2] <= 140)
+        yrows = 노랑.sum(axis=1)
+        if int(노랑.sum()) >= 1500 and int(yrows.max()) >= row_min:
+            hit = True
     if not top:
         return hit
+    후보 = []
     strong = np.where(rows >= max(6, row_min // 2))[0]
-    return hit, (int(strong[0]) if hit and len(strong) else None)
+    if len(strong):
+        후보.append(int(strong[0]))
+    if yrows is not None:
+        ys = np.where(yrows >= row_min)[0]
+        if len(ys) and int(yrows.sum()) >= 1500:
+            후보.append(int(ys[0]))
+    return hit, (min(후보) if hit and 후보 else None)
 
 
 def 배경맞춤(img, bg):

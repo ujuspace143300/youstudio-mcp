@@ -39,6 +39,13 @@ def 정돈(text):
     return re.sub(r"\s+", " ", 구두점.sub("", text)).strip()
 
 
+def 추임새다(w):
+    """웃음·감탄 발성 — 자막 문구에 없는 소리. 시각 계산에서 뺀다.
+       (2026-09-03 실측: 「하하하…」 단어에 첫 줄 시각이 붙어 웃음 동안 자막이 떴다)"""
+    s = CLEAN.sub("", w if isinstance(w, str) else (w.get("w") or ""))
+    return bool(re.fullmatch(r"[하호흐히헤]{2,}|[아어오우음야에]", s))
+
+
 def 작표(words, slug, logline):
     """★2026-09-03 구조 — 모델은 «몇 번 단어부터 한 줄인지»(경계)와 문구만 고른다.
        각 줄의 시각은 무조건 그 시작 단어의 실측 시각이다 — 모델이 시각을 틀릴 방법이 없다.
@@ -85,7 +92,9 @@ def 작표(words, slug, logline):
                 out.append({"i": i, "t": round(float(words[i]["t"]), 2), "text": tx})
                 last = i
             assert 8 <= len(out) <= 90, f"줄 수 이상: {len(out)}"
-            assert rows and int(rows[0]["i"]) == 말[0][0], "첫 발화가 자막 밖이다"
+            first_i = int(rows[0]["i"])
+            건너뜀 = [w for j, w in 말 if j < first_i]
+            assert all(추임새다(w["w"]) for w in 건너뜀), "첫 발화가 자막 밖이다"
             return out
 
         out = 한번()
@@ -115,6 +124,20 @@ def 작표(words, slug, logline):
                 print(f"  ★기계 절반 분할(모델이 14자 못 맞춤): 「{cur['text']}」")
                 고침.append({"i": cur["i"], "t": cur["t"], "text": 앞})
                 고침.append({"i": cur["i"], "t": round(t뒤, 2), "text": 뒤})
+        # ★시작 스냅 — 줄이 웃음·추임새 단어에서 시작하면(문구는 그 소리로 시작 안 함)
+        #   시각을 첫 실제 말 단어로 민다 (2026-09-03 「하하하」에 첫 줄이 붙은 실측)
+        말사전 = dict(말)
+        for d in 고침:
+            j, 헤드 = d["i"], CLEAN.sub("", d["text"])[:1]
+            for _ in range(10):
+                w = 말사전.get(j)
+                if w is None or not 추임새다(w["w"]) or CLEAN.sub("", w["w"])[:1] == 헤드:
+                    break
+                j += 1
+                while j < len(words) and words[j].get("type") == "punctuation":
+                    j += 1
+            if j in 말사전:
+                d["t"] = round(float(말사전[j]["t"]), 2)
         out = [{"t": d["t"], "text": d["text"]} for d in 고침]
         # 금지 패턴 ⓑ(조사·어미로 줄 시작) — 기계로 잡히는 것만 경고
         조사들 = {"은", "는", "이", "가", "을", "를", "에", "에서", "의", "도", "만",
@@ -151,11 +174,14 @@ def 끝시각채우기(dlg, words, 쉼=0.7):
         # ② 글자수 기준 — ★문구(추임새 제외)가 소화하는 만큼의 단어까지만 (2026-09-03 재발:
         #   하품 「아 아」가 대사 직후 0.4s 만에 이어져 쉼 기준을 통과해 끝을 13.5s 까지 늘렸다.
         #   문구 글자수를 다 채운 단어에서 끝낸다 — 그 뒤 발성은 문구에 없는 소리다.)
-        목표 = len(re.sub(r"[\s?!()]", "", d["text"]))
+        알맹이 = " ".join(t for t in d["text"].split() if not 추임새다(t))
+        목표 = len(re.sub(r"[\s?!()]", "", 알맹이))
         끝글, 누적 = None, 0
         for w in 내부:
+            if 추임새다(w["w"]):
+                continue                                  # 웃음·감탄은 글자수에 안 센다
             누적 += len(CLEAN.sub("", w["w"]))
-            if 누적 >= 목표 * 0.9:
+            if 목표 and 누적 >= 목표 * 0.9:
                 끝글 = float(w["e"])
                 break
         끝 = min(끝쉼, 끝글) if 끝글 is not None else 끝쉼
@@ -272,8 +298,8 @@ def main():
     시작들 = [d["t"] for d in dlg]
     구멍 = []
     for w in words:
-        if w.get("type") == "punctuation":
-            continue
+        if w.get("type") == "punctuation" or 추임새다(w["w"]):
+            continue                                      # 웃음·감탄은 자막 밖이어도 정상
         덮는 = max((t for t in 시작들 if t <= w["t"] + 0.05), default=None)
         if 덮는 is None or w["t"] - 덮는 > 6.0:
             구멍.append(round(w["t"], 1))

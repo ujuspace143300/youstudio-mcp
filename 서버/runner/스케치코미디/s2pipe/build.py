@@ -66,13 +66,18 @@ def find_burned_subs(src, W, H, dur, n=10):
         if r.returncode != 0 or not os.path.exists(p):
             continue
         try:
-            a = np.asarray(Image.open(p).convert("L"))
+            a = np.asarray(Image.open(p).convert("RGB")).astype(int)
         except Exception:                                # noqa: BLE001
             continue
         finally:
             pass
-        band = a[int(H * 0.75):, :]
-        rows = np.where((band > 200).sum(axis=1) > W * 0.02)[0]
+        band = a[int(H * 0.75):, :, :]
+        g = band.mean(axis=2)
+        # ★외곽선 없는 노란 예능자막도 같이 잡는다 (Deep03 실측 2026-09-03)
+        노랑 = (band[:, :, 0] >= 200) & (band[:, :, 1] >= 170) & (band[:, :, 2] <= 140)
+        y_ok = int(노랑.sum()) >= 1500
+        rows = np.where(((g > 200).sum(axis=1) > W * 0.02) |
+                        (y_ok & (노랑.sum(axis=1) > 15)))[0]
         if len(rows):
             tops.append(int(H * 0.75) + int(rows[0]))
         try:
