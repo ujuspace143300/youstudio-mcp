@@ -293,6 +293,52 @@ def main():
     # ── ②c 줄 끝 = 말 끝 실측 (2026-09-03 사장님) ─────────────────────────────
     끝시각채우기(dlg, words)
 
+    # ── ③b 원본 전사 교차 대조 (2026-09-03 Deep03: 전화 너머 여자 대답이 컷 재전사에서
+    #    통째로 빠져 자막이 없었다) — 원본(고음질) 전사 줄을 구간 매핑으로 컷 시각에 놓고,
+    #    어떤 자막도 안 덮는 줄은 원본 전사 문구로 되살린다. 컷 전사가 못 들은 조용한
+    #    말의 마지막 안전망이다.
+    try:
+        from s2pipe.cfg import CFG as _C3
+        vtt경로 = os.path.join(HERE, _C3["paths"]["work"], f"{proj['slug']}.ko.vtt")
+        segs = [s for s in proj.get("segments", []) if s.get("keep")]
+        if os.path.exists(vtt경로) and segs:
+            그림, 누적 = [], 0.0
+            for s in segs:
+                그림.append((누적, s["t0"], s["t1"]))
+                누적 += s["t1"] - s["t0"]
+            def 컷시각(t원):
+                for c0, o0, o1 in 그림:
+                    if o0 - 0.01 <= t원 < o1:
+                        return c0 + (t원 - o0)
+                return None
+            원줄 = []
+            for b in open(vtt경로, encoding="utf-8").read().split("\n\n"):
+                ls = b.strip().splitlines()
+                if len(ls) >= 2 and "-->" in ls[0]:
+                    h, m2, s2 = ls[0].split(" --> ")[0].split(":")
+                    원줄.append((int(h) * 3600 + int(m2) * 60 + float(s2), ls[1]))
+            복원 = []
+            for t원, 글 in 원줄:
+                tc = 컷시각(t원)
+                깨끗 = 정돈(글)
+                if tc is None or not 깨끗:
+                    continue
+                if all(추임새다(tok) for tok in 깨끗.split()):
+                    continue
+                덮임 = any(d["t"] - 0.8 <= tc <= d.get("t1", d["t"] + 6) + 0.3 for d in dlg)
+                if not 덮임:
+                    복원.append({"t": round(tc, 2), "text": 깨끗})
+            for k, r in enumerate(복원):
+                다음 = min([d["t"] for d in dlg if d["t"] > r["t"]] + [r["t"] + 2.0])
+                r["t1"] = round(min(r["t"] + 2.0, max(다음 - 0.05, r["t"] + 0.6)), 2)
+            if 복원:
+                print(f"  ★컷 전사가 놓친 대사 {len(복원)}줄 — 원본 전사로 복원 (문구는 원본 전사 그대로):")
+                for r in 복원:
+                    print(f"     [{r['t']:.1f}~{r['t1']:.1f}s] {r['text'][:24]}")
+                dlg += 복원
+    except Exception as e:
+        print("★원본 전사 교차 대조 실패(복원 없이 진행):", str(e)[:60])
+
     # ── ③ 커버리지 게이트 — 모든 발화 단어는 자기 자막 줄 시작에서 6초(표시 최대) 안 ──
     dlg.sort(key=lambda x: x["t"])
     시작들 = [d["t"] for d in dlg]
