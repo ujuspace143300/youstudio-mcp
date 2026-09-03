@@ -104,7 +104,13 @@ def main():
         if r.returncode != 0 or not glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True):
             subprocess.run(["unzip", "-qq", "-O", "cp949", zp, "-d", cdir], check=True)
     pngs = sorted(glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True))
-    assert len(pngs) >= 10, f"댓글 PNG 가 10장 미만이다: {len(pngs)}"
+    if len(pngs) < 10:
+        # ★2026-09-03 사장님: 카드가 모자라면 같은 형태로 내용 맞춰 제작해 채운다 (Deep04 7장 사건)
+        from 댓글보충 import 보충
+        logline = ""
+        pj = os.path.join(HERE, "..", "..", "..")  # logline 은 아직 없을 수 있다(계획 전) — 빈 값 허용
+        pngs = 보충(cdir, logline)
+    assert len(pngs) >= 10, f"댓글 PNG 가 10장 미만이다(보충 후에도): {len(pngs)}"
 
     # ⑤ 로고·제목 후보
     shutil.copy2(a.로고, os.path.join(work, f"{vid}_로고.png"))

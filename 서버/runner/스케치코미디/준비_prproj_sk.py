@@ -234,7 +234,9 @@ def main():
     # ★끝맺음 여운(2026-09-01 사장님: 하드컷이 너무 급하다) — 마지막 컷을 원본에서 연장.
     #   ★반드시 템플릿 굽기·댓글 슬롯 계산 «앞»에서 늘린다 — 뒤에서 늘렸다가 템플릿 mov 가
     #   여운만큼 짧아 끝 0.8초에 껍데기가 통째로 비었다(2026-09-02 사장님 실측 «템플릿 빠짐»).
-    여운 = 1.8
+    #   ★편별 조절: proj["여운"] — 원본이 결말 직후 엔딩 카드로 넘어가는 소재(Deep04 실측:
+    #   301.2s 부터 «This is Fiction» 카드가 깜빡이며 시작)는 0 으로 꺼서 카드 침범을 막는다.
+    여운 = float(proj.get("여운", 1.8))
     ext = max(0.0, min(여운, proj["source"]["dur"] - 0.3 - segs[-1]["t1"]))
     if ext:
         segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext)
@@ -266,7 +268,12 @@ def main():
                             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", dst_src], check=True)
     assert vcodec(dst_src) in 지원코덱, "원본 변환 실패 — 코덱 " + vcodec(dst_src)
     dst_nar = os.path.join(sdir, "나레_00.wav")
-    run(["ffmpeg", "-y", "-v", "error", "-i", os.path.join(wdir, "narr01.wav"),
+    # ★나레 wav 이름은 나레가 붙은 조각 번호를 따른다(narr01·narr02…) — 하드코딩 금지
+    #   (2026-09-03 Deep04: 나레가 2번째 조각이라 narr02.wav 였는데 narr01 을 찾다 죽었다)
+    import glob as _gl
+    나레들 = sorted(_gl.glob(os.path.join(wdir, "narr*.wav")))
+    assert 나레들, f"나레 wav 가 없다: {wdir}/narr*.wav — make 굽기를 먼저 돌려라"
+    run(["ffmpeg", "-y", "-v", "error", "-i", 나레들[0],
          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dst_nar])
 
     # ② 껍데기 — 제목 포함 frame → 알파 구멍 → mov
@@ -561,7 +568,9 @@ def main():
         if t_ is not None:
             tops_all.append(t_)
     limit_y = min([sub_top] + tops_all) - 12          # 전역 + 컷 실측 중 최솟값 위 여유 12px
-    s = min(1.25, max(box_h / (limit_y - 0), box_h / 1080) * 1.03)
+    # ★상한 1.25 → 1.35 (2026-09-03 Deep04: 자막 윗변 745 는 125.6% 가 필요한데 125% 에서
+    #   잘려 잔존 게이트가 섰다). 실제 적용값은 계산값이라 필요한 만큼만 확대된다.
+    s = min(1.35, max(box_h / (limit_y - 0), box_h / 1080) * 1.03)
     print(f"번인 자막 윗변 — 전역 {sub_top} · 컷 실측 최소 {min(tops_all) if tops_all else '없음'} → 한계 y={limit_y} · 확대 {s*100:.1f}%")
     cy_lo = b["y1"] - (limit_y - b["y0"]) * s
     cy_hi = b["y0"] + 540 * s
