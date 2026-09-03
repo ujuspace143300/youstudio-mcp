@@ -74,7 +74,9 @@ def 카드생성(text, 예시들, out_path, 좋아요=None):
     import numpy as _np
     row0, row1 = im.height - 32, im.height - 4
     band = _np.asarray(im.crop((0, row0, im.width, row1)).convert("RGB")).astype(int)
-    어둠 = band.mean(axis=2) < 120
+    # ★문턱 150 — 싫어요 아이콘의 연한 회색 선까지 포함해야 통째로 잘린다
+    #   (120 이었을 때 왼쪽 절반이 빠져 아이콘이 조각났다 — 2026-09-03 캡쳐)
+    어둠 = band.mean(axis=2) < 150
     cols = _np.where(어둠[:, 95:].sum(axis=0) > 0)[0] + 95
     if len(cols):
         덩어리, cur = [], [int(cols[0]), int(cols[0])]
@@ -86,7 +88,7 @@ def 카드생성(text, 예시들, out_path, 좋아요=None):
                 cur[1] = int(x)
         덩어리.append(cur)
         dx0, dx1 = 덩어리[-1]                       # 마지막 덩어리 = 싫어요 아이콘
-        싫어요 = im.crop((dx0 - 3, row0, dx1 + 6, row1)).copy()
+        싫어요 = im.crop((max(0, dx0 - 10), row0, min(im.width, dx1 + 12), row1)).copy()
         d.rectangle((95, row0, im.width - 4, row1), fill="white")
         r = random.random()
         if r < 0.35:
