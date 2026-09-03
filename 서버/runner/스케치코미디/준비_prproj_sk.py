@@ -42,37 +42,48 @@ def 텍스트검출(rgb, row_min=12, tot_min=80, top=False):
     bd[:, :-1] |= bright[:, 1:]
     c = bd & dark
     rows = c.sum(axis=1)
-    hit = int(rows.max()) >= row_min and int(c.sum()) >= tot_min
-    # ★외곽선 없는 노란 예능자막(Deep03 실측 2026-09-03 — 밝음·어둠 접촉이 0이라 통과했다):
-    #   채도 높은 노랑 픽셀 덩어리로 따로 잡는다. 원본 실측 자막 = 2천~1만 픽셀.
+
+    # ★띠 창 판정 (2026-09-05… 2026-09-03 Deep05 실측) — 자막은 세로 130px 이내의 얇은
+    #   띠다. 흰 셔츠×넥타이 같은 고대비 질감은 세로로 넓게 퍼져 창에 안 모인다(컷1 오탐
+    #   → 무한 승격 사건). 130px 미끄럼 창에서 최대 합을 찾아 그 창 안에서만 판정한다.
+    def 띠검출(rows_, row_min_, tot_min_):
+        n = len(rows_)
+        cs = np.concatenate([[0], np.cumsum(rows_)])
+        W = min(130, n)
+        best, bi = -1, 0
+        for i0 in range(0, n - W + 1):
+            v = int(cs[i0 + W] - cs[i0])
+            if v > best:
+                best, bi = v, i0
+        창 = rows_[bi:bi + W]
+        if best >= tot_min_ and int(창.max()) >= row_min_:
+            strong = np.where(창 >= max(4, row_min_ // 2))[0]
+            return True, bi + (int(strong[0]) if len(strong) else 0)
+        return False, None
+
+    후보 = []
+    h1, t1_ = 띠검출(rows, row_min, tot_min)
+    if h1 and t1_ is not None:
+        후보.append(t1_)
     a3 = np.asarray(rgb).astype(int)
-    yrows = srows = None
     if a3.ndim == 3:
+        # 외곽선 없는 노란 예능자막 (Deep03 실측)
         노랑 = (a3[:, :, 0] >= 200) & (a3[:, :, 1] >= 170) & (a3[:, :, 2] <= 140)
-        yrows = 노랑.sum(axis=1)
-        if int(노랑.sum()) >= 1500 and int(yrows.max()) >= row_min:
-            hit = True
-        # ★유채색 자막 전반(파랑·분홍 등 — Deep04 «딱 먹고» 실측 2026-09-03):
-        #   채도 큰 픽셀 덩어리. 자막 1,493~14,295px vs 무자막 0 — 깨끗이 갈린다.
+        h2, t2_ = 띠검출(노랑.sum(axis=1), row_min, 1500)
+        if h2 and t2_ is not None:
+            후보.append(t2_)
+        # 유채색 자막 전반 (Deep04 «딱 먹고» 실측) — ★문턱 110/170 (2026-09-03 Deep05:
+        #   80/150 은 살구 피부·옷을 3만 픽셀 오탐. 110/170 실측 = 피부 0 vs 색자막 5,540+)
         mx3 = a3.max(axis=2)
-        채도 = ((mx3 - a3.min(axis=2)) >= 80) & (mx3 >= 150)
-        srows = 채도.sum(axis=1)
-        if int(채도.sum()) >= 1200 and int(srows.max()) >= row_min:
-            hit = True
+        채도 = ((mx3 - a3.min(axis=2)) >= 110) & (mx3 >= 170)
+        h3, t3_ = 띠검출(채도.sum(axis=1), row_min, 1200)
+        if h3 and t3_ is not None:
+            후보.append(t3_)
+        hit = h1 or h2 or h3
+    else:
+        hit = h1
     if not top:
         return hit
-    후보 = []
-    strong = np.where(rows >= max(6, row_min // 2))[0]
-    if len(strong):
-        후보.append(int(strong[0]))
-    if yrows is not None:
-        ys = np.where(yrows >= row_min)[0]
-        if len(ys) and int(yrows.sum()) >= 1500:
-            후보.append(int(ys[0]))
-    if srows is not None:
-        ss = np.where(srows >= row_min)[0]
-        if len(ss) and int(srows.sum()) >= 1200:
-            후보.append(int(ss[0]))
     return hit, (min(후보) if hit and 후보 else None)
 
 
