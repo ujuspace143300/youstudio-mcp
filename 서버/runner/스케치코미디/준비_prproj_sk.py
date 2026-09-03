@@ -23,15 +23,18 @@ def run(argv):
     subprocess.run(argv, check=True, capture_output=True)
 
 
-def 텍스트검출(rgb, row_min=15, tot_min=40, top=False):   # tot 60 은 짧은 대사 자막을 놓쳤다(컷05 실측) → 40
-    """외곽선 자막 검출 — 밝은 픽셀(≥200)에 맞닿은 어두운 픽셀(≤70)을 센다. 색 무관.
+def 텍스트검출(rgb, row_min=12, tot_min=80, top=False):
+    """외곽선 자막 검출 — 밝은 픽셀(≥210)에 맞닿은 어두운 픽셀(≤90)을 센다. 색 무관.
+       ★2026-09-03 재보정(Deep03 «어디가 편하세요?» 실측): 외곽선이 얇고 흐린 자막은
+       (200/70) 기준으로 행 8·총 41 뿐이라 문턱(15/40)에 미달했다. (210/90)으로 넓히면
+       얇은 자막 행 20~24·총 144+ vs 진짜 무자막 행 ≤5·총 ≤22 — 깨끗이 갈린다(11프레임 실측).
        top=True 면 (검출여부, 검출 최상단 행) 을 돌려준다 — 자막 윗변 실측용."""
     import numpy as np
     g = np.asarray(rgb).astype(int)
     if g.ndim == 3:
         g = g.mean(axis=2)
-    bright = g >= 200
-    dark = g <= 70
+    bright = g >= 210
+    dark = g <= 90
     bd = np.zeros_like(bright)
     bd[1:, :] |= bright[:-1, :]
     bd[:-1, :] |= bright[1:, :]
@@ -208,6 +211,12 @@ def 댓글선별(pngs, logline, want=(10, 15)):
 
 
 def main():
+    # ★게이트(2026-09-03) — cv2 없는 파이썬으로 돌리면 얼굴 검출이 조용히 기본값(960,430)으로
+    #   떨어져 인물 포커싱이 전부 어긋난다(Deep01~03 실측). 러너 venv 로만 돈다.
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        sys.exit("★cv2 없음 — 러너 venv 로 실행하라: ~/.volcano/venv/bin/python3 준비_prproj_sk.py …")
     ap = argparse.ArgumentParser()
     ap.add_argument("project")
     a = ap.parse_args()
