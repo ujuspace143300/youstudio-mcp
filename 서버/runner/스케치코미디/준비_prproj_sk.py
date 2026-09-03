@@ -466,6 +466,15 @@ def main():
             off = (int(_np.argmax(c)) / 16000) - 1.2
             if abs(off) > 0.15:
                 어긋난컷.append((k + 1, round(off, 3)))
+            # ★경계 겹침(더블어택) 감시 — 컷 시작 직후 80ms 넘게 어긋나면 실패
+            #   (2026-09-03 «순간 배속»: 조각 꼬리 패딩이 46ms 겹쳐 들렸다)
+            a2 = _조각소리(cut_mp4, pc["t0"] + 0.10, 0.5)
+            bb2 = _조각소리(dst_src, pc["src_in"] - 0.65, 2.0)
+            if len(a2) >= 4000 and len(bb2) >= 8000 and a2.std() >= 50:
+                c2 = _np.correlate(bb2 - bb2.mean(), a2 - a2.mean(), "valid")
+                off2 = (int(_np.argmax(c2)) / 16000) - 0.75
+                if abs(off2) > 0.08:
+                    어긋난컷.append((k + 1, "경계", round(off2, 3)))
         print(("  [OK] " if not 어긋난컷 else "  [X] ") +
               f"컷별 원음 대조(±150ms) — 컷 {len(picture)}개 · 어긋남 {어긋난컷}")
         assert not 어긋난컷, "완성본 컷이 계획 지점과 어긋난다 — make 굽기·조각을 확인하라"

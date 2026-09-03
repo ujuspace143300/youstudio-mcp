@@ -119,13 +119,17 @@ def cut_and_join(src, segs, dst, work, fps):
             legs.append(f"[0:v]{cut},setpts=PTS-STARTPTS,{vf},setsar=1[v{j}]")
             tags.append(f"[v{j}]")
         fc = ";".join(legs) + f";{''.join(tags)}concat=n={len(plan)}:v=1:a=0[vo]"
-        p = os.path.join(work, f"seg{len(parts):03d}.mp4")
+        p = os.path.join(work, f"seg{len(parts):03d}.mov")
+        # ★PCM + 프레임 정확 길이(2026-09-03 «순간 배속» 사건) — AAC 꼬리 패딩이 조각마다
+        #   +40~60ms 붙어 경계에서 말이 겹쳐 들렸다(46ms 실측). PCM 은 패딩이 없고
+        #   -t 로 프레임 단위 길이를 못 박는다. AAC 인코딩은 최종 합칠 때 한 번만.
+        d_q = round((bnd - a) * fps) / fps
         run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(a),
              "-to", str(bnd), "-i", src, "-filter_complex", fc,
-             "-map", "[vo]", "-map", "0:a", "-c:v", "libx264", "-preset", "veryfast",
-             "-crf", str(CFG["ffmpeg"]["crf"]), "-c:a", "aac", "-b:a",
-             CFG["ffmpeg"]["audio_bitrate"], "-avoid_negative_ts", "make_zero",
-             "-y", p])
+             "-map", "[vo]", "-map", "0:a", "-t", f"{d_q:.5f}",
+             "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", str(CFG["ffmpeg"]["crf"]), "-c:a", "pcm_s16le",
+             "-avoid_negative_ts", "make_zero", "-y", p])
         parts.append(p)
 
     prev = None
@@ -133,12 +137,12 @@ def cut_and_join(src, segs, dst, work, fps):
         plan = framing.plan_beats(src, s, i, W, H, usable_h, b, work, cuts, prev)
         if not plan:
             vf, info = framing.plan_frame(src, s, i, W, H, usable_h, b, work, prev=prev)
-            p = os.path.join(work, f"seg{len(parts):03d}.mp4")
+            p = os.path.join(work, f"seg{len(parts):03d}.mov")
+            d_q = round((s["t1"] - s["t0"]) * fps) / fps
             run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
-                 "-to", str(s["t1"]), "-i", src, "-vf", vf, "-c:v", "libx264",
-                 "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
-                 "-c:a", "aac", "-b:a", CFG["ffmpeg"]["audio_bitrate"],
-                 "-avoid_negative_ts", "make_zero", "-y", p])
+                 "-to", str(s["t1"]), "-i", src, "-vf", vf, "-t", f"{d_q:.5f}",
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
+                 "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
             parts.append(p)
             prev = info["crop"]
             log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
