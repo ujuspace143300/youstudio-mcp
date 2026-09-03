@@ -707,6 +707,40 @@ def main():
         컷탑들.append(t_)
     print(f"번인 자막 윗변 — 전역 {sub_top} · 컷별 실측 {[t for t in 컷탑들 if t]}")
 
+    # ★근본 규칙(2026-09-03 사장님 «도대체 몇 번째» — 검출 술래잡기 종결):
+    #   이 소재군은 대사에 항상 자막을 굽는다. 그러므로 **말이 있는 컷은 검출 결과와
+    #   무관하게 자막 구역을 배제하고 크롭한다.** 검출은 유무 판정이 아니라 구역 높이
+    #   실측에만 쓴다. (페이드로 어두워진 자막 등 «검출을 뚫는 새 스타일»이 나와도
+    #   말이 있는 한 무조건 잘려나간다.) 예외 = 화면 중앙이 글로 가득한 콘텐츠 컷
+    #   (게시글 낭독) — 확대하면 내용이 잘리므로 풀샷 유지.
+    말들cut = [(w["t"], w["e"]) for w in (proj.get("asr_words") or [])
+               if w.get("type") != "punctuation"]
+
+    def 콘텐츠화면(seg):
+        import numpy as np
+        표수 = 0
+        for f in (0.25, 0.5, 0.75):
+            try:
+                a = grab(seg["t0"] + (seg["t1"] - seg["t0"]) * f, f"m{seg['t0']:.0f}_{f}")
+                중앙 = np.asarray(a).astype(int)[270:648, :, :]
+                g = 중앙.mean(axis=2)
+                # 게시글 화면 = 밝은 바탕(평균 ≥170) 위 어두운 글줄. 어두운 머리·옷만으로는
+                # 콘텐츠가 아니다(2026-09-03 컷8 오판 — 근본 규칙이 안 걸렸다)
+                어둠글 = ((g <= 90).sum(axis=1) >= 25).sum()
+                if g.mean() >= 170 and 어둠글 >= 20:
+                    표수 += 1
+            except Exception:
+                pass
+        return 표수 >= 2
+
+    for i, (seg, pc) in enumerate(zip(segs, picture)):
+        if burn[i]:
+            continue
+        말수 = sum(1 for t_, _e in 말들cut if pc["t0"] <= t_ < pc["t1"])
+        if 말수 >= 3 and not 콘텐츠화면(seg):
+            burn[i] = True
+            print(f"  컷{i+1:02d}: 말 {말수}마디 → 자막 구역 무조건 배제(근본 규칙)")
+
     # ★확대율은 컷별(2026-09-03 사장님 «고친다고 인물 포커싱 나가면 안 된다») —
     #   그 컷의 자막이 요구하는 만큼만 확대한다. 전역 최솟값으로 다 키우면
     #   멀쩡한 컷의 얼굴까지 커진다.
