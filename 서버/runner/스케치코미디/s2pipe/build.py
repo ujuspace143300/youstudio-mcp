@@ -498,7 +498,10 @@ def compose(cut, frame, ass, narrs, sfx_at, dst):
     base = 2 + len(narrs)
     for k, (at, path) in enumerate(sfx_at):
         ins += ["-i", path]
-        amix.append(f"[{base+k}:a]adelay={int(at*1000)}|{int(at*1000)},volume=0.7[s{k}]")
+        # ★0.7 → 0.25(-12dB) (2026-09-03 «배속처럼» 사건 — 절정 효과음이 대사 위에 크게
+        #   깔려 말이 몰아치게 들렸다). 굽기는 전사 전이라 말 틈을 몰라 볼륨으로 안전하게;
+        #   말 틈 스냅 정밀 배치는 프리미어판(준비)이 담당한다.
+        amix.append(f"[{base+k}:a]adelay={int(at*1000)}|{int(at*1000)},volume=0.25[s{k}]")
         labels.append(f"[s{k}]")
 
     fc = (f"[0:v][1:v]overlay=0:{b['y0']}:shortest=1[o];"
