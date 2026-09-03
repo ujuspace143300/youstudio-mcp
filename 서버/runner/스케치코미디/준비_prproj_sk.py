@@ -388,10 +388,18 @@ def main():
     n0f, n1f = round((narration[0]["t0"] - pad) * F), round((narration[0]["t1"] + pad) * F)
     lines = [x for x in subs if x.get("kind") != "narr"]
     숨김 = 0
+    늘어짐, 끝없음 = [], 0
     for i, x in enumerate(lines):
         t0f = round(x["t"] * F)
         nxtf = round((lines[i + 1]["t"] if i + 1 < len(lines) else total) * F)
-        t1f = min(t0f + 6 * F, nxtf, round(total * F))
+        # ★자막 끝 = 말 끝 + 0.25s (2026-09-03 사장님: 대사가 끝나면 자막도 딱 사라져야
+        #   한다 — 이것도 싱크다). 짧은 외마디는 읽을 시간 1.0s 는 보장하되
+        #   다음 자막·총길이를 넘지 않는다. 끝시각이 없는 줄(옛 데이터)만 6s 상한.
+        if x.get("t1"):
+            끝f = max(round((x["t1"] + 0.25) * F), t0f + round(1.0 * F))
+        else:
+            끝f = t0f + 6 * F
+        t1f = min(끝f, nxtf, round(total * F))
         if t1f <= t0f:
             t1f = t0f + 1
         if t0f < n1f and t1f > n0f:                  # 나레이션 창과 겹침
@@ -403,8 +411,21 @@ def main():
                 숨김 += 1
                 continue
         cues.append({"lane": "dlg", "t0": round(t0f / F, 4), "t1": round(t1f / F, 4), "text": x["text"]})
+        if x.get("t1"):
+            늘어짐.append(round(t1f / F, 4) - x["t1"])
+        else:
+            끝없음 += 1
     if 숨김:
         print(f"나레이션과 겹쳐 감춘 대사 자막 {숨김}줄")
+    # ★게이트(2026-09-03 사장님) — 대사가 끝나면 자막도 사라져야 한다.
+    if 늘어짐:
+        긴 = [d for d in 늘어짐 if d > 0.30]
+        print(f"  [{'OK' if max(늘어짐) <= 1.05 else 'X'}] 자막 끝 = 말 끝 — "
+              f"{len(늘어짐)}줄 · 0.3s 넘게 남는 줄 {len(긴)}개 · 최대 +{max(늘어짐):.2f}s"
+              f" (짧은 외마디의 읽기 보장 1.0s 이내)")
+        assert max(늘어짐) <= 1.05, "자막이 말 끝보다 1초 넘게 남는다 — 끝시각 계산 확인"
+    if 끝없음:
+        print(f"  ★끝시각 없는 대사 줄 {끝없음}개 — sync 를 다시 돌려라 (6s 상한으로 감)")
 
     # ★화자별 자막 색 (2026-09-02 사장님) — 화자마다 색, 효과자막은 나레와 같은 노랑.
     #   화자1 은 기본색 유지(주인공), 파스텔 팔레트라 눈이 편하다. 나레(V4)는 건드리지 않는다.

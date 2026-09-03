@@ -83,12 +83,34 @@ def 작표(words, slug, logline):
         return None
 
 
+def 끝시각채우기(dlg, words):
+    """★자막 끝 = 말 끝 (2026-09-03 사장님: 대사가 끝나면 자막도 딱 사라져야 한다 — 이것도 싱크다).
+       줄 끝 = 그 줄 구간(다음 줄 시작 전)의 마지막 단어가 끝나는 실측 시각.
+       구간에 단어가 없으면(괄호 효과자막) 2.5초 기본."""
+    말 = [w for w in words if w.get("type") != "punctuation"]
+    dlg.sort(key=lambda x: x["t"])
+    for k, d in enumerate(dlg):
+        nxt = dlg[k + 1]["t"] if k + 1 < len(dlg) else 10 ** 9
+        내부 = [w for w in 말 if d["t"] - 0.05 <= w["t"] < nxt]
+        d["t1"] = round(float(내부[-1]["e"]), 2) if 내부 else round(d["t"] + 2.5, 2)
+
+
 def main():
     if len(sys.argv) < 2:
-        print("python -m s2pipe.sync projects/<편>.json")
+        print("python -m s2pipe.sync projects/<편>.json [--끝만]")
         return 1
     pj = sys.argv[1] if os.path.isabs(sys.argv[1]) else os.path.join(HERE, sys.argv[1])
     proj = json.load(open(pj, encoding="utf-8"))
+
+    if "--끝만" in sys.argv:
+        # 무료 수리 모드 — 문구·시작 시각은 그대로 두고 줄 끝만 단어 실측으로 다시 단다
+        words = proj.get("asr_words") or []
+        assert words, "asr_words 가 없다"
+        dlg = [s for s in proj["subs"] if s.get("kind") != "narr"]
+        끝시각채우기(dlg, words)
+        json.dump(proj, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        print(f"줄 끝 실측 부여 {len(dlg)}줄 · 저장: {pj}")
+        return 0
 
     words = proj.get("asr_words") or []
     asr_lines = proj.get("subs_asr") or []
@@ -171,6 +193,9 @@ def main():
     if 보강:
         print(f"  6초 초과 줄 보강 {len(보강)}줄: " + " · ".join(f"{b['t']:.1f}s" for b in 보강))
         dlg += 보강
+
+    # ── ②c 줄 끝 = 말 끝 실측 (2026-09-03 사장님) ─────────────────────────────
+    끝시각채우기(dlg, words)
 
     # ── ③ 커버리지 게이트 — 모든 발화 단어는 자기 자막 줄 시작에서 6초(표시 최대) 안 ──
     dlg.sort(key=lambda x: x["t"])
