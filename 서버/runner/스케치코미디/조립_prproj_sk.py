@@ -519,6 +519,13 @@ def main():
             if f"<{tag}>" in blk:
                 blk = set_child(blk, tag, esc(val))
         doc.replace(int(m.group(1)), blk)
+    # 옛 템플릿 이름 최종 스크럽(2026-09-03 지문 이름 도입) — 어느 블록에 남았든 전량 치환
+    _옛tpl, _새tpl = "그래픽_템플릿.mov", os.path.basename(tl["template"])
+    if _새tpl != _옛tpl and _옛tpl in doc.xml:
+        n = doc.xml.count(_옛tpl)
+        doc.xml = doc.xml.replace(_옛tpl, _새tpl)
+        print(f"  옛 템플릿 이름 잔재 {n}건 → {_새tpl} 로 전량 치환", file=sys.stderr)
+
     # 되읽기 게이트 ① — 파일 전체에 도너 원본 경로·물성 잔재가 없어야 한다
     잔재 = [tok for tok in (DONOR["미디어키"]["원본"], "8475667200", "0,0,1920,960") if tok in doc.xml]
     print(("  [OK] " if not 잔재 else "  [X] ") + f"도너 원본 잔재 0  남음 {잔재}")
