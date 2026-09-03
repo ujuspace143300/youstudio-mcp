@@ -1,0 +1,306 @@
+{
+  "_안내": "린박스 설정값(제작에 쓰는 값) — 초안 2026-09-03 맥2. 원천은 볼트 `스크립트/린박스/키트/`(2026-09-03 윈도우 직원 키트와 합쳐 승격한 판)의 규격.md §1~§7·§82~§93 · 도구 상수 · 볼트 카드 `프리셋/린박스.md`. 값을 옮겼을 뿐 재해석하지 않았다. 판정 전용 값은 정답지.json, 잰 물성은 우리실측.json. 러너용 config 는 이 3파일에서 생성한다(손으로 만들지 않는다).",
+  "_상태": "★초안. styles.ts 등록·처리기(lb_*)는 다음 세션. ★키트의 make_ass·drv2·render·export_premiere·번쩍임정리·장면튐검사·검증 7파일은 윈도우 취사병 1편 재현 통과 전엔 확정이 아니다(진행상황.md 2026-09-03) — 그 파일에서 온 값은 `_미검증` 표시.",
+  "_vs_다른프리셋": "영화롱폼(prproj 산출·클로드 나레 집필)·스케치코미디(유튜브 URL·5-Phase)와 다르다. 린박스는 **드라마 로컬 영상 화이트리스트 구간** → 원음 대사(D) + TTS 나레(N) 블록 → 완성 mp4 **와** prproj 둘 다 낸다. 규격 정본은 키트 규격.md 이고 여기서는 값만 든다.",
+
+  "channel": {
+    "name": "린박스",
+    "_": "채널 서식 이름. 키트 make_ass.py 스타일표의 '린박스' 항목이 이 채널이다. 포핸즈 캠페인도 린박스 서식으로 나간다(규격 §70 폴더 이름 규칙)"
+  },
+
+  "video": {
+    "w": 1080,
+    "h": 1920,
+    "fps": "source",
+    "_fps": "★규격 §82 절대 지침 — 소재와 같은 프레임률로 낸다. 한편.py 굽기가 소재 r_frame_rate 를 재서 편 폴더 «프레임률» 파일에 적고(손으로 적은 값이 있으면 존중) drv2·make_xml(set_fps)이 그 값을 쓴다. 23.976 소재를 30 으로 내면 3:2 저더"
+  },
+
+  "source": {
+    "kind": "local_video",
+    "whitelist_only": true,
+    "_whitelist_only": "규격 §1 — 화이트리스트 영상 안에서만 자른다. 원본 전체를 쓰지 않는다",
+    "segment_cut": "-i 뒤 -ss/-to + 재인코딩 (libx264 crf 16 · aac 320k) · -c copy 금지",
+    "_segment_cut": "한편.py 준비 · 메모리 volcano-segment-cut. 잘라낸 뒤 stream start_time 이 0.1초 넘으면 옛 컷 표를 버린다(§78)",
+    "keep_untouched_copy": "구간_원본.mp4",
+    "_keep_untouched_copy": "§84 — 손대지 않은 원본 구간을 편 폴더에 남긴다. 프리미어 V1 은 원본을 물고 타임코드로 자른다(§50·§67)",
+    "letterbox_crop": true,
+    "_letterbox_crop": "§1 — 레터박스를 잘라내고 촬영본마다 얼굴을 찾아 인물을 가운데로",
+    "pick_low_cut_scenes": true,
+    "_pick_low_cut_scenes": "§91 — 화면 튐의 근본은 소재 컷이다. 컷 적은 대화 장면을 고른다. 소재 튐은 튐분석.py 로 잰다(§88)",
+    "clip_only_drama": "§92 — 권리사가 클립만 주는 드라마: 가짜 회차·전사 SRT·창 0초 규칙"
+  },
+
+  "layout": {
+    "mode": "mats",
+    "_mode": "규격 §2 — 위 매트(제목) · 영상창 · 아래 매트(로고/문구). 매트는 검정. 좌표는 사장님 완성본 실측(2026-08-26 현행, 옛 «하단 97px» 폐기)",
+    "mat_color": "000000",
+    "mat_top": { "y0": 0, "y1": 450 },
+    "video_box": { "y0": 450, "y1": 1470, "w": 1080, "h": 1020 },
+    "mat_bottom": { "y0": 1470, "y1": 1920 },
+
+    "reframe": {
+      "_": "§8 4) find_faces.py → 화자추적.py → 인물따라가기.py → reframe.py. 촬영본마다 인물을 창 가운데로 → 구간_인물.mp4",
+      "win_formula": "round(소재높이 × 1080 / 1020)",
+      "_win_formula": "한편.py 준비가 find_faces·reframe 의 WIN 을 이 값으로 맞춘다 (1920x1080 → 1143 · 1920x804 → 852)",
+      "ease": 0.35,
+      "_ease": "§8 — 화자추적·인물따라가기 둘 다 ease 0.35 로 부드럽게 민다. 뚝 끊으면 없던 컷이 생긴다",
+      "max_pan_px_per_sec": 260,
+      "_max_pan_px_per_sec": "규격 «화면튐 §②» — 창을 미는 속도 한도. 창은 «치우쳤을 때»가 아니라 «나갈 때» 민다(§③)",
+      "face_pick": "프레임마다 가장 큰 얼굴의 중앙값",
+      "_face_pick": "find_faces.py (윈도우 08-27 수정, 합침 ②) — 한 프레임의 큰 얼굴이 촬영본 전체 창을 끌고 가지 않게. _미검증 아님(②채택·회귀 밖이나 단순 수정)",
+      "scale_cap": 1.0,
+      "_scale_cap": "_미검증 — drv2.py 배율상한 1.00(§47 «배율을 바꿔 컷을 만들지 마라», 2026-08-26 사장님 «화질 깨짐·머리 잘림»). 편 폴더 «배율고정» 파일이 있으면 그 배율이 이긴다(합침 가드)",
+      "same_scene_hist_thr": 0.90,
+      "_same_scene_hist_thr": "_미검증 — drv2.py 그림 판정(HSV 히스토그램 상관 ≥ 0.90 이면 같은 장면 → 앞 배율 유지). 실측: 같은 장면 0.992~0.997 · 다른 장면 0.066~0.517",
+      "unsharp_on_upscale": false,
+      "_unsharp_on_upscale": "_미검증 — drv2.py 화질맞춤: 늘린 블록의 unsharp 를 뺀다(2026-08-26 «지글지글»). 링잉 0.25% → 0.11%"
+    },
+
+    "title": {
+      "_": "규격 §3 사장님 완성본 실측 + make_ass 스타일표 '린박스'. 헤드라인은 원제가 아니라 볼트 `규칙/제목_전용_지침서.md` 단계2(2줄·각 10자·이모지 없음)",
+      "lines": 2,
+      "max_chars": 10,
+      "_max_chars": "띄어쓰기 포함 10자 — 제목검사.py 한줄한도. 폭이 넘치면 크기를 줄이지 말고 글자를 줄인다(§68)",
+      "font": "SB Aggro Bold",
+      "font_file": "자산/린박스/fonts/SBAggroB.ttf",
+      "size": 130,
+      "scale_x": 100,
+      "outline": 6.5,
+      "fax": 0.0,
+      "line1_color_ass": "&H0007FEF8",
+      "line2_color_ass": "&H000000EE",
+      "_color": "1줄 노랑 #F8FE07 · 2줄 빨강 #EE0000 (make_ass 스타일표). ★볼트 카드 2절의 옛 표(Gmarket 130 · &H0000FFE5/&H000000FF · pos 203/328)는 01편 프리미어 템플릿 실측이고, 키트 현행은 이 값이다 — 카드 갱신 대상",
+      "line1_pos_y": 191,
+      "line2_pos_y": 321,
+      "_pos": "\\an8 \\pos(540,y). 윗선 실측 y195 · y325",
+      "cap_h_px": [100, 105],
+      "width_px": [780, 1020],
+      "safe_width_px": 1000,
+      "_safe_width_px": "textwidth.py SAFE — 1080 캔버스 좌우 40px. 제목·본문 폭은 이 값으로 잰다(글꼴은 집안 이름으로 줘야 libass 가 대체하지 않는다)",
+      "margin_lr": 10,
+      "_margin_lr": "기본 40 이면 1000px 에서 줄이 접혀 3줄이 된다",
+      "server_limit_em": 11.0,
+      "_server_limit_em": "볼케이노 서버 한도 — 넘으면 반려. 문구를 줄인다",
+      "premiere_one_clip_two_lines": true,
+      "_premiere_one_clip_two_lines": "2026-09-02 사장님 최종 설계 — prproj 에서 제목은 전용 층(V6) 한 클립 2줄(export_premiere --제목대사에 · 본떠서만들기 포핸즈 곳간)"
+    },
+
+    "subtitle": {
+      "_": "규격 §4 린박스 레퍼런스 8편 실측 + 스타일표. 자막은 색으로 세 갈래 — 나레 노랑 · 원음 흰 · 모션 분홍(§5). 셋이 색으로 안 갈리면 누가 하는 말인지 모른다",
+      "font": "SB Aggro Bold",
+      "size": 74,
+      "cap_h_px": 60,
+      "outline": 6.5,
+      "fax": -0.177,
+      "pos_y": 1233,
+      "_pos_y": "\\an8 \\pos(540,1233) — 영상창 아래쪽. 효과자막 안전대(520~1140)와 안 겹친다",
+      "narr_color_ass": "&H0007FEF8",
+      "dlg_color_ass": "&H00F0F0F0",
+      "emph_color_ass": "&H000000EE",
+      "_emph": "§28 강조는 빨간 자막 — 한 편에 한두 장, 카드 문구와 글자가 똑같아야 한다. authored.json 의 «강조» 에서 읽는다(_미검증 make_ass)",
+      "speaker_colors_ass": { "하늘": "#66DDFF", "연두": "#9CFF66" },
+      "_speaker_colors": "인물이 셋 이상일 때 화자 구분(§4). 주황 #EE9F64 강조색은 자막에 거의 안 쓴다",
+      "dlg_width_px": 840,
+      "narr_width_px": 790,
+      "_width": "한 줄 폭 한도(스타일표 원음폭·나레폭). 넘으면 낱말 시각대로 쪼갠다. 1000px 넘는 줄은 그 줄만 \\fscx88(카드)",
+      "card_chars_dlg": [5, 8],
+      "_card_chars_dlg": "§90 원음 자막 카드는 공백 제외 5~8자 — 대본의 `|` 나눔이 정본, SRT 쉼표·물음표 자리를 먼저 끊고 3자 이하는 이웃에 합친다, SRT 줄 경계는 안 넘긴다",
+      "card_chars_narr": 16,
+      "_card_chars_narr": "§16 나레 카드 한 장 16자 이내 · 어절 경계에서만 끊는다 (나레카드.py · make_ass _카드나누기)",
+      "min_show_sec": 0.52,
+      "_min_show_sec": "_미검증 — make_ass MINCARD 0.52 (검사 문턱 0.45 와 같은 값을 쓰지 마라, 2026-08-26). 검수.py 자막_최소 0.45 는 판정값(정답지)",
+      "tail_after_speech_sec": 0.08,
+      "_tail_after_speech_sec": "§4 «말끝 뒤 0.05초 안쪽 — 소리로 재서 닫는다». 여운 0.30 → 0.08 (2026-08-26 사장님 «자막이 대사 끝났는데도 떠있어»). 소리로닫기(): 침묵 0.35초 뒤 다른 사람 말이면 침묵 앞에서 닫음(_미검증 make_ass)",
+      "no_early_show": true,
+      "_no_early_show": "§93 (2026-09-03 사장님 전수조사 — 125편 중 118편) — 원음 자막은 말보다 먼저 뜨면 안 된다. 자막말머리맞춤.py 가 구운 블록 소리에서 말머리를 찾아 첫 카드를 양방향으로 맞춘다(한편.py 굽기 자동). 허용 어긋남 정답지 G-말머리",
+      "srt_first": true,
+      "_srt_first": "§85 — 공식 SRT 가 있으면 SRT 시각이 정답, ASR 로 흔들지 않는다. 자막 글자도 SRT 그대로(본보기 author.py). srt대사.txt 두 꼴(`8.52~ 9.44 글` · `[8.52, 9.44] 글`) 다 읽는다",
+      "구두점_금지": [",", ".", "…", "·"],
+      "_구두점_금지": "나레·대사 자막에 구둣점 금지 — 구둣점검사.py (2026-08-28 EP5 「하나, 그리고 거기」가 납품까지 간 사고). 물음표·느낌표는 SRT 대로 둔다(본보기 대사에 있음)",
+      "hide_dlg_sub_on_narr": false,
+      "_hide_dlg_sub_on_narr": "린박스는 나레 블록(N)과 원음 블록(D)이 시간상 갈라져 있어 겹칠 일이 없다 — 스케치코미디처럼 숨길 필요 없음",
+      "burned_sub_mask": "선택",
+      "_burned_sub_mask": "_미검증 — render.py: 편 폴더 «원본자막쓰기» 가 있고 «모자이크없음» 이 없으면 원본 자막 띠(y1200~1330)를 처음부터 끝까지 뭉갠다(2026-08-28 사장님). «자막띠부분만» 이면 나레 때만"
+    },
+
+    "motion_sub": {
+      "_": "규격 §5 린박스 실측 (효과자막·effect_float). 상황 설명이 아니라 «까발리는 한 마디»",
+      "font": "SB Aggro Bold",
+      "size": 72,
+      "cap_h_px": 56,
+      "color_ass": "&HC070F0",
+      "_color": "분홍 #F070C0 단색 — 나레가 노랑이 되면서 색을 갈랐다. ST['모션색'] 으로 채널마다 바꿀 수 있다",
+      "safe_y": [520, 1140],
+      "_safe_y": "작업규칙 완성검사 5 — 효과자막 y 안전대(대사 밴드와 안 겹침). 레퍼런스 주력 626~1073, 영상창 안 486~1174",
+      "per_episode": 4,
+      "_per_episode": "한 편에 4장(4~6장). authored.json EFFECTS_BY_BLOCK [블록, 늦출초, 길이, 색, 문구, x, y]",
+      "pop": "등장 2프레임 감쇠 진동 → 느린 표류 (\\move·\\t). 프리미어에서는 클립 값(§65) — 아모르 팝은 모션자막에 달지 않는다(§53)",
+      "enabled": true,
+      "_enabled": "스타일표 모션자막=True. 무비오션은 False 라 도구가 자동으로 끊는다(§23)"
+    },
+
+    "bottom": {
+      "_": "규격 §70 · 카드 6절 — 편마다 바뀌는 위 제목·아래 로고/문구는 편정보.json 한 곳. ★편을 시작하면 하단(로고냐 문구냐)을 **먼저 묻는다**(작업규칙 2026-08-26 사장님 지시)",
+      "logo_ink_h_px": 136,
+      "logo_top_y": 1504,
+      "_logo": "편정보.py 기본값 — 잉크 높이 136 · 윗선 y1504(영상창 끝 아래 34px). 여백은 로고찾기.얹기식() 이 잘라낸다. 흰 로고만(검은 매트에 검은 로고는 안 보인다). 로고는 작품 폴더에 한 번만(§74)",
+      "credit_l1_y": 1512,
+      "credit_l2_y": 1592,
+      "credit_gap_px": 80,
+      "_credit": "credit_cta_l1/l2 · 3줄부터 l2 서식으로 같은 간격 이어 붙임(§70). 서버가 CREDIT 을 필수로 받으므로 로고만 낼 때도 비우지 않는다 — 화면에서 빼는 것은 굽는 쪽",
+      "credit_with_logo": false,
+      "_credit_with_logo": "기본은 로고가 있으면 문구가 빠진다. 편정보 «크레딧함께»: true 면 둘 다",
+      "air_info": "편정보.json «방영정보» 한 줄 — 비우면 그 층을 아예 안 만든다. 프리미어에서는 템플릿에 굽는다(2026-08-26 사장님)",
+      "human_check_required": true,
+      "_human_check_required": "편정보 «하단확인» — 한 번 눈으로 보기 전에는 안 굽는다"
+    },
+
+    "fixed_line": {
+      "enabled_default": false,
+      "y": 1476,
+      "color": "빨강",
+      "size": 54,
+      "_": "§89 «고정대사»(결말 핵심 대사 한 줄을 0초~끝까지 하단에) — §90 사장님 판단으로 기본은 안 쓴다. 편 폴더 «고정대사» 파일이 있을 때만(_미검증 make_ass)"
+    }
+  },
+
+  "edit": {
+    "target_sec": [40, 60],
+    "_target_sec": "규격 §7·§2. 작업규칙 «완성 보고 2» 의 47~59 는 옛 값이고 신병4 실측(13.8~42.5)과 어긋나 사장님 확인 대기 — 판정은 정답지 G-길이",
+    "dlg_narr_ratio": [77, 23],
+    "_dlg_narr_ratio": "§2 원음 77 : 나레 23 (author.py 가 찍어 준다). §89 떡상 판은 나레가 절반이었다 — 비중을 키워도 된다",
+    "cuts_per_min": [27, 47],
+    "cuts_per_min_median": 37,
+    "cut_sec_median": 1.3,
+    "cut_sec_min": 1.0,
+    "cut_sec_warn": [1.0, 1.3],
+    "_cut_sec": "§7·§48 — 내 조각(블록 경계·나레 컷) 목표 1.30 · 막힘 1.00. 영화가 대사 안에서 컷한 자리(안쪽전환)는 0.25 잣대(§13·§22). 판정은 정답지 G-번쩍임",
+    "narr_line_is_one_cut": true,
+    "_narr_line_is_one_cut": "§7 나레 한 줄 = 한 컷. 두 컷으로 쪼개면 0.7초가 되어 규격을 깬다(§48)",
+    "narr_cut_other_shot": true,
+    "_narr_cut_other_shot": "§7 나레 컷 자리는 이웃 원음 블록과 **다른 촬영본** — 같으면 컷으로 안 보인다 (fix_cuts.py)",
+    "cut_inside_one_shot": true,
+    "_cut_inside_one_shot": "§1 한 컷은 한 촬영본 안에 통째로 — 장면전환을 가로지르면 0.3초짜리가 번쩍인다 (컷다듬기.py · 대본검사.py)",
+    "trim_silence": true,
+    "_trim_silence": "§7 대사 없는 구간은 잘라낸다 (컷다듬기)",
+    "flash_fix_by_extending": true,
+    "_flash_fix_by_extending": "§34 번쩍임은 «늘려서» 없앤다 — 대사를 자르지 않는다(§20). 3.7초 한도를 처음부터 셈에 넣고 낱말은 가르지 않는다(§63) (_미검증 번쩍임정리)",
+    "punch_in_same_shot_pct": 30,
+    "_punch_in_same_shot_pct": "§25·§47 펀치인.py — 붙어 있는 블록이 같은 촬영본이면 뒤 블록을 30% 당긴다. 이후 재조립.py",
+    "narr_slow_at_cut": true,
+    "_narr_slow_at_cut": "§47 나레천천히.py — 나레 화면이 장면전환에 닿으면 그 컷만 배속을 늦춘다",
+    "block_boundary_not_mid_word": true,
+    "_block_boundary_not_mid_word": "§29 블록 경계가 낱말을 가르면 말이 버벅인다",
+    "forbidden_zones": "fix_cuts.py «금지구간» — 제목 카드·로고·예고편 자리(§27)",
+    "min_usable_speech_sec": 31,
+    "_min_usable_speech_sec": "§83 절대 규칙 — 대본을 짜기 전에 쓸거리검사.py 로 «안 겹치는 말» 을 잰다. 완성본 40초 ← 말 약 31초. 형제 편이 이미 쓴 구간과의 겹침도 본다. 판정은 정답지 G-쓸거리",
+    "whole_scene": true,
+    "_whole_scene": "§60 대목은 한 통으로 쓴다 — 뜯어다 붙이지 마라. 통을 고르는 잣대는 «촬영본이 긴 통»(대사 많은 통이 아니다)",
+    "end_with_payoff": true,
+    "_end_with_payoff": "§89 4) 떡상 장면은 결말(코믹/충격 한 방)까지 잡는다. 마무리 블록 배경에 인물이 있어야 한다(작업규칙 완성검사 9)"
+  },
+
+  "narration": {
+    "enabled": true,
+    "engine": "typecast",
+    "voice": "Ina",
+    "voice_id": "tc_62686be9deec4c1bb7fd077c",
+    "tempo": 1.2,
+    "emotion_preset": "normal",
+    "_voice": "규격 §6 · 카드 2절 (2026-09-01 사장님 «이나·배속 1.2», EP6 실적용). 서버(볼케이노)가 합성하고 speed_narr.py 가 배속·길이 표본을 맞춘다 — 배속은 두 번 걸면 안 된다(--마스터만)",
+    "chars_per_sec": "우리실측 tts.chars_per_sec",
+    "style": "조각체 · ~죠 계열 · 한 편 15~19장 · 한 장 6~10자",
+    "_style": "카드 3절 — 서버 프롬프트가 정한 채널 말투. 린박스 서버는 나레 문체를 검사한다(격식 종결 과다면 반려 — 메모리 linbox-server-checks-narration-style)",
+    "relation_first": true,
+    "_relation_first": "§89 3) 나레는 «무슨 일이 일어났다»가 아니라 «누가 누구에게 무엇인지»(관계·아이러니)를 짚는다",
+    "speaker_before_script": true,
+    "_speaker_before_script": "§33 누가 말했는가를 대본보다 먼저 정한다 — 화자표.py(얼굴로 확인) · 화자검사.py(나레가 엉뚱한 입에 말을 넣지 않았는가). 사람을 가리키는 말은 프레임을 뽑아 눈으로 보고 쓴다(§71)",
+    "color": "노랑 — 어느 채널에서든 원음과 다른 색(§26)",
+    "screen_length_by_tts": true,
+    "_screen_length_by_tts": "나레 블록의 화면 길이는 TTS 음성이 정한다 — 대본만으로는 못 잰다. 그래서 장면튐검사는 굽고 나서 돈다(§64)"
+  },
+
+  "audio": {
+    "target_lufs": -14.0,
+    "true_peak_db": -3.4,
+    "lra": 11.0,
+    "two_pass": true,
+    "_loudnorm": "키트 도구/라우드니스.py (윈도우 판, 2026-09-01 사장님 «소리가 불편하지 않게» 직접 낮춤 · 2026-09-03 합치기 특별 채택). 2패스 loudnorm 선형 게인 · ebur128 로 되재서 규격에 들 때까지 TP 목표를 0.4dB 씩 낮춰 다시 건다. ★키트 규격.md §6·설정값.md 의 «−13.4 / −1.2» 는 옛 값 — 갱신 대상",
+    "master_peak_limit_db": -3.3,
+    "_master_peak_limit_db": "라우드니스.py 한계 — 마스터가 이보다 낮아야 AAC 완성본이 −3.0 안에 든다",
+    "final_peak_db_max": -3.0,
+    "_final_peak_db_max": "완료표시.py 관문 «피크 ≤ −3.0 dB» (정답지 G-완료표시)",
+    "actor_voice_untouched": true,
+    "_actor_voice_untouched": "§6 배우 목소리는 건드리지 않는다",
+    "aac_bitrate": "320k",
+    "_aac_bitrate": "_미검증 render.py — 192k AAC 는 최고점을 +0.7dB 밀어 올린다(2026-08-27 실측: wav −3.31 → 192k −2.59 · 320k −3.25). 한편.py 준비 구간 자르기도 320k. 구운 뒤 리미터를 또 걸지 마라",
+    "master_sync": "블록 영상 길이만큼 표본(round(길이×48000))을 잘라 잇는다 — 마스터맞춤.py",
+    "_master_sync": "§6 — 그냥 이으면 AAC 패딩 10ms 씩 29블록에 0.30초 밀린다. 서버 master.wav 는 블록당 ~29ms 밀린다(EP6 실측)",
+    "sfx": {
+      "enabled": true,
+      "dir": "자산/린박스/sfx/pick",
+      "_dir": "§6 아모르 팩에서만. 편 폴더 sfx_pick/ 으로 복사해 쓴다. 카드 「효과음」 절: 편마다 add_sfx.py PLAN 을 채우고 효과음낱개굽기.py → 효과음/NN_*.wav + 효과음계획.json (있으면 한번에.sh 가 A3 트랙·믹스까지 잇는다)",
+      "first_sound": "0.00 임팩트",
+      "same_sound_max": 2,
+      "count_per_episode": [6, 10],
+      "_count": "카드 — 원본 현장음을 죽이지 않는 선에서 리액션·전환 위주 6~10개",
+      "peak_dbfs": { "임팩트": -10.0, "장면전환": -14.0, "일반전환": -17.0, "확정음": -13.0 },
+      "_peak_dbfs": "add_sfx.py PEAK · 카드 ③ (키트 시작하기 11단계)"
+    },
+    "prproj_master_fx": {
+      "multiband_preset": "브로드캐스트",
+      "limiter_ceiling_db": -3.0,
+      "_": "작업규칙 완성 검사 11(2026-08-28 사장님 지시) — prproj 마스터 트랙에 멀티밴드 압축기 «브로드캐스트» + 선택적 제한 −3 dB. 마스터효과심기.py 가 넣고 --확인만 으로 검사"
+    }
+  },
+
+  "transcript": {
+    "engine_order": ["speechmatics", "gladia", "groq", "local_whisper"],
+    "_engine_order": "서버 ASR 순서(카드 1절) · 키트 전사.py 는 Speechmatics 정식(메모리 volcano-asr-speechmatics-first). 두 번 전사해 일치한 낱말만 자막에 쓴다(§1)",
+    "word_dictionary": "편 사전.json → 편정보.json «낱말사전» → 드라마정보.json «낱말사전»",
+    "_word_dictionary": "전사.py — 인물 이름·고유명사(sounds_like). 없으면 「고니」를 「보니」로 듣는다. 도구 파일에 적지 않는다(§70 · 지시/맥1 2026-08-27)",
+    "narr_words_from_baked_audio": true,
+    "_narr_words_from_baked_audio": "§8 9) narr_align.py — 구운 나레 소리로 낱말 시각을 다시 잰다(서버 wav 로 하면 0.08~0.29초 밀림). 서버낱말.py 가 src_words.json 을 뽑아야 make_ass 가 돈다"
+  },
+
+  "output": {
+    "final_mp4": true,
+    "final_name": "편정보.json «완성본» — «자동» 이면 제목에서 짓는다(손으로 적던 author·drv2·render 세 곳 중복 제거, §39 사고 방지)",
+    "prproj": true,
+    "_prproj": "§43 납품 — 완성본과 프리미어 프로젝트를 함께 낸다. 자막은 FCP7 텍스트 제너레이터(§52)로 글자를 고칠 수 있게 · 원본을 넣고 타임코드로 자른다(§50·§67) · 곳간 서식(§45)",
+    "srt_sets": 4,
+    "_srt_sets": "납품SRT4벌.py — 전체·나레·대사·효과",
+    "srt_timecode_format": "HH:MM:SS,mmm",
+    "deliver_dir": "완성/<EP>/ (편집소스/그래픽·나레이션·원음·효과음 포함)",
+    "nas": "galaxy 「유튜브 쇼츠/…」 — 작품 카드 「NAS 납품」 절"
+  },
+
+  "fonts": {
+    "SB Aggro Bold": "자산/린박스/fonts/SBAggroB.ttf",
+    "Gmarket Sans Bold": "자산/린박스/fonts/GmarketSansBold.otf",
+    "Gmarket Sans Medium": "자산/린박스/fonts/GmarketSansMedium.otf",
+    "_": "키트 검증.py 가 보는 넉 자(SBAggroB · GmarketSansBold · GmarketSansMedium · LICENSE). 글꼴은 파일이 아니라 **집안 이름**으로 준다 — 포스트스크립트 이름을 주면 libass 가 대체해 헛값이 나온다. 맥은 OTF 를 못 붙여 TTF 이름을 쓴다(메모리 mac-cafe24-ohsquare-otf). 글꼴 폴백 0 이 완성 검사 6",
+    "ass_to_premiere_size_ratio": "우리실측 fonts.ass_to_premiere_ratio",
+    "_ratio": "§41 ASS 글자 크기 ≠ 프리미어 글자 크기 — 글꼴마다 환산비를 곱한다(export_premiere _층서식 · 글꼴표.py)"
+  },
+
+  "premiere": {
+    "chain": "프리미어내기.py — 자막나누기 → export_premiere(--자막MOV없이) → 프로젝트뽑기(CEP 확장·대기줄 잠금) → 자리잡기 → 본떠서만들기(곳간) → 꾸미기 → 모션자막살리기 → 아모르입히기 → 주입검사·자막대조·자막자리대조",
+    "_chain": "§75 «한 줄로 뽑는다» · §1.1 끝까지 내가 뽑는다 · 한 컴퓨터에서는 한 번에 하나(프리미어잠금.sh, 2026-09-02). 맥 신병4 사슬은 한번에.sh(서식.py → xml짓기 → 프리미어 → 본떠서만들기 → … → 완성굽기)",
+    "v1_source": "원본(구간.mp4) + 컷마다 크기·자리 모션 (--창물림: 구간_인물 100% · --원본크기: 1920x960 원본 106.25%)",
+    "_v1_source": "_미검증 export_premiere — 기본은 윈도우 2026-09-02 설계, 볼트 08-26 방식은 --원본크기 스위치(합침 ③)",
+    "subs_as_text": true,
+    "_subs_as_text": "기본 텍스트 그래픽(MOV 는 --자막MOV). 방영정보는 템플릿에 굽는다",
+    "title_own_track": "V6 한 클립 2줄",
+    "cep_extension": "com.volcano.prproj — 볼트 프리미어확장/jsx/auto_prproj.jsx 가 유일본(jsx판검사.py)",
+    "queue_lock": "~/.volcano/prproj_queue.txt + 프리미어잠금.sh (메모리 prproj-queue-lock)",
+    "clip_end_within_video": true,
+    "_clip_end_within_video": "작업규칙 완성 검사 12 — 제목·자막·소리 클립이 영상 끝 프레임을 넘지 않는다(자막끝맞춤.py·제목끝맞춤.py --확인만 rc 0)"
+  },
+
+  "ffmpeg": {
+    "ffmpeg": "ffmpeg",
+    "ffprobe": "ffprobe",
+    "_": "맥은 libass 든 ffmpeg-full 로 링크(메모리 mac-ffmpeg-libass). 구간 절단 crf 16 medium · 완성굽기 yuv444 매트 합성"
+  }
+}
