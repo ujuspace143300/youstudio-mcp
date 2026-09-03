@@ -59,8 +59,8 @@ def 카드생성(text, 예시들, out_path, 좋아요=None):
     lines = _줄바꿈(tmp, text, font, 폭 - 70 - 20)
     필요h = {1: 95, 2: 117, 3: 140}[max(1, min(3, len(lines)))]
     # 줄 수에 맞는 높이의 원본을 본으로 고른다 (없으면 가장 가까운 것)
-    후보 = sorted(예시들, key=lambda p: abs(Image.open(p).height - 필요h))
-    본 = Image.open(후보[0]).convert("RGB")
+    후보 = sorted(예시들, key=lambda p: (abs(Image.open(p).height - 필요h), random.random()))
+    본 = Image.open(후보[0]).convert("RGB")     # 같은 높이 본이 여럿이면 무작위 순환(아바타 다양화)
     im = 본.copy()
     d = ImageDraw.Draw(im)
     d.rectangle((64, 30, im.width - 4, im.height - 32), fill="white")   # 본문만 지움
@@ -68,6 +68,38 @@ def 카드생성(text, 예시들, out_path, 좋아요=None):
     for ln in lines[:3]:
         d.text((70, y), ln, font=font, fill=(47, 47, 47))
         y += 22
+    # ★좋아요 숫자 — 카드마다 랜덤 (2026-09-03 사장님: 고정 536 은 이상하다).
+    #   본의 숫자 자리만 지우고 새 숫자를 그린 뒤, 싫어요 아이콘(원본 픽셀)을
+    #   새 숫자 폭에 맞춰 다시 붙인다. (실측: 엄지 x64~92 · 숫자 x99~ · 싫어요 그 뒤)
+    import numpy as _np
+    row0, row1 = im.height - 32, im.height - 4
+    band = _np.asarray(im.crop((0, row0, im.width, row1)).convert("RGB")).astype(int)
+    어둠 = band.mean(axis=2) < 120
+    cols = _np.where(어둠[:, 95:].sum(axis=0) > 0)[0] + 95
+    if len(cols):
+        덩어리, cur = [], [int(cols[0]), int(cols[0])]
+        for x in cols[1:]:
+            if x - cur[1] > 6:
+                덩어리.append(cur)
+                cur = [int(x), int(x)]
+            else:
+                cur[1] = int(x)
+        덩어리.append(cur)
+        dx0, dx1 = 덩어리[-1]                       # 마지막 덩어리 = 싫어요 아이콘
+        싫어요 = im.crop((dx0 - 3, row0, dx1 + 6, row1)).copy()
+        d.rectangle((95, row0, im.width - 4, row1), fill="white")
+        r = random.random()
+        if r < 0.35:
+            수 = str(random.randint(87, 947))
+        elif r < 0.75:
+            수 = f"{random.choice([1.1, 1.4, 2.3, 3.2, 4.7, 5.2, 6.8, 8.1])}천"
+        else:
+            수 = random.choice([f"{random.randint(10, 68)}천",
+                                f"{random.choice([1.2, 2.4, 3.1])}만"])
+        f13 = _폰트(14)
+        d.text((100, row0 + 4), 수, font=f13, fill=(96, 96, 96))
+        tw = int(d.textlength(수, font=f13))
+        im.paste(싫어요, (100 + tw + 16, row0))
     im.save(out_path)
     return out_path
 
