@@ -345,6 +345,8 @@ def main():
     #    비례) 그래도 넘으면 저장을 막는다.
     최대 = 14
     관문 = []
+    # 추임새 단독 줄(«아» 등)은 자막 가치가 없고 아모르 도구도 못 삼킨다(2026-09-03 Deep06)
+    dlg = [d for d in dlg if not all(추임새다(tok) for tok in d["text"].split())]
     for d in sorted(dlg, key=lambda x: x["t"]):
         스택 = [d]
         while 스택:

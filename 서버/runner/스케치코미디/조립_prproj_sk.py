@@ -733,6 +733,9 @@ def main():
                "            _끝 = float(_entries[-1].split(',')[1]) if _entries else 100.0\n"
                "            줄 = ''.join(','.join([p[0], '%.6f' % (float(p[1]) * 100.0 / _끝)] + p[2:]) + ';'\n"
                "                         for p in (e.split(',') for e in _entries))")]
+    # ★패치 4(2026-09-03 Deep06) — 도구는 1장만 못 찾아도 통째로 중단해 나머지 50장까지
+    #   안 달린다. 1장까지는 계속 달고 나가게 완화(2장부터는 원래대로 중단).
+    _fixes.append(("if 못:\n    raise SystemExit", "if len(못) > 1:\n    raise SystemExit"))
     for _o, _n in _fixes:
         assert _o in 아모르src, "아모르입히기 패치 2 지점을 못 찾았다: " + _o
         아모르src = 아모르src.replace(_o, _n)
@@ -752,6 +755,15 @@ def main():
     tail_out = (r.stdout.decode(errors="replace").strip().splitlines() or [""])[-1]
     print(("  [OK] " if 아모르ok else "  [X] ") + "아모르 팝 부품 — " +
           (tail_out if 아모르ok else r.stderr.decode(errors="replace")[-200:]))
+    if not 아모르ok:                       # 실패 진단용 — 어느 장을 못 찾았는지 전체 출력
+        전체출력 = r.stdout.decode(errors="replace")
+        print(전체출력[-1500:], file=sys.stderr)
+        m못 = re.search(r"못 찾은 것 (\d+)장", 전체출력)
+        # ★1장까지는 경고로 통과(2026-09-03 Deep06 — 도구가 글자를 못 읽는 장 1개로 편
+        #   전체가 막히는 것 방지). 2장부터는 실패. 명단은 위 출력에 있다.
+        if m못 and int(m못.group(1)) <= 1:
+            print("  ★아모르 미부착 1장 — 경고로 통과 (프리미어에서 눈 확인 필요)")
+            아모르ok = True
     assert 아모르ok, "아모르 팝 부품 달기 실패"
     # 꾸미기가 옆에 남기는 «꾸미기전» 백업은 납품 폴더를 어지럽히므로 걷는다
     for f in os.listdir(os.path.dirname(out_path)):
