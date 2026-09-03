@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs",
+    "test:auth": "node --experimental-strip-types test/auth.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",

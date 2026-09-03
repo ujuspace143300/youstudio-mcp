@@ -7,5 +7,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   // 스타일 문서(.md)를 텍스트로 import 한다 — script 단계가 나레이션.md 를 그대로 내려보낸다
-  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }]
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
+  // 발급 대장(이메일 허가제) — 배포 전 실제 KV 를 만들어 id 를 넣는다:
+  //   npx wrangler kv namespace create LICENSES  → 나온 id 를 아래 "id" 에 채운다.
+  //   KV 가 없으면(로컬 dev) 서버는 단일 토큰 폴백으로 돈다. 설계: 설계/인증_이메일허가제.md
+  "kv_namespaces": [{ "binding": "LICENSES", "id": "" }]
 }
