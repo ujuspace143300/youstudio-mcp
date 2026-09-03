@@ -91,8 +91,9 @@ def main():
             f.write("WEBVTT\n\n")
             for ln in lines:
                 t = ln["t"]
-                f.write(f"{int(t//3600):02d}:{int(t%3600//60):02d}:{int(t%60):02d}.000 --> "
-                        f"{int(t//3600):02d}:{int(t%3600//60):02d}:{int(t%60):02d}.999\n{ln['text']}\n\n")
+                # ★초 단위 절삭 금지(2026-09-03) — 복원 자막의 시각 정밀도가 vtt 를 따른다
+                f.write(f"{int(t//3600):02d}:{int(t%3600//60):02d}:{t%60:06.3f} --> "
+                        f"{int(t//3600):02d}:{int(t%3600//60):02d}:{min(t%60+0.999, 59.999):06.3f}\n{ln['text']}\n\n")
         os.remove(aud)
         print(f"전사 {len(lines)}줄 → {os.path.basename(vtt)}")
 

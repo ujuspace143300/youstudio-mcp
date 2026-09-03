@@ -339,6 +339,34 @@ def main():
     except Exception as e:
         print("★원본 전사 교차 대조 실패(복원 없이 진행):", str(e)[:60])
 
+    # ── ③a 최종 관문 (2026-09-03 사장님 «왜 자꾸 반복되나» — 규칙을 경로마다 따로 걸었던 게
+    #    원인) — 작표·괄호·보강·복원 어느 경로로 만들어졌든 **모든 대사 줄이 여기서 같은
+    #    규칙을 통과한다.** 14자 초과는 가운데 가까운 어절 경계에서 쪼개고(시각은 글자수
+    #    비례) 그래도 넘으면 저장을 막는다.
+    최대 = 14
+    관문 = []
+    for d in sorted(dlg, key=lambda x: x["t"]):
+        스택 = [d]
+        while 스택:
+            c = 스택.pop(0)
+            if len(c["text"]) <= 최대 or " " not in c["text"]:
+                관문.append(c)
+                continue
+            mid, best = len(c["text"]) // 2, None
+            for j, ch in enumerate(c["text"]):
+                if ch == " " and (best is None or abs(j - mid) < abs(best - mid)):
+                    best = j
+            앞, 뒤 = c["text"][:best].strip(), c["text"][best:].strip()
+            t1c = c.get("t1", c["t"] + 2.0)
+            중간 = round(c["t"] + (t1c - c["t"]) * (len(앞) / max(len(앞) + len(뒤), 1)), 2)
+            스택 = [{"t": c["t"], "t1": 중간, "text": 앞},
+                    {"t": max(중간, c["t"] + 0.1), "t1": t1c, "text": 뒤}] + 스택
+    긴 = [d["text"] for d in 관문 if len(d["text"]) > 최대]
+    print(f"  [{'OK' if not 긴 else 'X'}] 최종 관문 — 대사 {len(관문)}줄 전부 {최대}자 이내"
+          + (f" · 초과 {긴[:3]}" if 긴 else ""))
+    assert not 긴, "14자 초과 줄이 남았다(공백 없는 장문) — 위 목록"
+    dlg = 관문
+
     # ── ③ 커버리지 게이트 — 모든 발화 단어는 자기 자막 줄 시작에서 6초(표시 최대) 안 ──
     dlg.sort(key=lambda x: x["t"])
     시작들 = [d["t"] for d in dlg]

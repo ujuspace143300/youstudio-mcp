@@ -224,9 +224,11 @@ def check(proj, path):
         warn.append(f"자막이 3초 이상 비는 곳 {len(gaps)}군데"
                     f" (예: {gaps[0][0]:.0f}~{gaps[0][1]:.0f}초)")
     mx = CFG["layout"]["subtitle"]["max_chars"]
-    longs = [s for s in subs if len(s.get("text", "")) > mx]
+    longs = [s for s in subs if s.get("kind") != "narr" and len(s.get("text", "")) > mx]
     if longs:
-        warn.append(f"자막 {len(longs)}줄이 {mx}자를 넘는다")
+        # ★2026-09-03 사장님(14자·의미단위는 절대 규칙) — 주의가 아니라 반려다.
+        #   Deep04 에서 주의로 넘겼다가 20자 복원 줄이 화면 밖까지 넘쳤다.
+        bad.append(f"자막 {len(longs)}줄이 {mx}자를 넘는다 — 예: {longs[0]['text'][:20]}")
 
     # ★구두점 금지 (정답지 G-구두점, hard · 2026-09-01 절대 규칙) — 서버 check.ts 와 같은 규칙
     banned = CFG["layout"]["subtitle"].get("구두점_금지") or []

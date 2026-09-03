@@ -49,44 +49,25 @@ def _줄바꿈(draw, text, font, maxw):
     return lines[:3]
 
 
-def 카드생성(text, 예시png, out_path, 좋아요="1.2천"):
-    """기존 카드와 같은 형태의 댓글 카드 하나를 그린다."""
-    from PIL import Image, ImageDraw, ImageFilter
-    font = _폰트(글크기)
-    tmp = Image.new("RGB", (폭, 200), "white")
-    d0 = ImageDraw.Draw(tmp)
-    lines = _줄바꿈(d0, text, font, 폭 - 글x - 14)
-    h = 95 + 줄높이 * (len(lines) - 1) if lines else 95
-    im = Image.new("RGB", (폭, h), "white")
+def 카드생성(text, 예시들, out_path, 좋아요=None):
+    """★원본 본뜨기(2026-09-03 사장님 «기존 형태랑 완전히 똑같게») — 원본 카드에서
+    본문 글자 영역만 하얗게 지우고 새 문구를 실측 위치(x70·첫줄 y36·줄간 22px·
+    글자색 진회색)에 그린다. 아바타·닉네임 블러·좋아요 줄은 원본 픽셀 그대로다."""
+    from PIL import Image, ImageDraw
+    font = _폰트(19)
+    tmp = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    lines = _줄바꿈(tmp, text, font, 폭 - 70 - 20)
+    필요h = {1: 95, 2: 117, 3: 140}[max(1, min(3, len(lines)))]
+    # 줄 수에 맞는 높이의 원본을 본으로 고른다 (없으면 가장 가까운 것)
+    후보 = sorted(예시들, key=lambda p: abs(Image.open(p).height - 필요h))
+    본 = Image.open(후보[0]).convert("RGB")
+    im = 본.copy()
     d = ImageDraw.Draw(im)
-    # 아바타 — 흐린 원 (기존 카드처럼 뭉갠 색)
-    색 = random.choice([(196, 148, 108), (150, 150, 156), (170, 140, 170), (140, 160, 150)])
-    av = Image.new("RGB", (36, 36), "white")
-    ImageDraw.Draw(av).ellipse((0, 0, 35, 35), fill=색)
-    av = av.filter(ImageFilter.GaussianBlur(2.2))
-    mask = Image.new("L", (36, 36), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, 35, 35), fill=255)
-    im.paste(av, (14, 8), mask)
-    # 닉네임 — 블러 바 (개인정보 뭉갬 형태 그대로)
-    nw = random.randint(90, 150)
-    bar = Image.new("RGB", (nw, 12), (208, 205, 200))
-    bar = bar.filter(ImageFilter.GaussianBlur(2.5))
-    im.paste(bar, (글x, 10))
-    # 본문
-    y = 32
-    for ln in lines:
-        d.text((글x, y), ln, font=font, fill=본문색)
-        y += 줄높이
-    # 좋아요 줄 — 기존 카드 하단 아이콘 줄을 잘라 붙이고 숫자만 새로
-    try:
-        ex = Image.open(예시png).convert("RGB")
-        아이콘 = ex.crop((글x, ex.height - 30, 글x + 26, ex.height - 6))   # 엄지 아이콘
-        싫어요 = ex.crop((ex.width - 380, ex.height - 30, ex.width - 356, ex.height - 6))
-        im.paste(아이콘, (글x, h - 30))
-        d.text((글x + 32, h - 28), 좋아요, font=_폰트(13), fill=메타색)
-        im.paste(싫어요, (글x + 32 + int(d.textlength(좋아요, font=_폰트(13))) + 18, h - 30))
-    except Exception:
-        d.text((글x, h - 28), f"👍 {좋아요}", font=_폰트(13), fill=메타색)
+    d.rectangle((64, 30, im.width - 4, im.height - 32), fill="white")   # 본문만 지움
+    y = 36
+    for ln in lines[:3]:
+        d.text((70, y), ln, font=font, fill=(47, 47, 47))
+        y += 22
     im.save(out_path)
     return out_path
 
@@ -126,7 +107,7 @@ def 보충(cdir, logline, 최소=10, 여유=2):
     out = []
     for k, 문구 in enumerate(문구들):
         p = os.path.join(cdir, f"댓글_보충{k + 1:02d}.png")
-        카드생성(문구, pngs[k % len(pngs)], p, 좋아요=카운트[k % len(카운트)])
+        카드생성(문구, pngs, p)
         out.append(p)
         print(f"  + {os.path.basename(p)}  「{문구[:30]}」")
     return sorted(glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True))
