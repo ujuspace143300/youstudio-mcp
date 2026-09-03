@@ -53,46 +53,106 @@ def 작표(words, slug, logline):
         models = _C.get("gemini", {}).get("models", ["gemini-3.5-flash"])
         cut = os.path.join(HERE, _C["paths"]["work"], slug, "cut.mp4")
         목록 = " ".join(f"{i}:{w['w']}({w['t']:.1f})" for i, w in 말)
+        # ★줄 구성 규칙(2026-09-03 사장님 지시 — 중요): 최대 14자·의미 단위 절대 준수.
+        #   근거 = 설계/한국어_줄바꿈규칙.md (국어원 어문규범 2·41·42항 + Netflix + 실무).
         prompt = (f"숏폼({logline})의 단어 전사다. 형식 = 번호:단어(초).\n"
                   f"영상을 보고 자막 줄을 짜라 — 각 줄은 «시작 단어 번호(i)»와 «문구(text)»만 낸다.\n"
-                  f"- 줄 경계는 말 뭉치·호흡 단위로. 한 줄 화면 표시 8~16자.\n"
-                  f"- 문구는 그 줄 구간의 말을 다듬은 것 — 오인식 교정, 추임새 정리, 뜻·말투 유지.\n"
-                  f"  없는 말을 지어내지 마라.\n"
+                  f"★한 줄은 공백 포함 **최대 14자**다. 그리고 반드시 **의미 단위로 떨어져야** 한다:\n"
+                  f"- 끊기 좋은 자리 순서: 문장 끝 > 연결어미 뒤(~고 ~는데 ~어서 ~니까 ~면서) >\n"
+                  f"  부사어 뒤 > 체언+조사 뒤. 이 자리들로 14자 안에 들어오게 나눠라.\n"
+                  f"- 금지: 조사·어미·의존명사로 줄을 시작하는 것 / 수식어와 피수식어를 가르는 것\n"
+                  f"  (「새빨간 ⏎ 장미」 금지) / 명사구 한중간 절단 / 14자를 맞추려 말이 안 되게 자르는 것\n"
+                  f"  — 애매하면 더 짧게 나누는 쪽이 낫다.\n"
+                  f"- 추임새·웃음·하품 소리(아, 어, 하하 등)는 **문구에서 빼고** 줄 경계로도 쓰지 마라.\n"
+                  f"- 문구는 그 줄 구간의 말을 다듬은 것 — 오인식 교정, 뜻·말투 유지. 없는 말 금지.\n"
                   f"- i 는 오름차순, 첫 줄은 i={말[0][0]}. 마침표·쉼표·말줄임표 금지(? ! 허용).\n"
                   f"JSON 만, 공백 없이 한 줄: {{\"lines\":[{{\"i\":번호,\"text\":\"문구\"}},...]}}\n\n{목록}")
-        payload = {"contents": [{"role": "user", "parts": [
-            {"inline_data": {"mime_type": "video/mp4",
-                             "data": base64.b64encode(open(gem.shrink_for_inline(cut), "rb").read()).decode()}},
-            {"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 8000, "responseMimeType": "application/json"}}
-        txt, _r, _m = gem.ask(payload, models, timeout=600)
-        rows = json.loads(txt)["lines"]
-        out, last = [], -1
-        for r in rows:
-            i, tx = int(r["i"]), 정돈(str(r["text"]))
-            assert 0 <= i < len(words), f"단어 번호 밖: {i}"
-            if i <= last or not tx:
-                continue                                   # 역행·빈 문구는 앞 줄에 흡수
-            out.append({"t": round(float(words[i]["t"]), 2), "text": tx})
-            last = i
-        assert 8 <= len(out) <= 80, f"줄 수 이상: {len(out)}"
-        assert rows and int(rows[0]["i"]) == 말[0][0], "첫 발화가 자막 밖이다"
+        vid_b64 = base64.b64encode(open(gem.shrink_for_inline(cut), "rb").read()).decode()
+
+        def 한번(추가=""):
+            payload = {"contents": [{"role": "user", "parts": [
+                {"inline_data": {"mime_type": "video/mp4", "data": vid_b64}},
+                {"text": prompt + 추가}]}],
+                "generationConfig": {"maxOutputTokens": 8000, "responseMimeType": "application/json"}}
+            txt, _r, _m = gem.ask(payload, models, timeout=600)
+            rows = json.loads(txt)["lines"]
+            out, last = [], -1
+            for r in rows:
+                i, tx = int(r["i"]), 정돈(str(r["text"]))
+                assert 0 <= i < len(words), f"단어 번호 밖: {i}"
+                if i <= last or not tx:
+                    continue                               # 역행·빈 문구는 앞 줄에 흡수
+                out.append({"i": i, "t": round(float(words[i]["t"]), 2), "text": tx})
+                last = i
+            assert 8 <= len(out) <= 90, f"줄 수 이상: {len(out)}"
+            assert rows and int(rows[0]["i"]) == 말[0][0], "첫 발화가 자막 밖이다"
+            return out
+
+        out = 한번()
+        긴줄 = [d["text"] for d in out if len(d["text"]) > 14]
+        if 긴줄:                                            # ★14자 게이트 — 1회 재요청
+            print(f"  14자 초과 {len(긴줄)}줄 — 의미 단위 재분할을 다시 시킨다")
+            out = 한번("\n\n★직전 답에서 다음 줄이 14자를 넘었다 — 의미 단위를 지키며 더 잘게 나눠라:\n"
+                       + "\n".join(f"- {t}({len(t)}자)" for t in 긴줄[:10]))
+        # 그래도 넘는 줄은 기계 최후수단 — 가운데 가까운 어절 경계에서 절반씩 (경고 남김)
+        고침 = []
+        for d in out:
+            고침.append(d)
+            while len(고침[-1]["text"]) > 14 and " " in 고침[-1]["text"]:
+                cur = 고침.pop()
+                mid, best = len(cur["text"]) // 2, None
+                for m in (j for j, ch in enumerate(cur["text"]) if ch == " "):
+                    if best is None or abs(m - mid) < abs(best - mid):
+                        best = m
+                앞, 뒤 = cur["text"][:best].strip(), cur["text"][best:].strip()
+                span = [w for j, w in 말 if cur["i"] <= j]
+                누적, t뒤 = 0, cur["t"] + 0.8
+                for w in span:
+                    누적 += len(w["w"])
+                    if 누적 >= len(앞.replace(" ", "")):
+                        t뒤 = w["e"]
+                        break
+                print(f"  ★기계 절반 분할(모델이 14자 못 맞춤): 「{cur['text']}」")
+                고침.append({"i": cur["i"], "t": cur["t"], "text": 앞})
+                고침.append({"i": cur["i"], "t": round(t뒤, 2), "text": 뒤})
+        out = [{"t": d["t"], "text": d["text"]} for d in 고침]
+        # 금지 패턴 ⓑ(조사·어미로 줄 시작) — 기계로 잡히는 것만 경고
+        조사들 = {"은", "는", "이", "가", "을", "를", "에", "에서", "의", "도", "만",
+                  "와", "과", "랑", "부터", "까지", "처럼", "보다", "한테", "에게"}
+        for d in out:
+            if d["text"].split()[0] in 조사들:
+                print(f"  ★줄 첫머리가 조사다(금지 패턴 ⓑ): 「{d['text']}」 — 눈 확인 필요")
         return out
     except Exception as e:
-        print("모델 작표 실패 — 쉼 기준 묶음(ASR 원문)으로 간다:", str(e)[:70])
+        print("모델 작표 실패 — 쉼 기준 묶음(ASR 원문 14자)으로 간다:", str(e)[:70])
         return None
 
 
-def 끝시각채우기(dlg, words):
+def 끝시각채우기(dlg, words, 쉼=0.7):
     """★자막 끝 = 말 끝 (2026-09-03 사장님: 대사가 끝나면 자막도 딱 사라져야 한다 — 이것도 싱크다).
-       줄 끝 = 그 줄 구간(다음 줄 시작 전)의 마지막 단어가 끝나는 실측 시각.
+       줄 끝 = 줄 시작부터 **이어 말한 구간**(단어 사이 쉼 < 0.7s)의 마지막 단어 끝.
+       ★쉼 뒤에 오는 추임새·웃음·하품 소리(「아 아」로 전사됨)는 끝을 못 늘린다 —
+       12.3초 하품까지 자막이 남았던 실측(2026-09-03 캡쳐) 후 개정.
        구간에 단어가 없으면(괄호 효과자막) 2.5초 기본."""
     말 = [w for w in words if w.get("type") != "punctuation"]
     dlg.sort(key=lambda x: x["t"])
     for k, d in enumerate(dlg):
         nxt = dlg[k + 1]["t"] if k + 1 < len(dlg) else 10 ** 9
         내부 = [w for w in 말 if d["t"] - 0.05 <= w["t"] < nxt]
-        d["t1"] = round(float(내부[-1]["e"]), 2) if 내부 else round(d["t"] + 2.5, 2)
+        if not 내부:
+            d["t1"] = round(d["t"] + 2.5, 2)
+            continue
+        끝 = float(내부[0]["e"])
+        잘림 = []
+        for w in 내부[1:]:
+            if float(w["t"]) - 끝 >= 쉼:
+                잘림 = 내부[내부.index(w):]
+                break
+            끝 = max(끝, float(w["e"]))
+        d["t1"] = round(끝, 2)
+        버린글 = "".join(w["w"] for w in 잘림)
+        if len(버린글) >= 5:                    # 추임새가 아니라 말일 수 있다 — 눈 확인 요청
+            print(f"  ★{d['t']:.1f}s 줄 뒤 쉼 이후 발성 「{버린글[:16]}」 은 자막 밖 — 추임새면 정상")
 
 
 def main():
@@ -127,9 +187,10 @@ def main():
     dlg = 작표(words, proj["slug"], proj.get("logline", ""))
     출처 = "모델 경계·문구 + 단어 실측 시각"
     if dlg is None:
-        출처 = "쉼 기준 묶음(ASR 원문)"
+        출처 = "쉼 기준 묶음(ASR 원문 14자)"
+        from s2pipe import asr as _asr
         dlg = [{"t": round(float(l["t"]), 2), "text": 정돈(l["text"])}
-               for l in asr_lines if 정돈(l["text"])]
+               for l in _asr.to_lines(words, 14) if 정돈(l["text"])]
     print(f"대사 자막 {len(dlg)}줄 — {출처}")
 
     # ── ② 괄호 효과자막 — 옛 모델 표에서 가져와 강근거 정렬로 시각 매핑 ────────
@@ -183,12 +244,14 @@ def main():
     for k, d in enumerate(dlg):
         끝 = dlg[k + 1]["t"] if k + 1 < len(dlg) else 10 ** 9
         넘침 = [w for w in 말들 if d["t"] + 5.5 < w["t"] < 끝]
+        from s2pipe import asr as _asr
         while 넘침:
             t0 = 넘침[0]["t"]
             그룹 = [w for w in 넘침 if w["t"] - t0 <= 5.5]
-            tx = 정돈(" ".join(w["w"] for w in 그룹))
-            if tx:
-                보강.append({"t": round(t0, 2), "text": tx})
+            for l in _asr.to_lines(그룹, 14):              # 보강 줄도 14자·쉼 기준
+                tx = 정돈(l["text"])
+                if tx:
+                    보강.append({"t": round(float(l["t"]), 2), "text": tx})
             넘침 = [w for w in 넘침 if w["t"] - t0 > 5.5]
     if 보강:
         print(f"  6초 초과 줄 보강 {len(보강)}줄: " + " · ".join(f"{b['t']:.1f}s" for b in 보강))
