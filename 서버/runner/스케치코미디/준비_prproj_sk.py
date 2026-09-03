@@ -359,13 +359,29 @@ def main():
                                     "-of", "csv=p=0", dst_tpl], check=True, capture_output=True).stdout)
     assert tpl_dur >= total, f"템플릿 {tpl_dur:.2f}s < 총길이 {total:.2f}s — 껍데기가 끝에서 빈다"
 
-    # ③ timeline
+    # ③ timeline — ★조각 길이는 계획값이 아니라 **굽기 실측(beats.json)** 을 쓴다
+    #   (2026-09-03 근본 수리: 조각마다 인코딩 꼬리 +0.04~0.06s 가 붙어 누적 0.3s 밀렸다.
+    #    실측으로 짜면 완성본·자막·프리미어 배치가 정의상 같은 시간축이다.)
+    실측세그 = None
+    beats_p = os.path.join(wdir, "beats.json")
+    if os.path.exists(beats_p):
+        _bj = json.load(open(beats_p, encoding="utf-8"))
+        if len(_bj.get("segments", [])) == len(segs) and all(
+                abs(e["t0"] - s["t0"]) < 0.01 for e, s in zip(_bj["segments"], segs)):
+            실측세그 = _bj["segments"]
+            print("조각 길이 = 굽기 실측(beats.json) 기준")
     picture, cum = [], 0.0
     for i, s in enumerate(segs):
         d = s["t1"] - s["t0"]
+        if 실측세그:
+            d = 실측세그[i]["out_dur"]
+            if i == len(segs) - 1:                        # 여운으로 늘어난 몫은 더한다
+                d += max(0.0, (s["t1"] - s["t0"]) - (실측세그[i]["t1"] - 실측세그[i]["t0"]))
         picture.append({"t0": round(cum, 4), "t1": round(cum + d, 4), "src_in": s["t0"],
                         "name": f'{i + 1:02d} P{s["phase"]} {s["what"][:24]}'})
         cum += d
+    if 실측세그:
+        total = round(cum, 4)                             # 총길이도 실측 기준으로 갱신
     # (끝맺음 여운은 위 — 템플릿 굽기 전 — 로 옮겼다. 2026-09-02)
 
     # ★게이트(2026-09-03 Deep02 사건 — 싱크 단계를 건너뛰어 자막이 통째로 어긋났다)
@@ -374,6 +390,33 @@ def main():
         "★자막 싱크 단계를 안 거쳤다 — 먼저:\n"
         "  python -m s2pipe.asr projects/<슬러그>.json   (★유료 · 완성본 재전사)\n"
         "  python -m s2pipe.sync projects/<슬러그>.json")
+    # ★컷별 원음 대조 게이트 (2026-09-03 사장님 «근본적으로 고쳐라» — _synccheck 계승)
+    #   완성본(cut.mp4)의 각 컷 소리가 원본의 계획 지점과 150ms 안에서 맞아야 한다.
+    #   keep 누락·경계 밀림·낡은 굽기 등 **어떤 원인이든** 여기서 걸린다.
+    cut_mp4 = os.path.join(wdir, "cut.mp4")
+    if os.path.exists(cut_mp4):
+        import numpy as _np
+        def _조각소리(path, t0, d):
+            r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t0,0):.3f}", "-i", path,
+                                "-t", f"{d:.3f}", "-vn", "-ac", "1", "-ar", "16000",
+                                "-f", "s16le", "-"], capture_output=True)
+            return _np.frombuffer(r.stdout, dtype=_np.int16).astype(float)
+        어긋난컷 = []
+        for k, pc in enumerate(picture):
+            mc = (pc["t0"] + pc["t1"]) / 2
+            ms = pc["src_in"] + (mc - pc["t0"])
+            a = _조각소리(cut_mp4, mc - 0.4, 0.8)
+            bb = _조각소리(dst_src, ms - 1.6, 3.2)
+            if len(a) < 6000 or len(bb) < 12000 or a.std() < 50:
+                continue                                   # 무음 컷은 판정 불가 — 건너뜀
+            c = _np.correlate(bb - bb.mean(), a - a.mean(), "valid")
+            off = (int(_np.argmax(c)) / 16000) - 1.2
+            if abs(off) > 0.15:
+                어긋난컷.append((k + 1, round(off, 3)))
+        print(("  [OK] " if not 어긋난컷 else "  [X] ") +
+              f"컷별 원음 대조(±150ms) — 컷 {len(picture)}개 · 어긋남 {어긋난컷}")
+        assert not 어긋난컷, "완성본 컷이 계획 지점과 어긋난다 — make 굽기·조각을 확인하라"
+
     subs = sorted(proj["subs"], key=lambda x: x["t"])
     nar_seg = next(s for s in segs if s.get("narration"))
     nar_sub = next((x for x in subs if x.get("kind") == "narr"), None)

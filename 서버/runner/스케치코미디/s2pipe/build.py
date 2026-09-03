@@ -162,12 +162,19 @@ def cut_and_join(src, segs, dst, work, fps):
               f" 비트 {len(plan):2d}개(얼굴 {nf}) · 확대 {min(zs):.2f}~{max(zs):.2f}배"
               + ("  ★얼굴을 하나도 못 찾았다" if nf == 0 else ""), flush=True)
 
-    lst = os.path.join(work, "concat.txt")
-    with open(lst, "w", encoding="utf-8") as f:
-        for p in parts:
-            f.write(f"file '{p.replace(chr(92), '/')}'\n")
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
-         "-i", lst, "-c", "copy", "-y", dst])
+    # ★이어붙이기는 «디코드 → concat 필터 → 인코드» 한 번에 (2026-09-03 개정).
+    #   조각별 AAC 를 타임스탬프로 이어붙이면(concat demuxer + copy) 조각 경계마다
+    #   오디오 틈이 누적돼 컷 4~7에서 150ms~1s 어긋났다(원음 대조 실측). cut.mp4 는
+    #   판정·전사용 중간 산물이라 재인코딩 화질 손실은 무해하다.
+    ins, fc_in = [], ""
+    for j, p in enumerate(parts):
+        ins += ["-i", p]
+        fc_in += f"[{j}:v][{j}:a]"
+    fc = fc_in + f"concat=n={len(parts)}:v=1:a=1[vo][ao]"
+    run(["ffmpeg", "-hide_banner", "-loglevel", "error", *ins,
+         "-filter_complex", fc, "-map", "[vo]", "-map", "[ao]",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
+         "-c:a", "aac", "-b:a", CFG["ffmpeg"]["audio_bitrate"], "-y", dst])
 
     off = 0.0
     for e in log["segments"]:
@@ -522,7 +529,7 @@ def report_cuts(proj, work, src):
     def mmss(s):
         return f"{int(s)//60}:{s - (int(s)//60)*60:04.1f}"
 
-    segs = proj["segments"]
+    segs = [x for x in proj["segments"] if x.get("keep", True)]   # ★keep 필터(2026-09-03 Deep04: 뺀 조각이 구워져 3.7초 어긋남 — 검사기와 같은 기준)
     total = sum(s["t1"] - s["t0"] for s in segs)
     sd = probe_dur(src) if os.path.exists(src) else 0
     names = {p["no"]: p["name"] for p in CFG["edit"]["phases"]}
@@ -553,7 +560,7 @@ def run_build(proj, path):
         print(f"원본이 없다: {src}\n  먼저 python -m s2pipe.plan <url>")
         return 1
 
-    segs = proj["segments"]
+    segs = [x for x in proj["segments"] if x.get("keep", True)]   # ★keep 필터(2026-09-03 Deep04: 뺀 조각이 구워져 3.7초 어긋남 — 검사기와 같은 기준)
     total = sum(s["t1"] - s["t0"] for s in segs)
     fps = proj["source"].get("fps") or 30.0
     print(f"구간 {len(segs)}개 · {total:.1f}초 · {fps:.3f}fps", flush=True)

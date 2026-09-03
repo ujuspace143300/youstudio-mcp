@@ -120,7 +120,24 @@ def main():
         print(f"잘라 붙인 영상이 없다: {cut}")
         return 1
 
+    # ★길이 정합 게이트(2026-09-03 Deep04: keep=False 조각이 구워져 3.7초 어긋남) —
+    #   유료 전사에 돈을 태우기 전에, 완성본 길이 = 계획(keep 합)인지 먼저 확인한다.
+    kept = sum(x["t1"] - x["t0"] for x in proj.get("segments", []) if x.get("keep", True))
+    cd = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                         "-of", "csv=p=0", cut], capture_output=True, text=True)
+    try:
+        cdur = float(cd.stdout.strip())
+    except ValueError:
+        cdur = 0.0
+    if kept and abs(cdur - kept) > 0.8:
+        print(f"★완성본 {cdur:.1f}s ≠ 계획 {kept:.1f}s — 굽기가 낡았거나 조각이 어긋났다."
+              f"\n  make 굽기를 다시 돌려라. (유료 전사 전에 멈춤)")
+        return 1
+
     wav = os.path.join(os.path.dirname(cut), "cut.wav")
+    # ★완성본이 새로 구워졌으면 옛 wav 를 버린다(2026-09-03 — 낡은 소리를 전사한 실측)
+    if os.path.exists(wav) and os.path.getmtime(wav) < os.path.getmtime(cut):
+        os.remove(wav)
     if not os.path.exists(wav):
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", cut,
                         "-vn", "-ac", "1", "-ar", "16000", "-y", wav], check=True)
