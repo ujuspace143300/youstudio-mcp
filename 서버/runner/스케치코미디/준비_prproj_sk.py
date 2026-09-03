@@ -286,6 +286,19 @@ def main():
     assert 나레들, f"나레 wav 가 없다: {wdir}/narr*.wav — make 굽기를 먼저 돌려라"
     run(["ffmpeg", "-y", "-v", "error", "-i", 나레들[0],
          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dst_nar])
+    # ★나레도 내용 지문 이름 — 같은 이름 제자리 교체는 프리미어 캐시와 섞인다
+    #   (2026-09-03 템플릿 화면 뒤섞임 사건과 같은 함정)
+    import hashlib as _hl0
+    _hn = _hl0.md5(open(dst_nar, "rb").read()).hexdigest()[:8]
+    _새nar = os.path.join(sdir, f"나레_00_{_hn}.wav")
+    os.replace(dst_nar, _새nar)
+    for _fn in os.listdir(sdir):
+        if _fn.startswith("나레_00") and _fn != os.path.basename(_새nar):
+            try:
+                os.remove(os.path.join(sdir, _fn))
+            except OSError:
+                pass
+    dst_nar = _새nar
 
     # ② 껍데기 — 제목 포함 frame → 알파 구멍 → mov
     #   ★제목은 껍데기에 굽는다(2026-09-01 사장님 — 정위치·검은색 보장). 도너 텍스트 견본으로
