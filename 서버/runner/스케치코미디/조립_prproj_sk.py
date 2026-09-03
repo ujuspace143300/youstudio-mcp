@@ -498,7 +498,11 @@ def main():
         swap_media(doc, mu, tl["source"], tl["source_dur_s"], old_key=DONOR["미디어키"]["원본"],
                    vrect=(1920, 1080), v_rate=10594584000, a_rate=tl.get("src_audio_tickrate"))
     for mu in media_uids(doc, DONOR["미디어키"]["템플릿"]):
-        swap_media(doc, mu, tl["template"], tl["total_s"] + 1)   # 새 파일명이 같아 old_key 스크럽 금지(자기 경로를 뭉갠다)
+        swap_media(doc, mu, tl["template"], tl["total_s"] + 1)   # old_key 스크럽은 안 쓴다(자기 경로를 뭉갠다)
+        blk = doc.get_uid(mu)
+        if "<RelativePath>" in blk:                              # 지문 이름 도입 후 옛 상대경로 잔재 제거(2026-09-03)
+            doc.replace_uid(mu, set_child(blk, "RelativePath",
+                                          esc("./소스/" + os.path.basename(tl["template"]))))
     # 로깅 블록(ClipLoggingInfo)의 옛 파일명·캐시 경로도 갈아 준다 — 잔재 46개가 전부 여기 있었다(실측)
     for m in re.finditer(r'^\t<ClipLoggingInfo ObjectID="(\d+)"', doc.xml, re.M):
         blk = doc.get(int(m.group(1)))
