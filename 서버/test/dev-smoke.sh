@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 python3 - <<'PY'
 import io,re
 t=io.open('wrangler.jsonc',encoding='utf-8').read()
-t2=re.sub(r'\n\s*"kv_namespaces": \[\{[^\]]*\]\s*', '\n', t)
+t2=re.sub(r'\n\s*"kv_namespaces": \[\{[^\]]*\]\s*,?', '\n', t)   # KV 줄(과 뒤 쉼표)만 뺀다 — assets 는 남긴다(자산 시험)
 io.open('.wrangler-devtmp.jsonc','w',encoding='utf-8').write(t2)
 PY
 LOG="${TMPDIR:-/tmp}/wrangler-dev-smoke.log"

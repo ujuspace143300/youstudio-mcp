@@ -69,6 +69,20 @@ console.log(`서버: ${URL_}`);
 {
   const r = await fetch(URL_ + "/health").then((x) => x.json()).catch((e) => ({ error: String(e) }));
   ok(r.ok === true, "/health 응답", JSON.stringify(r));
+  // 자산 다운로드(길 C) — dev 는 인증 없음이라 바로 받는다. 배포본은 토큰·기기·프리셋 권한을 MCP 와 같이 본다.
+  const man = await fetch(URL_ + "/asset/린박스/_목록.json").then((x) => x.json()).catch((e) => ({ error: String(e) }));
+  ok(r.assets === true && Array.isArray(man.files) && man.files.length >= 3 && man.files.some((f) => f.path === "fonts/GmarketSansBold.otf"), "/asset/린박스/_목록.json → 목록(글꼴 3)", JSON.stringify(man.files?.map((f) => f.path)));
+  const f0 = man.files?.find((f) => f.path === "fonts/GmarketSansBold.otf");
+  const bin = await fetch(URL_ + "/asset/린박스/" + f0.path);
+  const buf = new Uint8Array(await bin.arrayBuffer());
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", buf))).map((b) => b.toString(16).padStart(2, "0")).join("");
+  ok(bin.status === 200 && buf.length === f0.bytes && sha === f0.sha256 && bin.headers.get("cache-control") === "private, no-store", "/asset/린박스/fonts/GmarketSansBold.otf → 바이트·sha256 목록과 같음 · no-store", `${bin.status} ${buf.length}/${f0.bytes}`);
+  const none = await fetch(URL_ + "/asset/린박스/fonts/없는파일.otf");
+  ok(none.status === 404, "/asset 없는 파일 → 404", String(none.status));
+  const trav = await fetch(URL_ + "/asset/린박스/../src/index.ts");
+  ok(trav.status === 400 || trav.status === 404, "/asset 경로 탈출(..) → 거부", String(trav.status));
+  const bare = await fetch(URL_ + "/asset/린박스");
+  ok(bare.status === 400, "/asset/<프리셋> 만 → 400(파일 경로 필요)", String(bare.status));
 }
 
 // 1) initialize
