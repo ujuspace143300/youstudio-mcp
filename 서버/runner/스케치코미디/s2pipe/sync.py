@@ -43,7 +43,8 @@ def 추임새다(w):
     """웃음·감탄 발성 — 자막 문구에 없는 소리. 시각 계산에서 뺀다.
        (2026-09-03 실측: 「하하하…」 단어에 첫 줄 시각이 붙어 웃음 동안 자막이 떴다)"""
     s = CLEAN.sub("", w if isinstance(w, str) else (w.get("w") or ""))
-    return bool(re.fullmatch(r"[하호흐히헤]{2,}|[아어오우음야에]", s))
+    # {2,}→{1,} (2026-09-04): 웃음이 「하 하」 처럼 한 글자씩 전사되면 빠져나갔다
+    return bool(re.fullmatch(r"[하호흐히헤]{1,}|[아어오우음야에]", s))
 
 
 def 작표(words, slug, logline):
@@ -223,7 +224,19 @@ def main():
     model_dlg = sorted([dict(s) for s in src if s.get("kind") != "narr"], key=lambda x: x["t"])
 
     # ── ① 대사 자막 — 시각 = 시작 단어 실측, 경계·문구 = 모델 (실패 시 쉼 기준 묶음) ──
-    dlg = 작표(words, proj["slug"], proj.get("logline", ""))
+    # ★작표 캐시 (2026-09-04 실측: 재실행마다 모델이 새로 굴려 «사보타지»→«서버타지» 퇴행.
+    #   입력(단어·로그라인)이 같으면 지난 결과를 그대로 쓴다 — 게이트만 다시 돈다.)
+    import hashlib as _hl
+    작표키 = _hl.md5((json.dumps([w["w"] for w in words], ensure_ascii=False)
+                      + proj.get("logline", "")).encode()).hexdigest()[:12]
+    캐시 = proj.get("_작표캐시") or {}
+    if 캐시.get("key") == 작표키 and 캐시.get("lines"):
+        dlg = [dict(x) for x in 캐시["lines"]]
+        print(f"  작표 캐시 재사용({작표키}) — 입력이 같아 지난 경계·문구 유지")
+    else:
+        dlg = 작표(words, proj["slug"], proj.get("logline", ""))
+        if dlg is not None:
+            proj["_작표캐시"] = {"key": 작표키, "lines": [dict(x) for x in dlg]}
     출처 = "모델 경계·문구 + 단어 실측 시각"
     if dlg is None:
         출처 = "쉼 기준 묶음(ASR 원문 14자)"
@@ -374,8 +387,10 @@ def main():
                     sm = difflib.SequenceMatcher(None, 내글, CLEAN.sub("", 창글), autojunk=False)
                     맞은 = sum(b.size for b in sm.get_matching_blocks())
                     if 맞은 / len(내글) < 0.4:
-                        유령.append(d)
-                        dlg.remove(d)
+                        # ★지우지 않는다(2026-09-04 «권은비의 사보타지» 삭제 실측) — 원본 전사
+                        #   «도» 오인할 수 있다(«거 냄비에 서버 타지»). 말은 있는데 문구만 안
+                        #   닮은 줄은 ③c 이중 전사 중재로 회부한다. 삭제는 말 없는 유령만.
+                        d["_분쟁원문"] = 창글.strip()[:40]
             if 유령:
                 print(f"  ★유령/오인 자막 {len(유령)}줄 제거 — 원본 전사와 대조:")
                 for g in 유령:
@@ -384,6 +399,103 @@ def main():
             면제구간.extend((g["t"] - 0.2, g.get("t1", g["t"] + 2.0) + 0.2) for g in 유령)
     except Exception as e:
         print("★원본 전사 교차 대조 실패(복원 없이 진행):", str(e)[:60])
+
+    # ── ③c 이중 전사 대조 (2026-09-04 사장님 «배경음 있을 때 오타가 심하다» — 근본:
+    #    Speechmatics 는 배경음 구간에서 원본·완성본을 «똑같이» 오인해 교차 대조가 무력
+    #    (실측: «양보 좀 하시죠» → 두 전사 모두 «양보 좋아하시죠»). 한 엔진의 귀를 참값으로
+    #    믿는 구조가 구멍이다 — 제2 엔진(whisper, 로컬·무료)으로 한 번 더 듣고, 두 엔진이
+    #    갈린 줄만 모델이 영상·문맥으로 중재해 문구를 확정한다. 갈림 = 못 믿을 곳 신호.)
+    try:
+        from s2pipe.cfg import CFG as _C4
+        wdir4 = os.path.join(HERE, _C4["paths"]["work"], proj["slug"])
+        cut4 = os.path.join(wdir4, "cut.mp4")
+        wj = os.path.join(wdir4, "cut_whisper.json")
+        위스퍼 = os.path.expanduser("~/.local/bin/whisper")
+        if os.path.exists(cut4) and os.path.exists(위스퍼):
+            if not (os.path.exists(wj) and os.path.getmtime(wj) > os.path.getmtime(cut4)):
+                import subprocess as _sp4
+                print("  이중 전사(whisper medium) 실행 — 로컬·무료, 수 분")
+                _sp4.run([위스퍼, cut4, "--model", "medium", "--language", "Korean",
+                          "--output_format", "json", "--output_dir", wdir4,
+                          "--fp16", "False", "--verbose", "False"],
+                         check=True, capture_output=True, timeout=1800)
+                os.replace(os.path.join(wdir4, "cut.json"), wj)
+            wsegs = json.load(open(wj, encoding="utf-8"))["segments"]
+            분쟁 = []
+            for d in dlg:
+                if d["text"].startswith("(") or not CLEAN.sub("", d["text"]):
+                    continue
+                내글 = CLEAN.sub("", d["text"])
+                if len(내글) < 4:
+                    continue
+                t0d, t1d = d["t"], d.get("t1", d["t"] + 2.0)
+                창 = "".join(s["text"] for s in wsegs if s["end"] > t0d - 0.3 and s["start"] < t1d + 0.3)
+                창글 = CLEAN.sub("", 창)
+                if not 창글 and not d.get("_분쟁원문"):
+                    continue          # whisper 가 아예 못 들은 구간 — 갈림 판정 불가
+                sm = difflib.SequenceMatcher(None, 내글, 창글, autojunk=False)
+                비율 = sum(b.size for b in sm.get_matching_blocks()) / len(내글)
+                # 0.8 — «양보 좋아하시죠↔양보 좀 하시죠» 한 단어 차이가 0.71 로 통과했다
+                # (2026-09-04 실측). 과검출은 무해 — 갈린 줄은 모델이 중재해 A안 유지 가능.
+                # ③b 가 원본 전사와 안 닮았다고 표시한 줄(_분쟁원문)은 무조건 회부한다.
+                if 비율 < 0.8 or d.get("_분쟁원문"):
+                    분쟁.append((d, (창.strip() or d.get("_분쟁원문", "")), 비율))
+            if 분쟁:
+                print(f"  ★두 엔진이 갈린 줄 {len(분쟁)}건 — 모델이 영상·문맥으로 중재:")
+                import base64 as _b64
+                from s2pipe import gem as _gem
+                models4 = _C4.get("gemini", {}).get("models", ["gemini-3.5-flash"])
+                vb = _b64.b64encode(open(_gem.shrink_for_inline(cut4), "rb").read()).decode()
+                목록 = "\n".join(f"- t={d['t']:.1f}s A안(현재)「{d['text']}」 B안(제2엔진)「{w[:40]}」"
+                                 for d, w, _r in 분쟁)
+                pr = (f"숏폼 영상이다(로그라인: {proj.get('logline', '')}).\n"
+                      "아래 각 시각의 대사를 두 전사 엔진이 다르게 들었다.\n"
+                      "영상을 그 시각에서 직접 듣고(입모양·문맥 포함) 실제 대사를 판정하라.\n"
+                      "- 고유명사(신곡명·이름·브랜드)는 로그라인·화면 표기를 따른다 — 전사 엔진은\n"
+                      "  고유명사를 자주 엉뚱한 낱말로 쪼갠다(«사보타지»→«서버 타지» 실측).\n"
+                      "- text 는 그 줄의 실제 말. A안·B안 중 맞는 쪽을 고르거나, 둘 다 틀리면 들리는 대로.\n"
+                      "- 공백 포함 14자 이내, 뜻·말투 유지, 없는 말 금지. 확신이 없으면 A안 그대로.\n"
+                      f"JSON 만: {{\"fixes\":[{{\"t\":시각,\"text\":\"문구\"}},...]}}\n\n{목록}")
+                payload = {"contents": [{"role": "user", "parts": [
+                    {"inline_data": {"mime_type": "video/mp4", "data": vb}}, {"text": pr}]}],
+                    "generationConfig": {"maxOutputTokens": 4000, "responseMimeType": "application/json"}}
+                txt4, _r4, _m4 = _gem.ask(payload, models4, timeout=600)
+                고정 = {round(float(f["t"]), 1): str(f["text"]).strip()
+                        for f in json.loads(txt4).get("fixes", [])}
+                정정 = 0
+                for d, w, _r in 분쟁:
+                    새 = 고정.get(round(d["t"], 1))
+                    if 새 and 새 != d["text"] and len(새) <= 20:
+                        print(f"     [{d['t']:.1f}s] 「{d['text']}」 → 「{새}」")
+                        d["text"] = 새
+                        정정 += 1
+                print(f"  [OK] 이중 전사 대조 — 갈림 {len(분쟁)}건 · 정정 {정정}건")
+            else:
+                print("  [OK] 이중 전사 대조 — 두 엔진 일치(갈린 줄 없음)")
+        else:
+            print("  ★이중 전사 대조 건너뜀 — cut.mp4 또는 whisper 없음:", cut4)
+    except Exception as e:
+        print("★이중 전사 대조 실패(현재 문구 유지 — 눈 확인 필요):", str(e)[:120])
+    for d in dlg:
+        d.pop("_분쟁원문", None)
+
+    # ── 문구교정 핀 (2026-09-04 — 화자교정과 같은 사상): 사장님이 귀로 확정한 문구는
+    #    엔진·모델이 못 뒤집는다. proj["문구교정"] = {"<시각>": "<문구>"} — 재작표해도 이긴다.
+    for 핀t, 핀글 in (proj.get("문구교정") or {}).items():
+        핀tf = float(핀t)
+        # 작표마다 줄 경계가 달라진다 — 시각이 줄 구간에 «겹치는» 줄을 찾고,
+        # 확정 문구가 이미 들어 있으면 통과, 없으면 그 줄을 교체한다.
+        후보줄 = [d for d in dlg
+                  if d["t"] - 0.4 <= 핀tf <= d.get("t1", d["t"] + 2.0) + 0.4]
+        if 후보줄:
+            d = min(후보줄, key=lambda x: abs(x["t"] - 핀tf))
+            if CLEAN.sub("", 핀글) in CLEAN.sub("", d["text"]):
+                print(f"  [OK] 문구교정 핀 [{핀t}s] — 확정 문구가 이미 들어 있다: 「{d['text']}」")
+            else:
+                print(f"  ★문구교정 핀 적용: [{d['t']:.1f}s] 「{d['text']}」 → 「{핀글}」")
+                d["text"] = 핀글
+        else:
+            print(f"  ★문구교정 핀 [{핀t}s] 에 맞는 줄이 없다 — 시각 확인 필요")
 
     # ── ③a 최종 관문 (2026-09-03 사장님 «왜 자꾸 반복되나» — 규칙을 경로마다 따로 걸었던 게
     #    원인) — 작표·괄호·보강·복원 어느 경로로 만들어졌든 **모든 대사 줄이 여기서 같은
