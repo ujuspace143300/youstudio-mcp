@@ -112,8 +112,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_plan", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_plan → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_script", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_script → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -961,6 +961,36 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   const r2 = await lbCall("lb_transcript", { payload: { ...LB_C, scene_count: 21, 대사: WORDS } });
   const s2 = r2.structuredContent;
   ok(s2?.status === "execute" && s2?.next_step === "lb_plan" && s2?.metrics?.words === 3 && s2?.metrics?.speech_s === 2.29 && s2?.metrics?.sure_ratio_pct === 67 && s2?.metrics?.speakers === 2 && s2?.carry?.includes("대사"), "lb_transcript② → next=lb_plan · metrics(낱말 3·말 2.29초·일치 67%·화자 2) · 대사 carry", JSON.stringify(s2?.metrics));
+}
+
+// L5) lb_plan — ① 쓸거리·밀도 게이트 → need_input(하단) ② 편정보 검사 → write_files
+{
+  const LB_C = { source: LB_SRC, ...LB, ep_dir: "C:/lb_work/신병/작업/EP19", repo: "C:/youstudio-mcp", probe_summary: { fps_fraction: "24000/1001" }, scene_count: 21 };
+  // 말 40초 → 어림 52초 (통과) · 앞 30초 창 비어 있음
+  const mk = (n, from, each = 1.0, gap = 0.2) => Array.from({ length: n }, (_, i) => ({ s: from + i * (each + gap), e: from + i * (each + gap) + each, t: "말", sure: true, spk: "S1" }));
+  const WORDS_OK = { words: mk(40, 40) };
+  const WORDS_SHORT = { words: mk(10, 5) };
+  const r0 = await lbCall("lb_plan", { payload: { ...LB_C } });
+  ok(r0.structuredContent?.status === "error" && /대사/.test(r0.structuredContent?.message ?? ""), "lb_plan(대사 없음) → 반려", r0.structuredContent?.message?.slice(0, 50));
+  const r1 = await lbCall("lb_plan", { payload: { ...LB_C, 대사: WORDS_SHORT } });
+  ok(r1.structuredContent?.status === "error" && r1.structuredContent?.next_step === "start" && /막힘/.test(r1.structuredContent?.message ?? "") && r1.structuredContent?.metrics?.est_final_s < 40, "lb_plan(말 10초) → ★막힘(§83) · start 로 돌아가 다른 구간", `${r1.structuredContent?.metrics?.est_final_s}`);
+  const r2 = await lbCall("lb_plan", { payload: { ...LB_C, 대사: WORDS_OK, used_ranges: [[1495 + 40, 1495 + 45]] } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "need_input" && s2?.next_step === "lb_plan" && s2?.need_input?.keys?.includes("편정보.로고") && s2?.need_input?.keys?.includes("편정보.하단확인"), "lb_plan① → need_input(하단: 로고·크레딧·방영정보·크레딧함께·하단확인)", JSON.stringify(s2?.need_input?.keys));
+  const m2 = s2?.metrics ?? {};
+  ok(m2.speech_s === 40 && m2.overlap_s === 4.2 && m2.usable_s === 35.8 && m2.est_final_s === 46.494 && m2.empty_30s_windows === 3 && m2.max_gap_s === 52.2 && m2.max_gap_at_s === 87.8, "lb_plan① → metrics(말 40초 · 겹침 4.2 · 어림 46.5 · 빈 창 3/5 · 최대 틈 52.2초 꼬리)", JSON.stringify(m2));
+  ok((s2?.warnings ?? []).some((w) => /겹친다/.test(w)) && (s2?.warnings ?? []).some((w) => /무음|틈/.test(w)) && s2?.편정보_틀?.마스터 === "신병4_EP4_EPK.mp4" && s2?.편정보_틀?.로고y === 1504, "lb_plan① → 겹침·긴 틈 경고 · 편정보 틀(마스터·로고y 1504)", JSON.stringify(s2?.warnings));
+  const bad = await lbCall("lb_plan", { payload: { ...LB_C, 대사: WORDS_OK, 편정보: { 로고: "없음", 크레딧: [], 하단확인: false } } });
+  ok(bad.structuredContent?.status === "error" && /크레딧 문구가 비었다/.test(bad.structuredContent?.message ?? "") && /하단확인/.test(bad.structuredContent?.message ?? ""), "lb_plan②(크레딧 비고 하단확인 false) → 반려 2건", bad.structuredContent?.message?.slice(0, 80));
+  const bad2 = await lbCall("lb_plan", { payload: { ...LB_C, 대사: WORDS_OK, 편정보: { 로고: "C:/drama/logo_w.png", 크레딧: ["<작품명>", "지금 정주행!"], 로고y: 1800, 하단확인: true } } });
+  ok(bad2.structuredContent?.status === "error" && /보기 문구/.test(bad2.structuredContent?.message ?? "") && /매트/.test(bad2.structuredContent?.message ?? ""), "lb_plan②(보기 문구·로고 매트 밖) → 반려", bad2.structuredContent?.message?.slice(0, 80));
+  const r3 = await lbCall("lb_plan", { payload: { ...LB_C, 대사: WORDS_OK, 편정보: { 로고: "C:/drama/New Recruit_logo_w.png", 크레딧: ["〈신병4 사보타주〉", "는 본편에서!"], 방영정보: "", 크레딧함께: false, 하단확인: true } } });
+  const s3 = r3.structuredContent;
+  ok(s3?.status === "execute" && s3?.next_step === "lb_script" && s3?.jobs?.[0]?.name === "copy_logo" && s3.jobs[0].argv.at(-1) === "C:/drama/New Recruit_logo_w.png", "lb_plan② → execute, next=lb_script, 로고 복사 job", `${s3?.status}/${s3?.next_step}`);
+  const wf = s3?.write_files?.[0];
+  ok(wf?.path === "C:/lb_work/신병/작업/EP19/편정보.json" && wf?.content?.로고 === "logo/logo_bottom.png" && wf?.content?.완성본 === "자동" && wf?.content?.구간오프셋 === 1495 && wf?.content?.마스터 === "신병4_EP4_EPK.mp4" && wf?.content?.하단확인 === true && wf?.content?.나레TTS?.voice?.includes("tc_62686be9deec4c1bb7fd077c"), "lb_plan② → write_files 편정보.json(로고 logo/logo_bottom.png · 완성본 자동 · 구간오프셋 1495 · 이나)", JSON.stringify(wf?.content).slice(0, 160));
+  const r4 = await lbCall("lb_plan", { payload: { ...LB_C, 대사: WORDS_OK, 편정보: { 로고: "없음", 크레딧: ["<더 글로리>는", "넷플릭스에서!"], 하단확인: true } } });
+  ok(r4.structuredContent?.status === "execute" && r4.structuredContent?.jobs?.length === 0 && r4.structuredContent?.write_files?.[0]?.content?.로고 === "없음", "lb_plan②(로고 없음) → 복사 job 없음 · 로고 «없음»", JSON.stringify(r4.structuredContent?.write_files?.[0]?.content?.로고));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

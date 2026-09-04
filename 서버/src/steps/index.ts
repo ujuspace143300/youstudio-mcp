@@ -27,6 +27,7 @@ import { lbStart } from "./린박스/start.js";
 import { lbProbe } from "./린박스/probe.js";
 import { lbCut } from "./린박스/cut.js";
 import { lbTranscript } from "./린박스/transcript.js";
+import { lbPlan } from "./린박스/plan.js";
 import type { StepHandler } from "./types.js";
 
 const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
@@ -61,6 +62,7 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     lb_probe: lbProbe, // 소재 확인 · 구간 범위 · 레터박스·WIN · «프레임률» 파일
     lb_cut: lbCut, // 구간 절단(-i 뒤 -ss 재인코딩) · 구간_원본 사본 · 절단본 재기 · 장면컷.py
     lb_transcript: lbTranscript, // ★유료 Speechmatics 3벌 전사(전사.py) + 화자표.py · 두 번 부름(지시 → 검사)
+    lb_plan: lbPlan, // 쓸거리(§83)·밀도 게이트 → 하단 need_input → 편정보.json(§70) · 두 번 부름
   },
 };
 
