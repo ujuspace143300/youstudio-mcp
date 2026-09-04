@@ -115,7 +115,8 @@ export interface JudgeJob {
 /** TTS 합성 한 건 (jobs_kind:"synthesize"). 키 값은 절대 담지 않는다 */
 export interface SynthesizeJob {
   name: string;
-  provider: "elevenlabs";
+  /** elevenlabs = 영화롱폼 · typecast = 린박스(볼케이노 stitch_narr 꼴 — X-API-KEY, wav 응답) */
+  provider: "elevenlabs" | "typecast";
   model: string;
   voice_id: string;
   request: { method: "POST"; url: string; headers: Record<string, string>; body: Record<string, unknown> };

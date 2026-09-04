@@ -112,8 +112,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_voice", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_voice → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_blocks", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_blocks → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -1029,6 +1029,33 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   const r3 = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_choice: GOOD.HEADLINE, script_log: "  대본에서 보이는 튐 없음 ✓\n", title_log: "  제목이 지침서를 지킨다 ✓\n", script_metrics: m } });
   const s3 = r3.structuredContent;
   ok(s3?.status === "execute" && s3?.next_step === "lb_voice" && s3?.write_files?.[0]?.path?.endsWith("/편정보.json") && JSON.stringify(s3.write_files[0].content?.제목) === JSON.stringify(GOOD.HEADLINE) && s3?.carry?.includes("authored"), "lb_script③ → next=lb_voice · 편정보 제목 갱신 · authored carry", JSON.stringify(s3?.write_files?.[0]?.content?.제목));
+}
+
+// L7) lb_voice — ① Typecast synthesize 지시 ② wav 검사 → narr_align ③ narr_words 검사
+{
+  const AUTH = { HEADLINE: ["폭로 글 범인으로", "몰린 신병의 정체"], CREDIT: ["a", "b"], BLOCKS: [["N", "부대 카페에 총기 사고 은폐 글이 올라왔는데", [[2.15, 1]]], ["D", [[6.3, 7.78, "일이 있는 거 아냐", "quote", "일이 있는 거 아냐"]]], ["N", "누군가 부대 카페에 3개 글을 올린 거였고", [[20, 1]]]], EFFECTS_BY_BLOCK: [] };
+  const LB_C = { source: LB_SRC, ...LB, ep_dir: "C:/lb_work/신병/작업/EP19", repo: "C:/youstudio-mcp", probe_summary: {}, scene_count: 21, 대사: { words: [] }, 편정보: {}, authored: AUTH };
+  const r0 = await lbCall("lb_voice", { payload: { ...LB_C, authored: { BLOCKS: [["D", [[1, 2, "x", "quote", "x"]]]] } } });
+  ok(r0.structuredContent?.status === "error" && /나레\(N\) 블록이 없다/.test(r0.structuredContent?.message ?? ""), "lb_voice(N 블록 없음) → 반려", r0.structuredContent?.message?.slice(0, 50));
+  const r1 = await lbCall("lb_voice", { payload: LB_C });
+  const s1 = r1.structuredContent;
+  ok(s1?.status === "execute" && s1?.next_step === "lb_voice" && s1?.jobs_kind === "synthesize" && s1?.jobs?.length === 2 && s1?.jobs_cwd === "C:/lb_work/신병/작업/EP19", "lb_voice① → synthesize 2건(N 블록 0·2), 다시 자기 자신", `${s1?.jobs_kind}/${s1?.jobs?.length}`);
+  const j0 = s1?.jobs?.[0] ?? {};
+  ok(j0.name === "n00" && j0.provider === "typecast" && j0.request?.url === "https://api.typecast.ai/v1/text-to-speech" && j0.request?.body?.voice_id === "tc_62686be9deec4c1bb7fd077c" && j0.request?.body?.prompt?.emotion_preset === "normal" && j0.request?.body?.output?.audio_tempo === 1.2 && j0.request?.body?.model === "ssfm-v30" && j0.auth?.header === "X-API-KEY" && j0.auth?.env === "TYPECAST_API_KEY", "lb_voice① → Typecast 본문 = 이나·normal·1.2배속·ssfm-v30, X-API-KEY 본인 키", JSON.stringify(j0.request?.body).slice(0, 120));
+  ok(/\/cache\/tts\/[0-9a-f]{16}\.raw\.wav$/.test(j0.out ?? "") && j0.skip_if?.min_bytes === 2000 && j0.post_steps?.length === 2 && j0.post_steps[1].out === "C:/lb_work/신병/작업/EP19/blocks/n00.wav" && j0.post_steps[0].out === "C:/lb_work/신병/작업/EP19/narr_norm/n00.wav", "lb_voice① → raw 캐시 키 16자 · skip_if 2000B · 후처리 2단계(narr_norm 1ch → blocks 2ch)", `${j0.out} ${JSON.stringify(j0.post_steps?.map((s) => s.out))}`);
+  ok(s1?.post?.length === 4 && s1.post[1].argv.includes("silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.1:stop_periods=-1:stop_threshold=-38dB:stop_duration=0.20:stop_silence=0.02,loudnorm=I=-23:TP=-3:LRA=9") && s1.post[0].argv.includes("loudnorm=I=-23.0:TP=-3:LRA=9"), "lb_voice① → post ffmpeg 4건(볼케이노 stitch_narr steps 그대로)", JSON.stringify(s1?.post?.map((p) => p.name)));
+  ok(JSON.stringify(s1?.measure?.map((m) => [m.as, m.unit])) === JSON.stringify([["n00_secs", "seconds"], ["n02_secs", "seconds"]]) && /유료/.test(s1?.message ?? "") && /35자/.test(s1?.message ?? "") && (s1?.warnings ?? []).some((w) => /숫자/.test(w)), "lb_voice① → measure nNN_secs · ★유료 글자 수(35자) 보고 · 숫자 경고", `${s1?.message?.slice(0, 60)} ${JSON.stringify(s1?.warnings)}`);
+  const sameKey = await lbCall("lb_voice", { payload: LB_C });
+  ok(sameKey.structuredContent?.jobs?.[0]?.out === j0.out, "lb_voice① → 같은 문장 = 같은 캐시 키(재과금 없음)", "");
+  const bad = await lbCall("lb_voice", { payload: { ...LB_C, n00_secs: 2.29, n02_secs: 0.1 } });
+  ok(bad.structuredContent?.status === "error" && /너무 짧다/.test(bad.structuredContent?.message ?? ""), "lb_voice②(n02 0.1초) → 반려", bad.structuredContent?.message?.slice(0, 60));
+  const r2 = await lbCall("lb_voice", { payload: { ...LB_C, n00_secs: 2.29, n02_secs: 1.96 } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "execute" && s2?.next_step === "lb_voice" && s2?.jobs?.[0]?.name === "narr_align" && s2.jobs[0].argv[1] === "C:/youstudio-mcp/서버/runner/린박스/도구/narr_align.py" && /Speechmatics 1건/.test(s2?.message ?? "") && s2?.wav_secs?.["0"] === 2.29 && s2?.metrics?.chars_per_sec === 8.235, "lb_voice② → wav 확인(4.25초·35자=8.2자/초) → ★Speechmatics narr_align 지시", JSON.stringify(s2?.metrics));
+  const r3 = await lbCall("lb_voice", { payload: { ...LB_C, wav_secs: { "0": 2.29, "2": 1.96 }, narr_words: { "0": [[0.1, 0.5, "부대"]], "2": [] } } });
+  ok(r3.structuredContent?.status === "error" && /낱말이 없는 나레 블록: 2/.test(r3.structuredContent?.message ?? ""), "lb_voice③(블록 2 낱말 없음) → 반려", r3.structuredContent?.message?.slice(0, 60));
+  const r4 = await lbCall("lb_voice", { payload: { ...LB_C, wav_secs: { "0": 2.29, "2": 1.96 }, narr_words: { "0": [[0.1, 0.5, "부대"], [0.6, 1.0, "카페에"]], "2": [[0.2, 0.7, "누군가"]] } } });
+  ok(r4.structuredContent?.status === "execute" && r4.structuredContent?.next_step === "lb_blocks" && r4.structuredContent?.metrics?.narr_words === 3 && r4.structuredContent?.carry?.includes("narr_words"), "lb_voice③ → next=lb_blocks · narr_words 3 · carry", JSON.stringify(r4.structuredContent?.metrics));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

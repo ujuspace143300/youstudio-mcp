@@ -29,6 +29,7 @@ import { lbCut } from "./린박스/cut.js";
 import { lbTranscript } from "./린박스/transcript.js";
 import { lbPlan } from "./린박스/plan.js";
 import { lbScript } from "./린박스/script.js";
+import { lbVoice } from "./린박스/voice.js";
 import type { StepHandler } from "./types.js";
 
 const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
@@ -65,6 +66,7 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     lb_transcript: lbTranscript, // ★유료 Speechmatics 3벌 전사(전사.py) + 화자표.py · 두 번 부름(지시 → 검사)
     lb_plan: lbPlan, // 쓸거리(§83)·밀도 게이트 → 하단 need_input → 편정보.json(§70) · 두 번 부름
     lb_script: lbScript, // 대본·제목(need_input, 사장님 선택) → 서버 검사 → authored.json + 대본검사·제목검사 게이트 → 편정보 제목 · 세 번 부름
+    lb_voice: lbVoice, // ★유료 Typecast 나레 합성(볼케이노 stitch_narr 꼴·raw 캐시·정규화 2단계) → wav 검사 → ★Speechmatics narr_align → narr_words · 세 번 부름
   },
 };
 
