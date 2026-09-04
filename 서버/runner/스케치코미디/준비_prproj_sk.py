@@ -428,8 +428,19 @@ def main():
         d = s["t1"] - s["t0"]
         if 실측세그:
             d = 실측세그[i]["out_dur"]
-            if i == len(segs) - 1:                        # 여운으로 늘어난 몫은 더한다
-                d += max(0.0, (s["t1"] - s["t0"]) - (실측세그[i]["t1"] - 실측세그[i]["t0"]))
+            if i == len(segs) - 1 and ext > 0:
+                # ★여운 몫은 ext 그대로(굽기의 검은 꼬리 절단분을 여운으로 오인하던 계산 폐기,
+                #   2026-09-04) — 그리고 여운 끝 프레임이 암전이면 여운을 0 으로 한다.
+                import numpy as _np2
+                _r = subprocess.run(["ffmpeg", "-v", "error",
+                                     "-ss", f"{실측세그[i]['t1'] + ext - 0.1:.2f}", "-i", dst_src,
+                                     "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                                    capture_output=True)
+                _a = _np2.frombuffer(_r.stdout, dtype=_np2.uint8)
+                if len(_a) and float(_a.mean()) < 12:
+                    print("  여운 끝이 암전 — 여운 0 처리 (검은 화면 출력 금지)")
+                else:
+                    d += ext
         picture.append({"t0": round(cum, 4), "t1": round(cum + d, 4), "src_in": s["t0"],
                         "name": f'{i + 1:02d} P{s["phase"]} {s["what"][:24]}'})
         cum += d

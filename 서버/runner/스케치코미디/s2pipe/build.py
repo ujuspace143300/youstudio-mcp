@@ -109,6 +109,25 @@ def cut_and_join(src, segs, dst, work, fps):
             print(f"    원본 자막 못 찾음 → 기본값으로 세로 {usable_h}px", flush=True)
 
     cuts = sp.scene_cuts(src) if b.get("follow_face") else []
+
+    # ★마지막 조각의 검은 꼬리 자동 절단 (2026-09-04 사장님 «소리가 남았다고 검은 화면을
+    #   출력하는 일은 없어야» — Deep07 아웃트로 암전 2초 실측). 끝에서 0.25s 씩 물러나며
+    #   어두운 프레임(평균 밝기 < 12)을 걷어낸다.
+    def _어두운가(t):
+        import numpy as _np
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", src,
+                            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                           capture_output=True)
+        a = _np.frombuffer(r.stdout, dtype=_np.uint8)
+        return len(a) > 0 and float(a.mean()) < 12
+    막 = segs[-1]
+    깎음 = 0.0
+    while 막["t1"] - 막["t0"] > 2.0 and _어두운가(막["t1"] - 0.15):
+        막["t1"] = round(막["t1"] - 0.25, 3)
+        깎음 += 0.25
+    if 깎음:
+        print(f"    마지막 조각 검은 꼬리 -{깎음:.2f}s 절단 → t1={막['t1']}", flush=True)
+
     parts, log = [], {"segments": [], "beats": []}
 
     def bake_beats(a, bnd, plan):

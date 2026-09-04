@@ -297,6 +297,7 @@ def main():
     #    통째로 빠져 자막이 없었다) — 원본(고음질) 전사 줄을 구간 매핑으로 컷 시각에 놓고,
     #    어떤 자막도 안 덮는 줄은 원본 전사 문구로 되살린다. 컷 전사가 못 들은 조용한
     #    말의 마지막 안전망이다.
+    면제구간 = []                                   # 오인식 제거 구간 — 커버리지 게이트 면제
     try:
         from s2pipe.cfg import CFG as _C3
         vtt경로 = os.path.join(HERE, _C3["paths"]["work"], f"{proj['slug']}.ko.vtt")
@@ -336,6 +337,45 @@ def main():
                 for r in 복원:
                     print(f"     [{r['t']:.1f}~{r['t1']:.1f}s] {r['text'][:24]}")
                 dlg += 복원
+            # ★유령 자막 제거 (2026-09-04 Deep07 «참고로 이동네» — 컷 재전사가 배경 소음을
+            #   말로 오인). 복원의 대칭: 컷 시각을 원본 시각으로 되매핑해, 원본(고음질)
+            #   전사가 ±2.5s 안에 아무 말도 못 들은 줄은 유령으로 지운다. 괄호 효과자막은
+            #   소리가 없는 게 정상이라 제외.
+            def 원시각(tc):
+                for c0, o0, o1 in 그림:
+                    if c0 <= tc < c0 + (o1 - o0):
+                        return o0 + (tc - c0)
+                return None
+            유령 = []
+            for d in list(dlg):
+                if d["text"].lstrip().startswith("("):
+                    continue
+                to = 원시각(d["t"])
+                if to is None:
+                    continue
+                이웃 = [(t원, 글) for t원, 글 in 원줄 if abs(t원 - to) <= 3.0]
+                if not 이웃:
+                    유령.append(d)                       # 원본 전사엔 그 지점에 말이 없다
+                    dlg.remove(d)
+                    continue
+                # ★문구 대조(2026-09-04 «참고로 이동네» — 작은 소리를 컷 전사가 전혀 다른
+                #   문구로 오인). 원본(고음질) 전사와 글자가 거의 안 겹치면 오인식 — 뺀다.
+                창글 = 정돈(" ".join(g for _t, g in 이웃))
+                내글 = CLEAN.sub("", d["text"])
+                if len(내글) >= 4:
+                    # 포함 비율 — 줄 글자가 원본 창 안에서 얼마나 이어지는가 (짧은 줄 vs 긴 창
+                    # 에서도 공정. quick_ratio 는 길이차에 눌려 정상 줄까지 지웠다 — 실측 14줄)
+                    sm = difflib.SequenceMatcher(None, 내글, CLEAN.sub("", 창글), autojunk=False)
+                    맞은 = sum(b.size for b in sm.get_matching_blocks())
+                    if 맞은 / len(내글) < 0.4:
+                        유령.append(d)
+                        dlg.remove(d)
+            if 유령:
+                print(f"  ★유령/오인 자막 {len(유령)}줄 제거 — 원본 전사와 대조:")
+                for g in 유령:
+                    print(f"     [{g['t']:.1f}s] {g['text'][:24]}")
+            # 제거 구간은 커버리지 게이트 면제(그 소리는 자막감이 아니라고 판정한 것)
+            면제구간.extend((g["t"] - 0.2, g.get("t1", g["t"] + 2.0) + 0.2) for g in 유령)
     except Exception as e:
         print("★원본 전사 교차 대조 실패(복원 없이 진행):", str(e)[:60])
 
@@ -376,6 +416,8 @@ def main():
     for w in words:
         if w.get("type") == "punctuation" or 추임새다(w["w"]):
             continue                                      # 웃음·감탄은 자막 밖이어도 정상
+        if any(a0 <= w["t"] <= a1 for a0, a1 in 면제구간):
+            continue                                      # 오인식 제거 구간 — 자막 없는 게 맞다
         덮는 = max((t for t in 시작들 if t <= w["t"] + 0.05), default=None)
         if 덮는 is None or w["t"] - 덮는 > 6.0:
             구멍.append(round(w["t"], 1))
