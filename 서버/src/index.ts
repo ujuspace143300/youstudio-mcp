@@ -3,6 +3,7 @@
  *
  * 들어온 HTTP 요청을 MCP 핸들러에 넘긴다. `/health` 는 살아 있는지 보는 용도.
  * `/asset/<프리셋>/<경로>` 는 자산 다운로드(길 C — 토큰 있는 사람만 · 이식원칙 ⑥ · 2026-09-04).
+ * `/admin`·`/admin/api/*` 는 사장님 관리 페이지(길 B · ADMIN_TOKEN 전용 · admin.ts).
  * 나머지 경로는 전부 MCP.
  *
  * 인증 — 두 길 (설계 `설계/인증_이메일허가제.md`):
@@ -17,12 +18,15 @@
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { buildServer } from "./server.js";
 import { decideAuth, presetsInBody, readCreds, type License } from "./auth.js";
+import { handleAdmin } from "./admin.js";
 
 interface Env {
   YOUSTUDIO_TOKEN?: string;
   LICENSES?: KVNamespace;
   /** Workers Static Assets — 저장소 자산/ (wrangler.jsonc assets.binding) */
   ASSETS?: Fetcher;
+  /** 관리 페이지(/admin) 전용 비밀 — wrangler secret put ADMIN_TOKEN. 지인 대장 토큰과 무관 */
+  ADMIN_TOKEN?: string;
 }
 
 const handler = createMcpHandler(() => buildServer(), { legacy: "stateless" });
@@ -114,6 +118,11 @@ export default {
         auth: env.LICENSES ? "license" : Boolean((env.YOUSTUDIO_TOKEN ?? "").trim()) ? "token" : "none",
         assets: Boolean(env.ASSETS),
       });
+    }
+
+    // 관리 페이지(길 B) — 관리자 전용 인증(ADMIN_TOKEN). 대장 토큰으로는 안 열린다. admin.ts
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+      return handleAdmin(request, env, url);
     }
 
     // 자산 다운로드 — 프리셋은 경로에서. 인증(대장·기기·프리셋 권한)을 MCP 와 똑같이 태운다.

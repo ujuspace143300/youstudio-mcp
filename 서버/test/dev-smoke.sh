@@ -12,7 +12,8 @@ io.open('.wrangler-devtmp.jsonc','w',encoding='utf-8').write(t2)
 PY
 bash 도구/자산스테이징.sh >/dev/null || { echo "★자산 스테이징 실패"; exit 1; }   # 새 클론엔 자산/ 이 없다 — 볼트에서 채운다
 LOG="${TMPDIR:-/tmp}/wrangler-dev-smoke.log"
-npx wrangler dev -c .wrangler-devtmp.jsonc --port 8787 > "$LOG" 2>&1 &
+export ADMIN_TOKEN="${ADMIN_TOKEN:-dev-admin-test}"
+npx wrangler dev -c .wrangler-devtmp.jsonc --port 8787 --var "ADMIN_TOKEN:$ADMIN_TOKEN" > "$LOG" 2>&1 &
 WP=$!
 for i in $(seq 1 90); do nc -z 127.0.0.1 8787 2>/dev/null && break; sleep 1; done
 if ! nc -z 127.0.0.1 8787 2>/dev/null; then echo "★dev 서버가 안 떴다 — $LOG"; tail -20 "$LOG"; kill $WP 2>/dev/null; rm -f .wrangler-devtmp.jsonc; exit 1; fi
