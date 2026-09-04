@@ -87,10 +87,10 @@ console.log(`서버: ${URL_}`);
   const names = (res.tools ?? []).map((t) => t.name);
   ok(names.length === 1 && names[0] === "youstudio_video", "tools/list → youstudio_video 하나", JSON.stringify(names));
   const stepEnum = res.tools?.[0]?.inputSchema?.properties?.step?.enum;
-  // 단계 enum = 모든 프리셋 단계의 합집합 (영화롱폼 10 + 스케치코미디 sk_* 9 = 19)
+  // 단계 enum = 모든 프리셋 단계의 합집합 (영화롱폼 10 + 스케치코미디 sk_* 9 + 린박스 lb_* 13 = 32)
   ok(
-    Array.isArray(stepEnum) && stepEnum[0] === "setup" && stepEnum.includes("export") && stepEnum.at(-1) === "sk_deliver" && stepEnum.length === 19,
-    "step enum 19개(프리셋 합집합)",
+    Array.isArray(stepEnum) && stepEnum[0] === "setup" && stepEnum.includes("export") && stepEnum.includes("sk_deliver") && stepEnum.at(-1) === "lb_deliver" && stepEnum.length === 32,
+    "step enum 32개(프리셋 합집합)",
     JSON.stringify(stepEnum),
   );
 }
@@ -103,6 +103,19 @@ console.log(`서버: ${URL_}`);
   ok(sc?.jobs_kind === "argv" && sc?.jobs?.length === 2, "setup → ffmpeg/ffprobe 확인 argv 2개", JSON.stringify(sc?.jobs?.map((j) => j.argv.join(" "))));
   ok(sc?.spec && typeof sc.spec === "object" && "_안내" in sc.spec, "setup → spec(규격.json) 실려 옴", Object.keys(sc?.spec ?? {}).join(","));
   ok(Array.isArray(sc?.workdir_layout?.dirs) && sc.workdir_layout.dirs.includes("render"), "setup → 작업 폴더 이름 목록", JSON.stringify(sc?.workdir_layout?.dirs));
+}
+
+// 3b) tools/call setup — 린박스 (프리셋 3호 등록 확인 · 2026-09-04)
+{
+  const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "setup", preset: "린박스" } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
+  ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
+  ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_probe", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_probe → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
+  ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
 
 // 4) tools/call start (정상)

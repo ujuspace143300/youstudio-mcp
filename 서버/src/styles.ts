@@ -22,6 +22,9 @@ import 영화롱폼_나레이션 from "../../스타일/영화롱폼/나레이션
 import 스케치_규격 from "../../스타일/스케치코미디/규격.json";
 import 스케치_정답지 from "../../스타일/스케치코미디/정답지.json";
 import 스케치_대본 from "../../스타일/스케치코미디/대본.md";
+import 린박스_규격 from "../../스타일/린박스/규격.json";
+import 린박스_정답지 from "../../스타일/린박스/정답지.json";
+import 린박스_대본 from "../../스타일/린박스/대본.md";
 
 export interface Style {
   /** 우리가 정한 설정값 (스타일/<이름>/규격.json) */
@@ -55,6 +58,18 @@ export const STYLES = {
     // 자막은 두 번 뽑고 두 번 굽는다 — 1차 렌더(sk_cut)는 cut.mp4 를 만들기 위한 것
     steps: ["setup", "start", "sk_plan", "sk_check", "sk_cut", "sk_subs", "sk_asr", "sk_sync", "sk_recheck", "sk_render", "sk_deliver"],
     workDirs: ["projects", "work", "out"],
+  },
+  린박스: {
+    spec: 린박스_규격 as Record<string, unknown>,
+    answer: 린박스_정답지 as Record<string, unknown>,
+    guideMd: 린박스_대본,
+    from: "스타일/린박스/규격.json (서버 번들에 포함 — 배포본에도 실려 간다)",
+    // 프리셋 3호 (2026-09-04 확정 · 설계/프리셋_린박스.md 2절). 정본 = 맥 사슬(신병4/한번에.sh).
+    // 앞 6칸(lb_probe~lb_voice)은 볼케이노 서버가 하던 몫을 유스튜디오가 새로 맡는 자리,
+    // 뒤 6칸(lb_blocks~lb_deliver)은 한번에.sh ①~⑭ + 완성검사를 그대로 편 것. 처리기는 한 단계씩 (아직은 stub).
+    steps: ["setup", "start", "lb_probe", "lb_cut", "lb_transcript", "lb_plan", "lb_script", "lb_voice", "lb_blocks", "lb_subs", "lb_xml", "lb_prproj", "lb_render", "lb_check", "lb_deliver"],
+    // 볼케이노 키트의 드라마 폴더 꼴 그대로 — 소재/ · 작업/EPn · 완성/EPn
+    workDirs: ["소재", "작업", "완성"],
   },
 } as const satisfies Record<string, Style>;
 

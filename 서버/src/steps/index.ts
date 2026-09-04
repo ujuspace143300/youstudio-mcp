@@ -51,6 +51,9 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     sk_render: skRender,
     sk_deliver: skDeliver,
   },
+  린박스: {
+    setup, // 공유 — workDirs·spec 은 등록표에서 온다. lb_* 처리기는 한 단계씩 만들어 여기 한 줄씩 (그 전엔 stub 이 «아직 구현 안 됨» 을 돌려준다)
+  },
 };
 
 /** 이 프리셋 파이프라인에 이 단계가 있는가 — 없으면 서버가 반려한다 */
