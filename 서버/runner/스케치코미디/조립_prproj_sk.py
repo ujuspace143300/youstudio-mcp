@@ -871,6 +871,16 @@ def main():
         print(("  [OK] " if c["pass"] else "  [X] ") + str(c["check"]) + "  " + str(c.get("detail", "")))
     print(f"저장 {out_path}: 컷 {len(v_refs)} · 나레 {len(a2_refs)} · 제목 {len(refs['title'])} · "
           f"나레자막 {len(refs['narr'])} · 대사 {len(refs['dlg'])} · 제거 {removed}블록 · 추가 {len(new_blocks)}블록")
+    # ★프리미어 묵은 세션 경고(2026-09-04 Deep08 실측) — 재조립은 템플릿·나레를 내용 해시의
+    #   «새 이름»으로 갈고 옛 파일을 지운다. 옛 판을 연 채인 프리미어 세션은 그 순간
+    #   미디어 오프라인이 된다(새 prproj 는 멀쩡). 물고 있으면 «저장 없이 닫고 재열기»를 알린다.
+    try:
+        r_lsof = _sp.run(["lsof", "+D", os.path.dirname(out_path)], capture_output=True, text=True, timeout=20)
+        if any("Adobe" in ln or "Premiere" in ln for ln in r_lsof.stdout.splitlines()):
+            print("★프리미어가 이 편 폴더를 열고 있다 — 옛 판 세션은 미디어 오프라인이 된다."
+                  " 프리미어를 «저장하지 않고» 완전히 닫은 뒤 새 prproj 를 다시 열어라.")
+    except Exception:
+        pass
     print("전체: " + ("통과" if ok else "실패"))
     sys.exit(0 if ok else 1)
 
