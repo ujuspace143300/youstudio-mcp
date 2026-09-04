@@ -113,8 +113,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_render", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_render → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_deliver", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "error" && /carry/.test(r2.structuredContent?.message ?? ""), "린박스 lb_deliver(carry 없음) → 처리기가 반려 (stub 아님 — 15단계 전부 구현)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -1219,6 +1219,57 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   const b3 = await lbCall("lb_prproj", { payload: { ...LB_P, ppro_log: "✓ prproj 109479 x", ...OK, place_log: "  옮길 것 46장 · 못 찾은 것 2장\n", subpos_log: "되읽은 자막 48장 · **탈 1장**\n", master_check_log: "확인만 rc=1\n", endcheck_log: "x.prproj: 영상 끝 1549프레임 · 넘는 End 값 [51.7] · 클립 2개\n확인만 rc=1\n", inject3_log: "  ✗ 참조가 끊긴 곳 3\n★탈 1가지 — 프리미어는 이 파일을 못 연다\n" } });
   const bm = b3.structuredContent?.message ?? "";
   ok(b3.structuredContent?.status === "error" && /5건/.test(bm) && /자리잡기/.test(bm) && /자막자리검사/.test(bm) && /완성검사 11/.test(bm) && /완성검사 12/.test(bm) && /아모르 뒤/.test(bm), "lb_prproj③(자리 못 찾음·자리 관문 탈·마스터 효과 없음·클립 끝 초과·주입검사 탈) → 반려 5건", bm.slice(0, 120));
+}
+
+// L12) lb_render — 한번에.sh ⑭
+{
+  const EP = "C:/lb_work/신병/작업/EP19";
+  const LB_R = { source: LB_SRC, ...LB, ep_dir: EP, repo: "C:/youstudio-mcp", probe_summary: { width: 1920, height: 1080, letterbox: { top: 60, bottom: 60, content_h: 960, content_w: 1920 } }, title: "신병4", ass_logo: EP + "/captions_신병4_로고.ass", master: LB_SRC.path, prproj: EP + "/신병4_EP19.prproj", ass_fp: "0123456789abcdef" };
+  const r1 = await lbCall("lb_render", { payload: LB_R });
+  const s1 = r1.structuredContent; const names = s1?.jobs?.map((j) => j.name) ?? []; const J = Object.fromEntries((s1?.jobs ?? []).map((j) => [j.name, j.argv]));
+  ok(s1?.status === "execute" && s1?.next_step === "lb_render" && JSON.stringify(names) === JSON.stringify(["bake", "master_fit", "sfx", "loud", "final", "points", "sync", "final_copy"]) && J.bake?.at(-1) === "1016:960:452:60" && J.bake?.[3] === LB_SRC.path && J.final?.[3] === "신병4_EP19_숏폼.mp4" && J.final?.at(-1) === EP + "/captions_신병4_로고.ass" && J.sync?.at(-1) === "--final" && s1?.carry?.includes("ass_fp") && s1?.final === EP + "/신병4_EP19_숏폼.mp4", "lb_render① → jobs 8(⑭ 순서) · 크롭 1016:960:452:60(=레터박스 960/60) · 로고판 자막 · ass_fp carry", JSON.stringify([names, J.bake?.slice(-2)]));
+  const noLB = await lbCall("lb_render", { payload: { ...LB_R, probe_summary: {} } });
+  ok(!(noLB.structuredContent?.jobs?.[0]?.argv ?? []).includes("--크롭") && (noLB.structuredContent?.warnings ?? []).some((w) => /1016:960/.test(w)), "lb_render①(레터박스 미측정) → 기본 크롭 + 경고", "");
+  const LOGS = { bake_log: "→ blocks/merged_균일.mp4\nwidth=1080\nheight=1020\nnb_frames=1549\n", fit_log: "블록 35개 · 잘라낸 패딩 합 1.012초\n→ blocks/master_sync.wav  51.633초 (영상 51.633초)\n", sfx_log: "효과음 없음 — master_sync 를 master_sfx 로 복사\n", loud_log: "1패스 — I -16.2 · TP -4.1 · LRA 9 · thresh -26\n결과   — I -14.02 LUFS · TP -3.41 dBFS (ebur128 실측)\n→ blocks/master_sfx_ln.wav\n", final_log: "완성본 신병4_EP19_숏폼.mp4 · 1080,1920 · 51.633초\n", points_log: "대조점 12개 · 전체 타임라인 51.63s → _synccheck_points.json\n", sync_log: "[1] 구간 파일 …\n[2] 블록 35개 …\n[3] 완성본 원음 대조 …\n\n싱크 검사 통과\n" };
+  const r2 = await lbCall("lb_render", { payload: { ...LB_R, ...LOGS } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "execute" && s2?.next_step === "lb_check" && s2?.metrics?.final_s === 51.633 && s2?.metrics?.lufs === -14.02 && s2?.metrics?.tp_dbfs === -3.41 && s2?.metrics?.sync_points === 12 && s2?.carry?.includes("final"), "lb_render② → 통과 → next=lb_check · metrics(51.633초 · −14.02 LUFS · TP −3.41 · 대조점 12)", JSON.stringify(s2?.metrics));
+  const b2 = await lbCall("lb_render", { payload: { ...LB_R, ...LOGS, loud_log: "결과   — I -12.1 LUFS · TP -2.9 dBFS (ebur128 실측)\n", sync_log: "싱크 검사 실패 - 1건\n  · 블록 b01 영상 1.700 소리 0.960 차이 +0.741s\n", final_log: "완성본 x.mp4 · 1080,1080 · 51.6초\n" } });
+  const bm = b2.structuredContent?.message ?? "";
+  ok(b2.structuredContent?.status === "error" && /4건/.test(bm) && /I -12.1/.test(bm) && /TP -2.9/.test(bm) && /완성검사 7/.test(bm) && /완성검사 1/.test(bm) && /b01/.test(bm), "lb_render②(라우드니스 I·TP 밖 · 해상도 · 싱크 실패) → 반려 4건", bm.slice(0, 100));
+}
+
+// L13) lb_check — 완성검사 기계 항목 표
+{
+  const EP = "C:/lb_work/신병/작업/EP19";
+  const LB_K = { source: LB_SRC, ...LB, ep_dir: EP, repo: "C:/youstudio-mcp", title: "신병4", ass: EP + "/captions_신병4.ass", ass_fp: "0123456789abcdef", prproj: EP + "/신병4_EP19.prproj", final: EP + "/신병4_EP19_숏폼.mp4" };
+  const r1 = await lbCall("lb_check", { payload: LB_K });
+  const s1 = r1.structuredContent;
+  ok(s1?.status === "execute" && s1?.next_step === "lb_check" && JSON.stringify(s1?.jobs?.map((j) => j.name)) === JSON.stringify(["check", "font", "master_check", "end_check", "dlg_missing", "head_check"]) && s1.jobs[0].argv[3] === EP + "/신병4_EP19_숏폼.mp4" && s1.jobs[0].argv[5] === "0123456789abcdef" && s1?.measure?.[0]?.unit === "json_stdout", "lb_check① → jobs 6(검사 JSON·글꼴폴백·마스터효과·클립 끝·대사빠짐·말머리) · ass_fp 전달", JSON.stringify(s1?.jobs?.map((j) => j.name)));
+  const CHECK = { w: 1080, h: 1920, dur: 51.633, lufs: -14.0, peak: -3.4, fp: "0123456789abcdef", fp_want: "0123456789abcdef", matte: { top_side: 3.2, bottom_side: 12.5, top_all: 4.0, bottom_all: 60.1, mid: 88.0, at: 20 }, fx: [{ y: [700], t: "?!" }, { y: [980, 1000], t: "뭐야" }], headline: ["김현욱을 살린", "취사병의 정체"], read: ["narr 선임이 김현욱을", "dlg 이거 뭐야"] };
+  const LOGS = { font_log: "글꼴                      폴백과 겹침률   판정\nPaperlogy-5Medium            12.0%      ✔ 제 글꼴\nGmarket Sans Bold            10.2%      ✔ 제 글꼴\n", master_check_log: "확인만 rc=0\n", end_check_log: "x.prproj: 영상 끝 1549프레임 · 넘는 End 값 [] · 클립 0개\n확인만 rc=0\n", missing_log: "  말과 자막이 어긋난 자리 없음 ✓\n", head_log: "  말과 어긋난 카드 없음 ✓\n" };
+  const r2 = await lbCall("lb_check", { payload: { ...LB_K, check: CHECK, ...LOGS } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "execute" && s2?.next_step === "lb_deliver" && s2?.metrics?.passed === 12 && s2?.metrics?.pending === 1 && (s2?.check_table ?? []).length === 14 && (s2?.instructions ?? []).some((x) => /사람 확인 9\./.test(x)) && (s2?.instructions ?? []).some((x) => /낭독 전문/.test(x)), "lb_check② → 기계 항목 12 통과 · △1(길이 사장님 확인) · 사람 확인 9·10 + 낭독 전문 → lb_deliver", JSON.stringify(s2?.metrics));
+  const b2 = await lbCall("lb_check", { payload: { ...LB_K, check: { ...CHECK, w: 1080, h: 1900, matte: { ...CHECK.matte, top_side: 55 }, fx: [{ y: [1300], t: "??" }], headline: ["열한글자열한글자열한", "b"], fp: "ffff" }, ...LOGS, font_log: "★ 폴백으로 그려지는 글꼴 1개 — 깔거나 글꼴방에 넣어라: Paperlogy\n", master_check_log: "확인만 rc=1\n", head_log: "  ✗ b19  30.93 → 31.10\n" } });
+  const bm = b2.structuredContent?.message ?? "";
+  ok(b2.structuredContent?.status === "error" && /미통과 8건/.test(bm) && /미완/.test(bm) && /✗ 3\./.test(bm) && /✗ 4\./.test(bm) && /✗ 5\./.test(bm) && /✗ 6\./.test(bm) && /✗ 7\./.test(bm) && /✗ 8\./.test(bm) && /✗ 11\./.test(bm) && /✗ 14\./.test(bm), "lb_check②(매트·헤드라인·효과 y·글꼴·해상도·지문·마스터 효과·말머리) → «미완» 8건 표", bm.slice(0, 120));
+}
+
+// L14) lb_deliver — 완성/<EP>/ 조립 · done
+{
+  const EP = "C:/lb_work/신병/작업/EP19";
+  const LB_D = { source: LB_SRC, ...LB, ep_dir: EP, repo: "C:/youstudio-mcp", title: "신병4", ass: EP + "/captions_신병4.ass", prproj: EP + "/신병4_EP19.prproj", final: EP + "/신병4_EP19_숏폼.mp4" };
+  const r0 = await lbCall("lb_deliver", { payload: LB_D });
+  ok(r0.structuredContent?.status === "error" && /사람 확인/.test(r0.structuredContent?.message ?? ""), "lb_deliver(human_ok 없음) → 반려(검사 통과 ≠ 완성)", r0.structuredContent?.message?.slice(0, 50));
+  const r1 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true } });
+  const s1 = r1.structuredContent; const a = s1?.jobs?.[0]?.argv ?? [];
+  ok(s1?.status === "execute" && s1?.next_step === "lb_deliver" && s1?.jobs?.[0]?.name === "assemble" && a[4] === "C:/lb_work/신병/완성/EP19" && a.at(-1)?.endsWith("/도구/납품SRT4벌.py") && s1?.deliver_dir === "C:/lb_work/신병/완성/EP19", "lb_deliver① → 조립 job(완성/EP19 · 납품SRT4벌)", JSON.stringify(a.slice(3, 6)));
+  const r2 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true, deliver_log: "  신병4_EP19_자막.srt  41장\n완성/EP19: 김현욱을 살린 취사병의 정체(최종본).mp4 신병4_EP19.prproj 신병4_EP19_숏폼.mp4 신병4_EP19_자막.srt 자막_나레이션.srt 자막_대사.srt 자막_효과.srt 편집소스\n편집소스: 그래픽 7 · 나레 4 · 원음 31 · 효과음 0\n최종본: 김현욱을 살린 취사병의 정체(최종본).mp4\n" } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "done" && s2?.next_step === null && s2?.metrics?.srt_sets === 4 && s2?.metrics?.files === 8 && s2?.metrics?.stems === 31, "lb_deliver② → done · SRT 4벌 · 파일 8 · 원음 31", JSON.stringify(s2?.metrics));
+  const b2 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true, deliver_log: "완성/EP19: 신병4_EP19_숏폼.mp4 자막_대사.srt\n편집소스: 그래픽 0 · 나레 0 · 원음 0 · 효과음 0\n" } });
+  ok(b2.structuredContent?.status === "error" && /4건|5건/.test(b2.structuredContent?.message ?? "") && /prproj/.test(b2.structuredContent?.message ?? "") && /SRT/.test(b2.structuredContent?.message ?? ""), "lb_deliver②(prproj·최종본·SRT·그래픽·원음 없음) → 반려", b2.structuredContent?.message?.slice(0, 80));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

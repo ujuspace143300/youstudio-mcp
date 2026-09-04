@@ -40,9 +40,9 @@ export const lbSubs: StepHandler = {
     const common = {
       source, workdir: carry.workdir, ep: carry.ep, ep_dir: carry.ep_dir, start_s: carry.start_s, end_s: carry.end_s,
       repo, probe_summary: payload.probe_summary, 편정보: payload.편정보, authored: payload.authored, clip_secs: payload.clip_secs, total_s: totalS,
-      srt_pick: payload.srt_pick ?? null, title, ass, ass_logo: assLogo,
+      srt_pick: payload.srt_pick ?? null, ass_fp: payload.ass_fp ?? null, title, ass, ass_logo: assLogo,
     };
-    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "편정보", "authored", "clip_secs", "total_s", "srt_pick", "title", "ass", "ass_logo"];
+    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "편정보", "authored", "clip_secs", "total_s", "srt_pick", "title", "ass", "ass_logo", "ass_fp"];
 
     // ── ② 로그 판정 → lb_xml ─────────────────────────────────────────────
     if (payload.배치계획 !== undefined) {

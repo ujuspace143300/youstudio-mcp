@@ -34,6 +34,9 @@ import { lbBlocks } from "./린박스/blocks.js";
 import { lbSubs } from "./린박스/subs.js";
 import { lbXml } from "./린박스/xml.js";
 import { lbPrproj } from "./린박스/prproj.js";
+import { lbRender } from "./린박스/render.js";
+import { lbCheck } from "./린박스/check.js";
+import { lbDeliver } from "./린박스/deliver.js";
 import type { StepHandler } from "./types.js";
 
 const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
@@ -63,7 +66,7 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     sk_deliver: skDeliver,
   },
   린박스: {
-    setup, // 공유 — workDirs·spec 은 등록표에서 온다. lb_* 처리기는 한 단계씩 만들어 여기 한 줄씩 (그 전엔 stub 이 «아직 구현 안 됨» 을 돌려준다)
+    setup, // 공유 — workDirs·spec 은 등록표에서 온다. lb_* 15단계 전부 처리기 있음(2026-09-04)
     start: lbStart, // 드라마 로컬 영상 + 편 이름 + 구간 → ffprobe·cropdetect 지시
     lb_probe: lbProbe, // 소재 확인 · 구간 범위 · 레터박스·WIN · «프레임률» 파일
     lb_cut: lbCut, // 구간 절단(-i 뒤 -ss 재인코딩) · 구간_원본 사본 · 절단본 재기 · 장면컷.py
@@ -75,6 +78,9 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     lb_subs: lbSubs, // 한번에.sh ①·①.5 — 자막말머리맞춤(§93) → 서식.py → 폭맞춤·ass자리검사·구둣점검사 → 그래픽짓기·계획짓기 → 자막끝맞춤 → 원음스템 · 두 번 부름
     lb_xml: lbXml, // 한번에.sh ② — xml짓기.py(작품·자막·배율 인자) → FCP7 XML · 로그로 컷·제목·나레 수 대조 · 두 번 부름
     lb_prproj: lbPrproj, // 한번에.sh ③~⑬.5 — 프리미어돌리기(잠금·대기줄·CEP) → 곳간·서식·자리·꾸미기·가로비율·그림자·주입검사·자막자리 관문·마스터효과·아모르·클립 끝 관문 · 세 번 부름
+    lb_render: lbRender, // 한번에.sh ⑭ — 영상굽기(레터박스 크롭)·마스터맞춤·효과음·라우드니스·완성굽기·대조점·_synccheck --final · 두 번 부름
+    lb_check: lbCheck, // 완성검사 기계 항목 표(3·4·5·6·7·8·11·12·13·14·15) → 사람 확인 9·10 안내 · 두 번 부름
+    lb_deliver: lbDeliver, // 완성/<EP>/ 조립 + 납품 SRT 4벌 + 편집소스 → done · 두 번 부름
   },
 };
 

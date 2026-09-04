@@ -12,6 +12,7 @@ import { base, reject } from "../../response.js";
 import type { StepHandler } from "../types.js";
 import { CARRY_KEYS, RUNNER_DIR, join, r3, readCarry, str } from "./lib.js";
 import { blockArgv, buildServerAss, planBlocks, type Authored, type WordT } from "./ass.js";
+import { fnv1a64 } from "./check.js";
 
 const nn = (i: number) => `b${String(i).padStart(2, "0")}`;
 
@@ -61,7 +62,8 @@ export const lbBlocks: StepHandler = {
         then_call_with: ["step: 'lb_subs'", "payload: { …carry, authored, clip_secs }"],
         jobs_kind: null, jobs: [], measure: [],
         metrics: { blocks: nBlocks, total_s: payload.total_s ?? null },
-        carry: [...carryKeys, "clip_secs", "total_s"],
+        carry: [...carryKeys, "clip_secs", "total_s", "ass_fp"],
+        ass_fp: payload.ass_fp ?? null,
         ...common, authored: authored0, clip_secs: payload.clip_secs, total_s: payload.total_s ?? null,
       });
     }
@@ -109,8 +111,8 @@ export const lbBlocks: StepHandler = {
         ],
         measure: [{ as: "jump_log", from: "job:jump_check", unit: "stdout" }],
         metrics: { blocks: nBlocks, total_s: total, cards: cardCount, cards_per_min: perMin },
-        carry: [...carryKeys, "clip_secs", "total_s"],
-        ...common, authored: authored0, clip_secs: clipSecs, total_s: total,
+        carry: [...carryKeys, "clip_secs", "total_s", "ass_fp"],
+        ...common, authored: authored0, clip_secs: clipSecs, total_s: total, ass_fp: fnv1a64(ass), // 완성검사 8 — 러너가 같은 FNV-1a 64 로 파일을 재서 견준다(check.ts)
         ...(warnings.length ? { warnings } : {}),
       });
     }

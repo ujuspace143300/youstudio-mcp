@@ -38,9 +38,9 @@ export const lbXml: StepHandler = {
     const common = {
       source, workdir: carry.workdir, ep: carry.ep, ep_dir: carry.ep_dir, start_s: carry.start_s, end_s: carry.end_s,
       repo, probe_summary: payload.probe_summary, 편정보: payload.편정보, authored: payload.authored, clip_secs: payload.clip_secs, total_s: payload.total_s ?? null,
-      srt_pick: payload.srt_pick ?? null, title, ass, ass_logo: payload.ass_logo ?? join(carry.ep_dir, `captions_${title}_로고.ass`), 배치계획: payload.배치계획 ?? null, xml, master: source.path,
+      srt_pick: payload.srt_pick ?? null, ass_fp: payload.ass_fp ?? null, title, ass, ass_logo: payload.ass_logo ?? join(carry.ep_dir, `captions_${title}_로고.ass`), 배치계획: payload.배치계획 ?? null, xml, master: source.path,
     };
-    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "편정보", "authored", "clip_secs", "total_s", "srt_pick", "title", "ass", "ass_logo", "배치계획", "xml", "master"];
+    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "편정보", "authored", "clip_secs", "total_s", "srt_pick", "title", "ass", "ass_logo", "ass_fp", "배치계획", "xml", "master"];
 
     // ── ② 로그 판정 → lb_prproj ────────────────────────────────────────────
     if (payload.xml_log !== undefined) {
