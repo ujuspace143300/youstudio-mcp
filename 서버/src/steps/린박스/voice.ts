@@ -189,6 +189,7 @@ export const lbVoice: StepHandler = {
         "④ measure 대로 블록마다 blocks/nNN.wav 길이(초)를 payload.nNN_secs 에 실어 lb_voice 를 **다시** 부른다.",
       ],
       then_call_with: ["step: 'lb_voice'", `payload: { …carry, ${N.map((b) => secKey(b.index)).join(", ")} }`],
+      do: [{ name: "mkdirs", argv: ["python", "-c", "import os;[os.makedirs(d,exist_ok=True) for d in ('cache/tts','narr_norm','blocks')];print('cache/tts narr_norm blocks')"], note: "합성·정규화 출력 폴더를 먼저 만든다 — 러너는 선언된 out 의 부모만 만들고 argv 안의 출력 경로는 안 만든다(2026-09-04 실호출: narr_norm/ 없어 ffmpeg 254)." }],
       jobs_kind: "synthesize",
       jobs_cwd: carry.ep_dir,
       jobs,
