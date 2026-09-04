@@ -961,7 +961,23 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(empty.structuredContent?.status === "error" && /낱말이 하나도/.test(empty.structuredContent?.message ?? ""), "lb_transcript②(낱말 0) → 반려", empty.structuredContent?.message?.slice(0, 50));
   const r2 = await lbCall("lb_transcript", { payload: { ...LB_C, scene_count: 21, 대사: WORDS } });
   const s2 = r2.structuredContent;
-  ok(s2?.status === "execute" && s2?.next_step === "lb_plan" && s2?.metrics?.words === 3 && s2?.metrics?.speech_s === 2.29 && s2?.metrics?.sure_ratio_pct === 67 && s2?.metrics?.speakers === 2 && s2?.carry?.includes("대사"), "lb_transcript② → next=lb_plan · metrics(낱말 3·말 2.29초·일치 67%·화자 2) · 대사 carry", JSON.stringify(s2?.metrics));
+  ok(s2?.status === "execute" && s2?.next_step === "lb_transcript" && s2?.jobs?.[0]?.name === "srt_scan" && s2.jobs[0].argv.at(-1) === "C:/drama" && s2?.measure?.[0]?.as === "srt_candidates" && s2?.metrics?.words === 3 && s2?.metrics?.speech_s === 2.29 && s2?.metrics?.sure_ratio_pct === 67 && s2?.metrics?.speakers === 2, "lb_transcript②a → 드라마 폴더 SRT 후보 훑기(srt후보읽기.py C:/drama) · metrics(낱말 3·말 2.29초·일치 67%·화자 2)", JSON.stringify(s2?.jobs?.[0]?.argv));
+  // ②b — 내용 대조로 고른다 (§94): 후보 A = 같은 말이 방송 시각(구간 1495 + 39초 앞)에 · 후보 B = 남의 드라마
+  const SENT = ["기절했어 정말", "주말에 뭐 해", "일이 많아서 그래", "부대에 무슨 일 있어", "다녀오겠습니다 충성", "현욱아 그냥 말을 해", "관등성명 한번만 부탁드리겠습니다"];
+  const asrWords = []; let tt = 1.0;
+  for (const s of SENT) { for (const w of s.split(" ")) { asrWords.push({ s: tt, e: tt + 0.4, t: w, sure: true, spk: "S1" }); tt += 0.5; } tt += 1.5; }
+  const lineAt = (i) => { let t0 = 1.0; for (let k = 0; k < i; k++) t0 += SENT[k].split(" ").length * 0.5 + 1.5; return t0; };
+  const candA = { path: "C:/drama/신병4/S01E04.srt", lines: SENT.map((s, i) => [1495 + lineAt(i) + 39, 1495 + lineAt(i) + 41, s]) };
+  const candB = { path: "C:/drama/포핸즈/3화.srt", lines: ["큰 박수로 맞아주시기 바랍니다", "클래식계를 빛낼 떠오르는 별들", "콩쿠르 준비", "포핸즈랑 투피아노", "피아노 연습 시간", "무대에 올라가자"].map((s, i) => [1500 + i * 3, 1502 + i * 3, s]) };
+  const r3 = await lbCall("lb_transcript", { payload: { ...LB_C, scene_count: 21, 대사: { words: asrWords }, srt_candidates: [candB, candA] } });
+  const s3 = r3.structuredContent;
+  ok(s3?.status === "execute" && s3?.next_step === "lb_plan" && s3?.srt_pick?.path === candA.path && s3?.srt_pick?.shift === -1534 && s3?.srt_pick?.matched === 7 && s3?.srt_pick?.in_window === 7 && s3?.carry?.includes("srt_pick"), "lb_transcript②b → 내용 대조로 S01E04 선택(밀기 −1534 = −(1495+39) · 맞음 7/7) · srt_pick carry", JSON.stringify(s3?.srt_pick));
+  ok(s3?.do?.[0]?.name === "write_srt_pin" && /밀기=-1534/.test(s3.do[0].argv.at(-1)) && JSON.stringify(s3?.jobs?.map((j) => j.name)) === JSON.stringify(["srt_blocks", "read_draft"]) && s3.jobs[0].argv.includes("--구간끝") && s3.jobs[0].argv.at(-1) === "140" && s3?.measure?.[0]?.as === "srt_draft", "lb_transcript②b → do srt원본 못박기 + SRT블록.py(--구간끝 140) + 초안 되읽기(srt_draft)", JSON.stringify(s3?.do?.[0]?.argv?.at(-1)));
+  const r4 = await lbCall("lb_transcript", { payload: { ...LB_C, scene_count: 21, 대사: { words: asrWords }, srt_candidates: [candB] } });
+  const s4 = r4.structuredContent;
+  ok(s4?.status === "execute" && s4?.next_step === "lb_plan" && s4?.srt_pick === null && (s4?.warnings ?? []).some((w) => /못박지 않았다/.test(w)) && !s4?.do, "lb_transcript②b(남의 드라마 SRT 뿐) → 못박지 않고 경고 · lb_plan 으로(아무것도 안 적음)", JSON.stringify(s4?.warnings).slice(0, 120));
+  const r5 = await lbCall("lb_transcript", { payload: { ...LB_C, scene_count: 21, 대사: { words: asrWords }, srt_candidates: [] } });
+  ok(r5.structuredContent?.next_step === "lb_plan" && r5.structuredContent?.metrics?.srt_pinned === false, "lb_transcript②b(후보 0) → lb_plan · srt_pinned false", `${r5.structuredContent?.next_step}`);
 }
 
 // L5) lb_plan — ① 쓸거리·밀도 게이트 → need_input(하단) ② 편정보 검사 → write_files
@@ -1021,12 +1037,16 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(bad.structuredContent?.status === "error" && /10자/.test(bm) && /이모지/.test(bm) && /구두점/.test(bm) && /안전대/.test(bm) && /최소 40초/.test(bm), "lb_script②(10자 초과·이모지·구두점·모션 y 밖·길이 미달) → 반려 사유 전부", bm.slice(0, 120));
   const r2 = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_candidates: [GOOD.HEADLINE, ["a", "b"], ["c", "d"], ["e", "f"]], title_choice: GOOD.HEADLINE } });
   const s2 = r2.structuredContent;
-  ok(s2?.status === "execute" && s2?.next_step === "lb_script" && s2?.do?.[0]?.name === "write_authored" && JSON.stringify(s2?.jobs?.map((j) => j.name)) === JSON.stringify(["script_check", "title_check"]) && s2?.jobs?.[0]?.argv?.[1] === "C:/youstudio-mcp/서버/runner/린박스/도구/대본검사.py", "lb_script② → authored.json 쓰기(do) + 대본검사·제목검사 jobs, 다시 자기 자신", JSON.stringify(s2?.jobs?.map((j) => j.name)));
+  ok(s2?.status === "execute" && s2?.next_step === "lb_script" && s2?.do?.[0]?.name === "write_authored" && JSON.stringify(s2?.jobs?.map((j) => j.name)) === JSON.stringify(["script_check", "title_check", "dlg_missing"]) && s2?.jobs?.[0]?.argv?.[1] === "C:/youstudio-mcp/서버/runner/린박스/도구/대본검사.py" && s2?.measure?.[2]?.as === "missing_log", "lb_script② → authored.json 쓰기(do) + 대본검사·제목검사·대사빠짐검사(§94) jobs, 다시 자기 자신", JSON.stringify(s2?.jobs?.map((j) => j.name)));
   const m = s2?.metrics ?? {};
   ok(m.n_blocks === 3 && m.d_blocks === 2 && m.dlg_sec === 38.49 && m.narr_chars === 52 && m.narr_sec === 5.098 && m.est_sec === 43.588 && m.dlg_ratio_pct === 88 && m.effects === 4 && m.emph === 1, "lb_script② → metrics(N3 D2 · 원음 38.49초 · 나레 52자=5.1초 · 어림 43.6 · 88:12 · 모션 4 · 강조 1)", JSON.stringify(m));
   ok((s2?.warnings ?? []).some((w) => /15~19장/.test(w)), "lb_script② → 나레 3장(15~19 밖) 경고", JSON.stringify(s2?.warnings));
   const fail = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_choice: GOOD.HEADLINE, script_log: "■ 대본 검사\n  ✗ b03  전환 24.500 → 앞 0.50초 / 뒤 15.50초\n  막힘 1건 — 고치기 전에는 굽지 마라\n", title_log: "  제목이 지침서를 지킨다 ✓\n" } });
   ok(fail.structuredContent?.status === "error" && /막았다/.test(fail.structuredContent?.message ?? "") && /b03/.test(fail.structuredContent?.message ?? ""), "lb_script③(대본검사 ✗) → 반려 + 고치는 길", fail.structuredContent?.message?.slice(0, 80));
+  const miss = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_choice: GOOD.HEADLINE, script_log: "  대본에서 보이는 튐 없음 ✓\n", title_log: "  제목이 지침서를 지킨다 ✓\n", missing_log: "■ 대사 빠짐\n  ✗ b02 15.04~17.05  **0.93초 동안 말은 나는데 자막이 없다** 「이름이 어떻게 되지?」\n★막힘 1건\n" } });
+  ok(miss.structuredContent?.status === "error" && /대사빠짐검사/.test(miss.structuredContent?.message ?? "") && /b02/.test(miss.structuredContent?.message ?? ""), "lb_script③(대사빠짐검사 ✗ §94) → 반려 + SRT 글자 넣기 지시", miss.structuredContent?.message?.slice(0, 80));
+  const draft = await lbCall("lb_script", { payload: { ...LB_C, srt_draft: "    ['D', [[1.0, 2.4, \"기절했어 정말\", \"quote\", \"기절했어 정말\"]]],   # 0.90~2.65" } });
+  ok(draft.structuredContent?.status === "need_input" && /초안\(srt_draft\) 있음/.test(draft.structuredContent?.message ?? "") && draft.structuredContent?.srt_draft?.includes("기절했어"), "lb_script①(srt_draft 있음) → need_input 에 «초안에서 빼기만» 안내 · srt_draft 실어 돌림", draft.structuredContent?.message?.slice(60, 140));
   const r3 = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_choice: GOOD.HEADLINE, script_log: "  대본에서 보이는 튐 없음 ✓\n", title_log: "  제목이 지침서를 지킨다 ✓\n", script_metrics: m } });
   const s3 = r3.structuredContent;
   ok(s3?.status === "execute" && s3?.next_step === "lb_voice" && s3?.write_files?.[0]?.path?.endsWith("/편정보.json") && JSON.stringify(s3.write_files[0].content?.제목) === JSON.stringify(GOOD.HEADLINE) && s3?.carry?.includes("authored"), "lb_script③ → next=lb_voice · 편정보 제목 갱신 · authored carry", JSON.stringify(s3?.write_files?.[0]?.content?.제목));
@@ -1068,7 +1088,7 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   const rA = await lbCall("lb_blocks", { payload: LB_C });
   const sA = rA.structuredContent;
   ok(sA?.status === "execute" && sA?.next_step === "lb_blocks" && sA?.do?.[0]?.name === "setup_ep" && sA.do[0].argv.includes("--win") && sA.do[0].argv[sA.do[0].argv.indexOf("--win") + 1] === "847", "lb_blocks A → 편폴더차리기(--win 847) do", JSON.stringify(sA?.do?.[0]?.argv?.slice(0, 4)));
-  ok(JSON.stringify(sA?.jobs?.map((j) => j.name)) === JSON.stringify(["faces", "follow", "reframe", "fix_cuts", "trim_cuts", "deflicker", "script_check2", "read_authored"]) && sA?.measure?.some((m) => m.as === "authored2"), "lb_blocks A → jobs 8(얼굴→재프레이밍→컷 손질→대본검사→되읽기) · measure authored2", JSON.stringify(sA?.jobs?.map((j) => j.name)));
+  ok(JSON.stringify(sA?.jobs?.map((j) => j.name)) === JSON.stringify(["faces", "follow", "reframe", "fix_cuts", "trim_cuts", "deflicker", "bound_fix", "dlg_missing2", "script_check2", "read_authored"]) && sA?.measure?.some((m) => m.as === "authored2") && sA?.measure?.some((m) => m.as === "missing_log2"), "lb_blocks A → jobs 10(얼굴→재프레이밍→컷 손질→자막경계맞춤·대사빠짐(§94)→대본검사→되읽기) · measure authored2·missing_log2", JSON.stringify(sA?.jobs?.map((j) => j.name)));
   // B) 블록 계획 — 실물 _block_jobs 와 35개 전부 대조
   const rB = await lbCall("lb_blocks", { payload: { ...LB_C, authored2: FX.authored, script_log2: "  대본에서 보이는 튐 없음 ✓\n" } });
   const sB = rB.structuredContent;
@@ -1087,6 +1107,8 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(JSON.stringify(sB?.measure?.[0]) === JSON.stringify({ as: "clip_secs_00", from: "job:b00", unit: "seconds" }) && sB?.measure?.length === 35, "lb_blocks B → measure clip_secs_NN 35개", JSON.stringify(sB?.measure?.[0]));
   const rBbad = await lbCall("lb_blocks", { payload: { ...LB_C, authored2: FX.authored, script_log2: "  ✗ b03  전환 24.500 → 앞 0.50초\n  막힘 1건\n" } });
   ok(rBbad.structuredContent?.status === "error" && /막았다/.test(rBbad.structuredContent?.message ?? ""), "lb_blocks B(대본검사 ✗) → 반려", rBbad.structuredContent?.message?.slice(0, 60));
+  const rBmiss = await lbCall("lb_blocks", { payload: { ...LB_C, authored2: FX.authored, script_log2: "  대본에서 보이는 튐 없음 ✓\n", missing_log2: "  ✗ b03 22.06~23.36  **1.30초 동안 말은 나는데 자막이 없다** 「하사 김태훈」\n★막힘 1건\n" } });
+  ok(rBmiss.structuredContent?.status === "error" && /대사빠짐검사/.test(rBmiss.structuredContent?.message ?? "") && /b03/.test(rBmiss.structuredContent?.message ?? ""), "lb_blocks B(손질 뒤 대사빠짐검사 ✗ §94) → 반려", rBmiss.structuredContent?.message?.slice(0, 60));
   // C) 실측 길이 → ass — 실물 captions_서버원본.ass 와 대조 (N 카드 낱말 시각은 실물 카드에서 거꾸로 만든 것)
   const ts = (x) => { const [h, m, s] = x.split(":"); return Number(h) * 3600 + Number(m) * 60 + Number(s); };
   const fxLines = FX.ass.split("\n");

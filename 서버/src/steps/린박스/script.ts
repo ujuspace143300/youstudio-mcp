@@ -122,16 +122,19 @@ export const lbScript: StepHandler = {
     const common = {
       source, workdir: carry.workdir, ep: carry.ep, ep_dir: carry.ep_dir, start_s: carry.start_s, end_s: carry.end_s,
       repo, probe_summary: payload.probe_summary, scene_count: payload.scene_count ?? null, 대사: payload.대사, 편정보: payload.편정보,
+      srt_pick: payload.srt_pick ?? null, srt_draft: payload.srt_draft ?? null,
     };
-    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "scene_count", "대사", "편정보"];
+    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "scene_count", "대사", "편정보", "srt_pick", "srt_draft"];
+    const srtDraft = typeof payload.srt_draft === "string" ? (payload.srt_draft as string).trim() : "";
 
     // ── ③ 게이트 로그 검사 ──────────────────────────────────────────────
     if (payload.script_log !== undefined) {
       const log = String(payload.script_log ?? "");
       const tlog = String(payload.title_log ?? "");
-      const bad = [...log.split("\n"), ...tlog.split("\n")].filter((l) => l.includes("✗")).map((l) => l.trim());
-      if (bad.length || /막힘 \d+건/.test(log)) {
-        return reject("lb_script", preset, `굽기 전 게이트가 막았다 (${bad.length}건)`, "대본검사.py: 원음 블록의 시작이 장면전환에 붙지 않았거나 전환을 가로질러 짧은 조각이 남는다 — 그 블록의 시작·끝을 scene_cuts.txt 의 전환 앞뒤로 옮기거나 그 대사를 빼라(§20·§30). 제목검사.py: 지침서 [단계 2] 대로 다시 짓는다. 고친 authored 를 실어 lb_script 를 다시 부르라(script_log 는 빼고). " + bad.slice(0, 8).join(" | "));
+      const mlog = String(payload.missing_log ?? "");
+      const bad = [...log.split("\n"), ...tlog.split("\n"), ...mlog.split("\n")].filter((l) => l.includes("✗")).map((l) => l.trim());
+      if (bad.length || /막힘 \d+건/.test(log) || /막힘 \d+건/.test(mlog)) {
+        return reject("lb_script", preset, `굽기 전 게이트가 막았다 (${bad.length}건)`, "대본검사.py: 원음 블록의 시작이 장면전환에 붙지 않았거나 전환을 가로질러 짧은 조각이 남는다 — 그 블록의 시작·끝을 scene_cuts.txt 의 전환 앞뒤로 옮기거나 그 대사를 빼라(§20·§30). 제목검사.py: 지침서 [단계 2] 대로 다시 짓는다. 대사빠짐검사.py(§94): 말은 나는데 자막이 그 말을 안 담았다 — SRT 글자(srt대사.txt)를 자막에 넣거나 블록을 그 말 뒤에서 열어라. 고친 authored 를 실어 lb_script 를 다시 부르라(script_log 는 빼고). " + bad.slice(0, 8).join(" | "));
       }
       const a = payload.authored as Authored | undefined;
       const H = Array.isArray(a?.HEADLINE) ? (a!.HEADLINE as unknown[]).map(String) : [];
@@ -176,10 +179,10 @@ export const lbScript: StepHandler = {
         message: `대본 서버 검사 통과 — 원음 ${v.metrics.dlg_sec}초 + 나레 ${v.metrics.narr_chars}자(${v.metrics.narr_sec}초) ≈ ${v.metrics.est_sec}초 · 원음:나레 ${v.metrics.dlg_ratio_pct}:${100 - v.metrics.dlg_ratio_pct} · 블록 N${v.metrics.n_blocks}/D${v.metrics.d_blocks} · 모션자막 ${v.metrics.effects}장. 이제 편 폴더에 authored.json 을 쓰고 굽기 전 게이트(대본검사·제목검사)를 돌려 로그를 실어 다시 부르라.`,
         instructions: [
           `① jobs 는 편 폴더 ${carry.ep_dir} 를 cwd 로 실행한다. do 의 write_authored 가 먼저 authored.json 을 쓴다.`,
-          "② 대본검사.py — 원음 블록이 장면전환(scene_cuts.txt)에 붙었는가·전환을 가로지르는 짧은 조각(<1.00초)이 없는가 (§64·§8 7c «건너뛸 수 없다»). 제목검사.py — 지침서 [단계 2](2줄·10자·이모지·음슴체·대화체 금지).",
-          "③ measure 대로 두 로그를 payload.script_log·payload.title_log 에 실어 lb_script 를 **다시** 부른다. ✗ 가 있으면 서버가 반려한다 — 실패 rc 라도 로그는 실어 보내라.",
+          "② 대본검사.py — 원음 블록이 장면전환(scene_cuts.txt)에 붙었는가·전환을 가로지르는 짧은 조각(<1.00초)이 없는가 (§64·§8 7c «건너뛸 수 없다»). 제목검사.py — 지침서 [단계 2](2줄·10자·이모지·음슴체·대화체 금지). 대사빠짐검사.py — srt원본 이 있으면 D 블록 안 SRT 말이 자막에 담겼는가(§94).",
+          "③ measure 대로 세 로그를 payload.script_log·payload.title_log·payload.missing_log 에 실어 lb_script 를 **다시** 부른다. ✗ 가 있으면 서버가 반려한다 — 실패 rc 라도 로그는 실어 보내라.",
         ],
-        then_call_with: ["step: 'lb_script'", "payload: { …carry, authored, title_choice, script_log: <대본검사 stdout>, title_log: <제목검사 stdout> }"],
+        then_call_with: ["step: 'lb_script'", "payload: { …carry, authored, title_choice, script_log: <대본검사 stdout>, title_log: <제목검사 stdout>, missing_log: <대사빠짐검사 stdout> }"],
         jobs_kind: "argv",
         jobs_cwd: carry.ep_dir,
         do: [{
@@ -191,10 +194,12 @@ export const lbScript: StepHandler = {
         jobs: [
           { name: "script_check", argv: ["python", tool("대본검사.py")], optional: true, note: "굽기 전 대본 게이트 — 막힘이면 rc 1 + «✗» 줄. optional 은 러너가 멈추지 말고 로그를 실어 오라는 뜻(판정은 서버)." },
           { name: "title_check", argv: ["python", tool("제목검사.py")], optional: true, note: "제목 지침서 [단계 2] 게이트 — rc 1 + «✗» 줄." },
+          { name: "dlg_missing", argv: ["python", tool("대사빠짐검사.py")], optional: true, note: "§94 게이트 — D 블록 안 SRT 줄이 자막에 담겼는가(덮임 비율). srt원본 이 없으면 «건너뛴다»(경로 짐작 없음 · 완성검사 13). rc 2 + «✗» 줄." },
         ],
         measure: [
           { as: "script_log", from: "job:script_check", unit: "stdout" },
           { as: "title_log", from: "job:title_check", unit: "stdout" },
+          { as: "missing_log", from: "job:dlg_missing", unit: "stdout" },
         ],
         metrics: v.metrics,
         carry: [...carryKeys, "authored", "title_choice", "script_metrics"],
@@ -211,7 +216,7 @@ export const lbScript: StepHandler = {
     return base("lb_script", preset, {
       status: "need_input",
       next_step: "lb_script",
-      message: `대본과 제목을 쓸 차례 — 구간 ${spanS}초 · 대사 낱말 ${Array.isArray((payload.대사 as { words?: unknown[] })?.words) ? ((payload.대사 as { words: unknown[] }).words.length) : "?"}개 · 장면전환 ${payload.scene_count ?? "?"}개. 집필 지침은 스타일/린박스/대본.md(setup 의 guideMd). 제목은 후보 4개 이상을 사장님께 보이고 고른 것을 실어라.`,
+      message: `대본과 제목을 쓸 차례 — 구간 ${spanS}초 · 대사 낱말 ${Array.isArray((payload.대사 as { words?: unknown[] })?.words) ? ((payload.대사 as { words: unknown[] }).words.length) : "?"}개 · 장면전환 ${payload.scene_count ?? "?"}개${srtDraft ? " · ★공식 SRT 초안(srt_draft) 있음 — D 블록은 이 초안에서 빼기만 한다(§94 글자는 SRT)" : " · 공식 SRT 없음(전사 글자로 · 대사표.txt 의 ★ 를 귀로 확인)"}. 집필 지침은 스타일/린박스/대본.md(setup 의 guideMd). 제목은 후보 4개 이상을 사장님께 보이고 고른 것을 실어라.`,
       need_input: {
         keys: ["authored", "title_candidates", "title_choice"],
         why: "대본(누가·무엇을)과 제목은 사람·클로드 몫이다. 서버는 꼴·규격·게이트만 잰다. 제목은 사장님이 고른다(작업규칙 2026-09-01) — 클로드가 혼자 확정하지 않는다.",

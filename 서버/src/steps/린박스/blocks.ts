@@ -119,9 +119,10 @@ export const lbBlocks: StepHandler = {
     if (payload.authored2 !== undefined || payload.blocks_ready === true) {
       const a2 = readAuthored(payload.authored2) ?? authored0;
       const log2 = String(payload.script_log2 ?? "");
-      const bad = log2.split("\n").filter((l) => l.includes("✗")).map((l) => l.trim());
-      if (bad.length || /막힘 \d+건/.test(log2)) {
-        return reject("lb_blocks", preset, `컷 손질 뒤 대본검사가 막았다 (${bad.length}건)`, "원음 블록이 전환을 가로지르거나 짧은 조각이 남았다. 편 폴더의 authored.json 을 보고 그 블록의 시작·끝을 옮기거나 대사를 뺀 뒤(§20·§30), 고친 authored 를 lb_script 부터 다시 태우거나 lb_blocks A 를 다시 부르라. " + bad.slice(0, 8).join(" | "));
+      const mlog2 = String(payload.missing_log2 ?? "");
+      const bad = [...log2.split("\n"), ...mlog2.split("\n")].filter((l) => l.includes("✗")).map((l) => l.trim());
+      if (bad.length || /막힘 \d+건/.test(log2) || /막힘 \d+건/.test(mlog2)) {
+        return reject("lb_blocks", preset, `컷 손질 뒤 대본검사·대사빠짐검사가 막았다 (${bad.length}건)`, "원음 블록이 전환을 가로지르거나 짧은 조각이 남았거나(대본검사), 말은 나는데 자막이 그 말을 안 담았다(대사빠짐검사 §94 — SRT 글자를 넣거나 블록을 그 말 뒤에서 열어라). 편 폴더의 authored.json 을 보고 그 블록의 시작·끝을 옮기거나 대사를 뺀 뒤(§20·§30), 고친 authored 를 lb_script 부터 다시 태우거나 lb_blocks A 를 다시 부르라. " + bad.slice(0, 8).join(" | "));
       }
       let plan;
       try {
@@ -169,8 +170,8 @@ export const lbBlocks: StepHandler = {
       message: `편 폴더에 도구·글꼴·yunet 을 놓고(▼편별 WIN ${win}) 얼굴 → 재프레이밍(구간_인물.mp4) → 컷 손질(fix_cuts·컷다듬기·번쩍임정리) → 대본검사 를 차례로 돌리라. 끝나면 되읽은 authored 와 로그를 실어 다시 부른다.`,
       instructions: [
         `① do 의 편폴더차리기가 도구 사본을 ${carry.ep_dir} 에 놓고 WIN·SRC·금지구간을 박는다(새편.py 방식 — 러너 원본은 안 건드린다). 글꼴은 저장소 자산/린박스/fonts 에서.`,
-        "② jobs 순서대로: find_faces(촬영본마다 얼굴 → faces.json) → 인물따라가기 --쓰기(한 사람이 촬영본 안에서 벗어나는 자리, ease 0.35 · optional) → reframe(인물을 창 가운데로 → 구간_인물.mp4) → fix_cuts(나레 컷을 촬영본 안·이웃과 다른 촬영본으로 §7) → 컷다듬기(원음 블록을 촬영본 안으로, 무대사 꼬리 제거) → 번쩍임정리 --쓰기(짧은 조각을 늘려서 §34) → 대본검사(§64 · optional, 로그만).",
-        "③ measure 대로 payload.authored2(되읽은 authored.json — 손질로 시각이 바뀌었다)·script_log2·reframe_log 를 실어 lb_blocks 를 **다시** 부른다.",
+        "② jobs 순서대로: find_faces(촬영본마다 얼굴 → faces.json) → 인물따라가기 --쓰기(한 사람이 촬영본 안에서 벗어나는 자리, ease 0.35 · optional) → reframe(인물을 창 가운데로 → 구간_인물.mp4) → fix_cuts(나레 컷을 촬영본 안·이웃과 다른 촬영본으로 §7) → 컷다듬기(원음 블록을 촬영본 안으로, 무대사 꼬리 제거) → 번쩍임정리 --쓰기(짧은 조각을 늘려서 §34) → 자막경계맞춤 --쓰기(§94 · 경계가 줄어 블록 밖으로 나간 말을 자막에서 뺀다) → 대사빠짐검사(§94 · srt원본 있을 때) → 대본검사(§64 · optional, 로그만).",
+        "③ measure 대로 payload.authored2(되읽은 authored.json — 손질로 시각이 바뀌었다)·script_log2·missing_log2·reframe_log 를 실어 lb_blocks 를 **다시** 부른다.",
       ],
       then_call_with: ["step: 'lb_blocks'", "payload: { …carry, authored2: <authored.json>, script_log2: <대본검사 stdout>, reframe_log: <stdout> }"],
       jobs_kind: "argv",
@@ -183,12 +184,15 @@ export const lbBlocks: StepHandler = {
         { name: "fix_cuts", argv: ["python", "fix_cuts.py"], note: "나레 정지컷을 촬영본 안 · 이웃 원음 블록과 다른 촬영본으로(§7). authored.json 을 고쳐 쓴다." },
         { name: "trim_cuts", argv: ["python", "컷다듬기.py"], note: "원음 블록을 촬영본 안으로 조이고 무대사 꼬리·번쩍임 조각을 잘라낸다(§7). authored.json 을 고쳐 쓴다." },
         { name: "deflicker", argv: ["python", "번쩍임정리.py", "--쓰기"], optional: true, note: "남은 짧은 조각을 늘려서 없앤다(§34 · 목표 1.30 · 막힘 1.00 · 낱말 안 가름)." },
+        { name: "bound_fix", argv: ["python", tool("자막경계맞춤.py"), "--쓰기"], optional: true, note: "§94 — 컷 손질이 블록 경계를 줄여도 자막이 블록 안에서 나는 말만 담게(판정 근거 srt대사.txt · 없으면 건너뜀). authored.json 을 고쳐 쓴다." },
+        { name: "dlg_missing2", argv: ["python", tool("대사빠짐검사.py")], optional: true, note: "§94 게이트(손질 뒤 다시) — srt원본 이 있으면 D 블록 안 SRT 말이 자막에 담겼는가. ✗ 면 서버가 반려한다." },
         { name: "script_check2", argv: ["python", "대본검사.py"], optional: true, note: "손질 뒤 다시 — ✗ 가 남으면 서버가 반려한다." },
         { name: "read_authored", argv: ["python", "-c", "import io;print(io.open('authored.json',encoding='utf-8').read())"], note: "손질된 authored.json 을 되읽는다 — 이 값으로 블록을 계획한다." },
       ],
       measure: [
         { as: "authored2", from: "job:read_authored", unit: "json_stdout" },
         { as: "script_log2", from: "job:script_check2", unit: "stdout" },
+        { as: "missing_log2", from: "job:dlg_missing2", unit: "stdout" },
         { as: "reframe_log", from: "job:reframe", unit: "stdout" },
       ],
       metrics: { blocks: nBlocks, win },

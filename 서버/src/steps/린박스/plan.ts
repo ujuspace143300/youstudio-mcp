@@ -91,8 +91,9 @@ export const lbPlan: StepHandler = {
     const common = {
       source, workdir: carry.workdir, ep: carry.ep, ep_dir: carry.ep_dir, start_s: carry.start_s, end_s: carry.end_s,
       repo: str(payload, "repo"), probe_summary: payload.probe_summary, scene_count: payload.scene_count ?? null, 대사: payload.대사,
+      srt_pick: payload.srt_pick ?? null, srt_draft: payload.srt_draft ?? null,
     };
-    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "scene_count", "대사"];
+    const carryKeys = [...CARRY_KEYS, "repo", "probe_summary", "scene_count", "대사", "srt_pick", "srt_draft"];
     const masterName = source.path.replace(/\\/g, "/").split("/").pop() ?? source.path;
 
     // ── ② 편정보 검사 → 파일 쓰기 ────────────────────────────────────────
