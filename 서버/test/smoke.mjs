@@ -113,8 +113,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_prproj", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_prproj → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_render", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_render → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -1196,6 +1196,29 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(b1.structuredContent?.status === "error" && /2건/.test(b1.structuredContent?.message ?? "") && /헤드라인 2줄/.test(b1.structuredContent?.message ?? "") && /A2 나레 3 ≠ 배치계획 narr 4/.test(b1.structuredContent?.message ?? ""), "lb_xml②(제목 한 줄 빠짐·나레 wav 빠짐) → 반려 2건", b1.structuredContent?.message?.slice(0, 90));
   const b2 = await lbCall("lb_xml", { payload: { ...LB_X, xml_log: "★자막 ass 가 없다: C:/x/captions_신병4.ass\n" } });
   ok(b2.structuredContent?.status === "error" && /못 읽었다/.test(b2.structuredContent?.message ?? "") && /자막 ass 가 없다/.test(b2.structuredContent?.message ?? ""), "lb_xml②(xml짓기 죽음) → 반려 + 첫 줄 보여 줌", b2.structuredContent?.message?.slice(0, 80));
+}
+
+// L11) lb_prproj — 한번에.sh ③~⑬.5 (프리미어돌리기 → 손질 13 jobs → 관문 판정)
+{
+  const EP = "C:/lb_work/신병/작업/EP19";
+  const LB_P = { source: LB_SRC, ...LB, ep_dir: EP, repo: "C:/youstudio-mcp", title: "신병4", ass: EP + "/captions_신병4.ass", xml: EP + "/신병4_EP19.xml", master: LB_SRC.path, 배치계획: { total: 1549 } };
+  const r1 = await lbCall("lb_prproj", { payload: LB_P });
+  const s1 = r1.structuredContent; const a1 = s1?.jobs?.[0]?.argv ?? [];
+  ok(s1?.status === "execute" && s1?.next_step === "lb_prproj" && s1?.jobs?.length === 1 && a1[1]?.endsWith("/도구/프리미어돌리기.py") && a1[2] === EP + "/신병4_EP19.xml" && a1[3] === EP + "/신병4_EP19.prproj" && a1[a1.indexOf("--누구") + 1] === "신병4_EP19" && s1?.measure?.[0]?.as === "ppro_log" && s1?.prproj === EP + "/신병4_EP19.prproj", "lb_prproj① → 프리미어돌리기.py <xml> <prproj> --누구 신병4_EP19 · prproj carry", JSON.stringify(a1.slice(2)));
+  const bad0 = await lbCall("lb_prproj", { payload: { ...LB_P, ppro_log: "  프리미어 실행 — /Applications/…\n✗ 프리미어가 prproj 를 안 만들었다 — 확장(com.volcano.prproj)이 깔렸나 보라.\n" } });
+  ok(bad0.structuredContent?.status === "error" && /안 만들었다/.test(bad0.structuredContent?.message ?? "") && /확장/.test(bad0.structuredContent?.message ?? ""), "lb_prproj②(프리미어 실패) → 반려 + 확장·로그 안내", bad0.structuredContent?.message?.slice(0, 60));
+  const r2 = await lbCall("lb_prproj", { payload: { ...LB_P, ppro_log: "  ↳ 프리미어 잠금 걸었다 (신병4_EP19)\n  _갓지은판.prproj 사본 남김\n✓ prproj 109479 C:/lb_work/신병/작업/EP19/신병4_EP19.prproj\n  ↳ 프리미어 잠금 풀었다\n" } });
+  const s2 = r2.structuredContent; const names = s2?.jobs?.map((j) => j.name) ?? [];
+  ok(s2?.status === "execute" && s2?.next_step === "lb_prproj" && JSON.stringify(names) === JSON.stringify(["kot", "style", "place", "deco", "ratio", "shadow", "inject1", "subpos", "master", "master_check", "inject2", "amor", "inject3", "end_check"]) && s2?.measure?.length === 14, "lb_prproj② → 손질·관문 jobs 14 (④~⑬.5 순서 그대로) · measure 14", JSON.stringify(names));
+  const J = Object.fromEntries((s2?.jobs ?? []).map((j) => [j.name, j.argv]));
+  ok(J.kot?.[1]?.endsWith("/runner/린박스/본떠서만들기.py") && J.kot?.[3] === "신병4" && J.master?.at(-1)?.endsWith("/runner/린박스/스타일/마스터효과_도너.prproj") && J.inject3?.[J.inject3.indexOf("--본") + 1]?.endsWith("/스타일/아모르_부품.prproj") && J.inject3?.at(-1) === EP + "/신병4_EP19.prproj.아모르전" && J.inject1?.at(-1) === EP + "/_갓지은판.prproj" && J.amor?.slice(-2).join(" ") === "--팝 부품" && J.end_check?.[1] === "-c" && J.end_check?.at(-1) === "--확인만" && J.master_check?.at(-1) === "--확인만", "lb_prproj② → 인자가 한번에.sh 와 같다(곳간 신병4 · 도너 · 부품 --본 · .아모르전 기준 · --팝 부품 · --확인만 rc 래퍼)", JSON.stringify([J.kot?.slice(2), J.master?.slice(-2)]));
+  const OK = { kot_log: "  되읽기 확인 — 48/48 정상\n", style_log: "  입힐 것 48장 · 못 찾은 것 0장\n", place_log: "  옮길 것 48장 · 못 찾은 것 0장\n", deco_log: "  그림자·팝 넣었다 48장\n", ratio_log: "  가로비율 3곳\n", shadow_log: "그림자 끈 것 40장 · 이미 0 이던 것 8장 · **아직 남은 것 0장**\n", inject_log: "탈 없다 — 열어 봐도 좋다\n", subpos_log: "되읽은 자막 48장 · **탈 0장**\n자막이 모두 ass 자리와 같다\n", master_log: "  새 객체 115개 · ObjectID 900~1014 · 사본 x\n  파라미터 값 도너와 동일 ✓\n", master_check_log: "  마스터 · 멀티밴드 압축기 · 선택적 제한\n\n확인만 rc=0\n", inject2_log: "탈 없다 — 열어 봐도 좋다\n", amor_log: "  아모르를 달 것 37장 · 못 찾은 것 0장\n달았다 — 벡터 모션 37장 (오브젝트 111개)\n", inject3_log: "  ⑤ 참조 검사 · 어긋난 곳 0\n탈 없다 — 열어 봐도 좋다\n", endcheck_log: "x.prproj: 영상 끝 1549프레임 · 넘는 End 값 [] · 클립 0개\n\n확인만 rc=0\n" };
+  const r3 = await lbCall("lb_prproj", { payload: { ...LB_P, ppro_log: "✓ prproj 109479 x", ...OK } });
+  const s3 = r3.structuredContent;
+  ok(s3?.status === "execute" && s3?.next_step === "lb_render" && s3?.metrics?.kot_ok === 48 && s3?.metrics?.amor === 37 && s3?.carry?.includes("prproj") && !(s3?.warnings ?? []).length, "lb_prproj③ → 전부 통과 → next=lb_render · metrics(곳간 48 · 아모르 37) · prproj carry", JSON.stringify(s3?.metrics));
+  const b3 = await lbCall("lb_prproj", { payload: { ...LB_P, ppro_log: "✓ prproj 109479 x", ...OK, place_log: "  옮길 것 46장 · 못 찾은 것 2장\n", subpos_log: "되읽은 자막 48장 · **탈 1장**\n", master_check_log: "확인만 rc=1\n", endcheck_log: "x.prproj: 영상 끝 1549프레임 · 넘는 End 값 [51.7] · 클립 2개\n확인만 rc=1\n", inject3_log: "  ✗ 참조가 끊긴 곳 3\n★탈 1가지 — 프리미어는 이 파일을 못 연다\n" } });
+  const bm = b3.structuredContent?.message ?? "";
+  ok(b3.structuredContent?.status === "error" && /5건/.test(bm) && /자리잡기/.test(bm) && /자막자리검사/.test(bm) && /완성검사 11/.test(bm) && /완성검사 12/.test(bm) && /아모르 뒤/.test(bm), "lb_prproj③(자리 못 찾음·자리 관문 탈·마스터 효과 없음·클립 끝 초과·주입검사 탈) → 반려 5건", bm.slice(0, 120));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

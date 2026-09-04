@@ -33,6 +33,7 @@ import { lbVoice } from "./린박스/voice.js";
 import { lbBlocks } from "./린박스/blocks.js";
 import { lbSubs } from "./린박스/subs.js";
 import { lbXml } from "./린박스/xml.js";
+import { lbPrproj } from "./린박스/prproj.js";
 import type { StepHandler } from "./types.js";
 
 const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
@@ -73,6 +74,7 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     lb_blocks: lbBlocks, // 얼굴·재프레이밍·컷 손질 → 블록 계획(_block_jobs 꼴)·굽기 → 실측으로 captions_서버원본.ass → 장면튐검사 · 네 번 부름
     lb_subs: lbSubs, // 한번에.sh ①·①.5 — 자막말머리맞춤(§93) → 서식.py → 폭맞춤·ass자리검사·구둣점검사 → 그래픽짓기·계획짓기 → 자막끝맞춤 → 원음스템 · 두 번 부름
     lb_xml: lbXml, // 한번에.sh ② — xml짓기.py(작품·자막·배율 인자) → FCP7 XML · 로그로 컷·제목·나레 수 대조 · 두 번 부름
+    lb_prproj: lbPrproj, // 한번에.sh ③~⑬.5 — 프리미어돌리기(잠금·대기줄·CEP) → 곳간·서식·자리·꾸미기·가로비율·그림자·주입검사·자막자리 관문·마스터효과·아모르·클립 끝 관문 · 세 번 부름
   },
 };
 
