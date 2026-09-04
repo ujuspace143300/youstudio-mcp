@@ -16,7 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { deviceId } from "./기기.mjs";
 
-const SERVER_URL = ""; // 예: https://youstudio-mcp.<계정>.workers.dev — 배포 뒤 채운다
+const SERVER_URL = "https://youstudio-mcp.youstudio.workers.dev"; // 2026-09-04 배포
 
 const argv = process.argv.slice(2);
 const token = argv.find((a) => !a.startsWith("--"));
