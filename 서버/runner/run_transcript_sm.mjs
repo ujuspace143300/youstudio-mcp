@@ -1,5 +1,6 @@
 // runner: transcript ① (Speechmatics batch v2 — 제출 → 폴링 → json-v2) → ② write_files
 import fs from "node:fs";
+import { authHeaders } from "./기기.mjs"; // 발급 대장 인증(토큰·기기 id) — 설계/인증_이메일허가제.md 7
 import { spawnSync } from "node:child_process";
 const URL_ = "http://localhost:8787";
 const W = "C:/Users/user/Desktop/youstudio_work/fulltime";
@@ -8,7 +9,7 @@ const carry = { workdir: W, source: { kind: "local_video", path: SRC, title: "Fu
   probe_summary: { duration_s: 929.077, width: 1920, height: 1080, fps: 23.976, fps_fraction: "24000/1001", video_codec: "h264", audio: true, audio_tracks: 1, audio_codec: "aac", audio_channels: 2, audio_sample_rate: 44100, audio_lang: "eng" } };
 const call = async (payload) => {
   const body = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "youstudio_video", arguments: { step: "transcript", preset: "영화롱폼", payload } } };
-  const r = await fetch(URL_, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25" }, body: JSON.stringify(body) });
+  const r = await fetch(URL_, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", ...authHeaders() }, body: JSON.stringify(body) });
   const t = await r.text(); const ct = r.headers.get("content-type") ?? "";
   const j = ct.includes("text/event-stream") ? JSON.parse(t.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).at(-1)) : JSON.parse(t);
   if (j.error) throw new Error(JSON.stringify(j.error));

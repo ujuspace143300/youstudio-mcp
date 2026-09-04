@@ -8,7 +8,7 @@
  * ★단순화: 여기서는 auth.ts 의 순수 함수를 동적으로 컴파일하지 않고,
  *   Node 22+ 의 ts 타입제거(--experimental-strip-types)를 쓴다.
  */
-import { decideAuth, isExpired, newLicense, DEFAULT_MAX_DEVICES, DEVICE_CAP } from "../src/auth.ts";
+import { decideAuth, isExpired, newLicense, presetsInBody, DEFAULT_MAX_DEVICES, DEVICE_CAP } from "../src/auth.ts";
 
 let pass = 0, fail = 0;
 function ok(name, cond) {
@@ -64,6 +64,18 @@ ok("셋째 기기 거부(-32006)", r4.ok === false && r4.code === -32006);
 // 상한을 3으로 올리면 셋째 통과
 const r5 = decideAuth({ ...L2, maxDevices: 3 }, "devC", NOW);
 ok("허용대수 3이면 셋째 통과", r5.ok === true);
+
+// 6) 프리셋별 권한 — 기본 전부 거부, 명시한 것만 허용 (설계 「프리셋별 권한」)
+const LP = { ...L, devices: ["dev1"], presets: ["린박스"] };
+ok("허용프리셋에 있는 프리셋 통과", decideAuth(LP, "dev1", NOW, "린박스").ok === true);
+ok("허용프리셋에 없는 프리셋 거부(-32007)", decideAuth(LP, "dev1", NOW, "스케치코미디").code === -32007);
+ok("허용프리셋 칸이 없으면(옛 대장) 프리셋 요청은 거부", decideAuth({ ...L, devices: ["dev1"] }, "dev1", NOW, "린박스").code === -32007);
+ok("프리셋 없는 요청(initialize·tools/list)은 프리셋 검사 건너뜀", decideAuth({ ...L, devices: ["dev1"] }, "dev1", NOW, null).ok === true);
+ok("프리셋 검사는 기기 등록보다 먼저 — 거부되면 기기 자리를 안 먹는다", decideAuth({ ...L, presets: [] }, "devNew", NOW, "린박스").ok === false);
+ok("발급 때 허용프리셋 실림", newLicense("a@b.c", 90, 2, NOW, ["린박스"]).presets[0] === "린박스");
+ok("body 에서 프리셋 뽑기(tools/call)", presetsInBody({ method: "tools/call", params: { name: "youstudio_video", arguments: { step: "setup", preset: "린박스" } } })[0] === "린박스");
+ok("body 에 프리셋 없으면 빈 배열(initialize)", presetsInBody({ method: "initialize", params: {} }).length === 0);
+ok("배치 body 는 전부 모은다", presetsInBody([{ method: "tools/call", params: { arguments: { preset: "린박스" } } }, { method: "tools/call", params: { arguments: { preset: "스케치코미디" } } }]).length === 2);
 
 // 기본값 상수
 ok("기본 허용 2대", DEFAULT_MAX_DEVICES === 2);

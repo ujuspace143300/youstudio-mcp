@@ -12,7 +12,7 @@
  */
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { buildServer } from "./server.js";
-import { decideAuth, readCreds, type License } from "./auth.js";
+import { decideAuth, presetsInBody, readCreds, type License } from "./auth.js";
 
 interface Env {
   YOUSTUDIO_TOKEN?: string;
@@ -57,7 +57,19 @@ export default {
       } catch {
         license = null;
       }
-      const decision = decideAuth(license, device, Date.now());
+      // 프리셋별 권한(6번째 검사) — body 의 tools/call arguments.preset 을 꺼내 넘긴다. body 는 복제본에서 읽는다(원본은 handler 가 읽는다).
+      let presets: string[] = [];
+      try {
+        presets = presetsInBody(await request.clone().json());
+      } catch {
+        presets = [];
+      }
+      let decision = decideAuth(license, device, Date.now(), presets[0] ?? null);
+      for (const p of presets.slice(1)) {
+        if (!decision.ok) break;
+        const d2 = decideAuth(license, device, Date.now(), p);
+        if (!d2.ok) decision = d2;
+      }
       if (!decision.ok) return deny(decision.code, decision.message);
       // 기기가 새로 등록됐으면 대장에 다시 쓴다(빈 자리 채움)
       if (decision.changed) {

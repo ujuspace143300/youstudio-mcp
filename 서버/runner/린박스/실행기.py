@@ -50,12 +50,32 @@ PY = sys.executable
 _id = 0
 
 
+def device_id():
+    """이 컴퓨터의 설치 id — 기기.mjs deviceId() 와 같은 파일(~/.youstudio/device). 없으면 만든다(랜덤 16바이트 hex)."""
+    d = os.path.join(os.path.expanduser('~'), '.youstudio'); f = os.path.join(d, 'device')
+    try:
+        v = io.open(f, encoding='utf-8').read().strip()
+        if v:
+            return v
+    except OSError:
+        pass
+    import secrets
+    v = secrets.token_hex(16)
+    try:
+        os.makedirs(d, exist_ok=True); io.open(f, 'w', encoding='utf-8').write(v)
+    except OSError:
+        pass
+    return v
+
+
 def rpc(method, params):
     global _id
     _id += 1
     body = json.dumps({'jsonrpc': '2.0', 'id': _id, 'method': method, 'params': params}, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(A.url.rstrip('/'), data=body, headers={
         'content-type': 'application/json', 'accept': 'application/json, text/event-stream', 'mcp-protocol-version': '2025-11-25'})
+    # 인증 헤더 — 서버/runner/기기.mjs authHeaders() 와 같은 규칙(같은 ~/.youstudio/device 파일 = 같은 기기 id).
+    req.add_header('X-Youstudio-Device', device_id())
     tok = os.environ.get('YOUSTUDIO_TOKEN')
     if tok:
         req.add_header('authorization', 'Bearer ' + tok)

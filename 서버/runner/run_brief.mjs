@@ -1,5 +1,6 @@
 // runner 역할: brief ① 지시 받기 → judge job 실행(inputs 치환·auth env·out 저장) → measure(gemini_json_text) → brief ② → write_files
 import fs from "node:fs";
+import { authHeaders } from "./기기.mjs"; // 발급 대장 인증(토큰·기기 id) — 설계/인증_이메일허가제.md 7
 import { execFileSync } from "node:child_process";
 const URL_ = "http://localhost:8787";
 const W = "C:/Users/user/Desktop/youstudio_work/fulltime";
@@ -12,7 +13,7 @@ const carry = {
 let id = 0;
 async function call(step, payload) {
   const body = { jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name: "youstudio_video", arguments: { step, preset: "영화롱폼", payload } } };
-  const r = await fetch(URL_, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25" }, body: JSON.stringify(body) });
+  const r = await fetch(URL_, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25", ...authHeaders() }, body: JSON.stringify(body) });
   const text = await r.text();
   const ct = r.headers.get("content-type") ?? "";
   const json = ct.includes("text/event-stream") ? JSON.parse(text.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).at(-1)) : JSON.parse(text);

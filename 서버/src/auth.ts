@@ -3,7 +3,7 @@
  *
  * 설계: `설계/인증_이메일허가제.md`.
  *   사장님이 이메일을 대장에 등록 → 토큰 발급 → 지인 사용 → 사장님이 목록·차단·연장.
- *   요청마다 5검사: 대장에 있나 → 차단됐나 → 만료됐나 → 기기 자리 있나(이메일당 기본 2·상한 50).
+ *   요청마다 6검사: 대장에 있나 → 차단됐나 → 만료됐나 → 기기 자리 있나(이메일당 기본 2·상한 50) → **이 프리셋을 써도 되나**(허용프리셋 · 기본 전부 거부 · 2026-09-04 배포 직전 구현).
  *
  * 저장: Cloudflare KV (바인딩 이름 LICENSES). 키 = 토큰 문자열, 값 = License(JSON).
  *   토큰 자체가 KV 키라 대장에 「토큰 값」을 따로 평문 필드로 두지 않는다(키 보호 규칙).
@@ -20,6 +20,8 @@ export interface License {
   maxDevices: number; // 이메일당 허용 기기 수 (기본 2 · 상한 50)
   devices: string[];  // 등록된 기기 지문(설치 id)
   blocked: boolean;   // 사장님이 즉시 차단
+  /** 허용프리셋 — 이 이메일이 쓸 수 있는 프리셋 이름들. 없거나 비면 **전부 거부**(명시한 것만 허용, 설계 「프리셋별 권한」) */
+  presets?: string[];
 }
 
 export const DEFAULT_MAX_DEVICES = 2;
@@ -45,6 +47,7 @@ export function decideAuth(
   license: License | null,
   device: string,
   nowMs: number,
+  preset: string | null = null,
 ): AuthResult {
   // 1) 대장에 있나
   if (!license) {
@@ -64,6 +67,15 @@ export function decideAuth(
     return { ok: false, code: -32005, message: "기기 식별자가 없다 — 설치가 온전하지 않다(~/.youstudio/device)." };
   }
   const cap = Math.min(Math.max(1, license.maxDevices || DEFAULT_MAX_DEVICES), DEVICE_CAP);
+  // 5) 프리셋 — 요청이 프리셋을 지목했으면(tools/call youstudio_video) 허용프리셋에 있어야 한다. 기본 = 전부 거부.
+  //    initialize·tools/list 처럼 프리셋이 없는 요청은 이 검사를 건너뛴다(대장·차단·만료·기기는 이미 봤다).
+  const want = (preset ?? "").trim();
+  if (want) {
+    const allowed = Array.isArray(license.presets) ? license.presets : [];
+    if (allowed.indexOf(want) === -1) {
+      return { ok: false, code: -32007, message: `이 프리셋(${want})은 권한이 없습니다 — 관리자에게 요청하라. 허용: ${allowed.length ? allowed.join("·") : "없음"}` };
+    }
+  }
   // 이미 등록된 기기면 그대로 통과
   if (license.devices.indexOf(dev) !== -1) {
     return { ok: true, license, changed: false };
@@ -81,6 +93,23 @@ export function decideAuth(
   };
 }
 
+/**
+ * MCP 요청 body 에서 프리셋을 뽑는다 — tools/call youstudio_video 의 arguments.preset. 배치(배열)면 전부 모은다.
+ * 프리셋이 없는 요청(initialize·tools/list 등)은 빈 배열.
+ */
+export function presetsInBody(body: unknown): string[] {
+  const msgs = Array.isArray(body) ? body : [body];
+  const out: string[] = [];
+  for (const m of msgs) {
+    if (!m || typeof m !== "object") continue;
+    const o = m as { method?: unknown; params?: { arguments?: { preset?: unknown } } };
+    if (o.method !== "tools/call") continue;
+    const p = o.params?.arguments?.preset;
+    if (typeof p === "string" && p.trim()) out.push(p.trim());
+  }
+  return out;
+}
+
 /** 요청에서 Bearer 토큰과 기기 지문 헤더를 뽑는다. */
 export function readCreds(request: Request): { token: string; device: string } {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -89,7 +118,7 @@ export function readCreds(request: Request): { token: string; device: string } {
 }
 
 /** 새 대장 한 줄을 만든다(발급). 관리 도구·발급 경로가 쓴다. */
-export function newLicense(email: string, days: number, maxDevices: number, nowMs: number): License {
+export function newLicense(email: string, days: number, maxDevices: number, nowMs: number, presets: string[] = []): License {
   const issued = new Date(nowMs);
   const exp = new Date(nowMs + days * 24 * 60 * 60 * 1000);
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -100,5 +129,6 @@ export function newLicense(email: string, days: number, maxDevices: number, nowM
     maxDevices: Math.min(Math.max(1, maxDevices), DEVICE_CAP),
     devices: [],
     blocked: false,
+    presets: presets.slice(),
   };
 }
