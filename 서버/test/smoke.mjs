@@ -113,8 +113,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_xml", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_xml → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_prproj", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_prproj → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -1173,6 +1173,29 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(b1.structuredContent?.status === "error" && /4건/.test(bm) && /자막말머리맞춤/.test(bm) && /2장이 화면/.test(bm) && /구둣점/.test(bm) && /초과 1|넘는 줄이 1개/.test(bm), "lb_subs②(말머리 ✗·자리 2장·구둣점·끝 초과) → 반려 4건 전부", bm.slice(0, 100));
   const w1 = await lbCall("lb_subs", { payload: { ...LB_S, ...LOGS, 배치계획: { total: 1600 } } });
   ok(w1.structuredContent?.status === "execute" && (w1.structuredContent?.warnings ?? []).some((w) => /0\.25초 넘게/.test(w)), "lb_subs②(계획 1600프레임 ≠ 실측 51.65초) → 통과하되 경고", JSON.stringify(w1.structuredContent?.warnings).slice(0, 80));
+}
+
+// L10) lb_xml — 한번에.sh ② (xml짓기.py 작품·자막·배율 인자 → FCP7 XML → 로그 대조)
+{
+  const EP = "C:/lb_work/신병/작업/EP19";
+  const PLAN = { total: 1549, blocks: Array.from({ length: 35 }, (_, i) => ({ name: `b${String(i).padStart(2, "0")}.mp4`, frames: 44 })), narr: [{ name: "n00.wav", start: 0 }, { name: "n04.wav", start: 214 }, { name: "n07.wav", start: 374 }, { name: "n34.wav", start: 1474 }] };
+  const LB_X = { source: LB_SRC, ...LB, ep_dir: EP, repo: "C:/youstudio-mcp", probe_summary: { win: 1080, fps_fraction: "30000/1001", letterbox: { top: 60, bottom: 60, content_h: 960 } }, 편정보: { 제목: ["a", "b"] }, title: "신병4", ass: EP + "/captions_신병4.ass", ass_logo: EP + "/captions_신병4_로고.ass", 배치계획: PLAN, total_s: 51.652 };
+  const r0 = await lbCall("lb_xml", { payload: { ...LB_X, 배치계획: undefined } });
+  ok(r0.structuredContent?.status === "error" && /배치계획/.test(r0.structuredContent?.message ?? ""), "lb_xml(배치계획 없음) → 반려", r0.structuredContent?.message?.slice(0, 50));
+  const r1 = await lbCall("lb_xml", { payload: LB_X });
+  const s1 = r1.structuredContent; const a = s1?.jobs?.[0]?.argv ?? [];
+  ok(s1?.status === "execute" && s1?.next_step === "lb_xml" && s1?.jobs?.[0]?.name === "xml" && a[1]?.endsWith("/도구/xml짓기.py") && a[2] === EP && a[3] === LB_SRC.path && a[4] === EP + "/신병4_EP19.xml" && a[a.indexOf("--작품") + 1] === "신병4" && a[a.indexOf("--자막") + 1] === EP + "/captions_신병4.ass" && a[a.indexOf("--배율") + 1] === "106.25", "lb_xml① → xml짓기.py <편> <마스터=소재> <신병4_EP19.xml> --작품 신병4 --자막 --배율 106.25(=1020/960)", JSON.stringify(a.slice(2)));
+  ok(s1?.metrics?.scale_pct === 106.25 && s1?.carry?.includes("xml") && s1?.xml === EP + "/신병4_EP19.xml" && s1?.master === LB_SRC.path, "lb_xml① → 배율·xml·master carry", JSON.stringify(s1?.metrics));
+  const noLB = await lbCall("lb_xml", { payload: { ...LB_X, probe_summary: { win: 1080 } } });
+  ok(!(noLB.structuredContent?.jobs?.[0]?.argv ?? []).includes("--배율") && (noLB.structuredContent?.warnings ?? []).some((w) => /106\.25/.test(w)), "lb_xml①(레터박스 미측정) → --배율 없이(기본 106.25) + 경고", "");
+  const LOG = "나레 블록 [0, 4, 7, 34] — 원음 −25.1dB 로 누른 컷 4/35 · 배율 106.25%\nV1 컷 35 · 제목 1+1 · 나레 6 · 대사 31 · 효과 4 · A1 35 · A2 4 · A3(sfx) 0\n→ C:/lb_work/신병/작업/EP19/신병4_EP19.xml 121445 바이트\n";
+  const r2 = await lbCall("lb_xml", { payload: { ...LB_X, xml_log: LOG } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "execute" && s2?.next_step === "lb_prproj" && s2?.metrics?.v1_cuts === 35 && s2?.metrics?.headline_clips === 2 && s2?.metrics?.a2_narr === 4 && s2?.metrics?.xml_bytes === 121445 && s2?.carry?.includes("master"), "lb_xml② → 통과 → next=lb_prproj · metrics(컷 35 · 제목 2 · 나레 4 · 121445B)", JSON.stringify(s2?.metrics));
+  const b1 = await lbCall("lb_xml", { payload: { ...LB_X, xml_log: LOG.replace("제목 1+1", "제목 1+0").replace("A2 4", "A2 3") } });
+  ok(b1.structuredContent?.status === "error" && /2건/.test(b1.structuredContent?.message ?? "") && /헤드라인 2줄/.test(b1.structuredContent?.message ?? "") && /A2 나레 3 ≠ 배치계획 narr 4/.test(b1.structuredContent?.message ?? ""), "lb_xml②(제목 한 줄 빠짐·나레 wav 빠짐) → 반려 2건", b1.structuredContent?.message?.slice(0, 90));
+  const b2 = await lbCall("lb_xml", { payload: { ...LB_X, xml_log: "★자막 ass 가 없다: C:/x/captions_신병4.ass\n" } });
+  ok(b2.structuredContent?.status === "error" && /못 읽었다/.test(b2.structuredContent?.message ?? "") && /자막 ass 가 없다/.test(b2.structuredContent?.message ?? ""), "lb_xml②(xml짓기 죽음) → 반려 + 첫 줄 보여 줌", b2.structuredContent?.message?.slice(0, 80));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");
