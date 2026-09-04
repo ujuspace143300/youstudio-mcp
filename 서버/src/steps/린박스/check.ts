@@ -32,8 +32,8 @@ out={}
 r=subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=width,height','-show_entries','format=duration','-of','json',mp4],capture_output=True,text=True)
 j=json.loads(r.stdout or '{}');s=(j.get('streams') or [{}])[0];out['w']=s.get('width');out['h']=s.get('height');out['dur']=float(j.get('format',{}).get('duration',0) or 0)
 r=subprocess.run(['ffmpeg','-hide_banner','-nostats','-i',mp4,'-af','ebur128=peak=true','-f','null','-'],capture_output=True,text=True)
-m=re.search(r'I:\\s*(-?[\\d.]+) LUFS',r.stderr);out['lufs']=float(m.group(1)) if m else None
-m=re.search(r'Peak:\\s*(-?[\\d.]+) dBFS',r.stderr);out['peak']=float(m.group(1)) if m else None
+mm=re.findall(r'I:\\s*(-?[\\d.]+) LUFS',r.stderr);out['lufs']=float(mm[-1]) if mm else None
+mm=re.findall(r'Peak:\\s*(-?[\\d.]+) dBFS',r.stderr);out['peak']=float(mm[-1]) if mm else None
 h=0xcbf29ce484222325
 for b in open(ass.replace('captions_'+sys.argv[4]+'.ass','captions_서버원본.ass'),'rb').read(): h=((h^b)*0x100000001b3)&0xffffffffffffffff
 out['fp']='%016x'%h;out['fp_want']=fp_want

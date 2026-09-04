@@ -106,6 +106,7 @@ export const lbBlocks: StepHandler = {
         jobs_cwd: carry.ep_dir,
         jobs: [{ name: "jump_check", argv: ["python", "장면튐검사.py"], optional: true, note: "편 폴더에 복사된 사본(편폴더차리기)을 돌린다. rc 1 = 막힘(✗ 줄), rc 2 = 블록 부족." }],
         write_files: [
+          { path: join(carry.ep_dir, "state_payload.json"), content: { clip_secs: clipSecs, total_s: total, wav_secs: wavSecs, ass_fp: fnv1a64(ass) }, note: "볼케이노 서버가 남기던 state_payload.json 의 clip_secs 꼴 — 대조점짓기.py(lb_render)가 읽는다(2026-09-04 실호출: 없어서 _synccheck 3단계가 건너뜀)." },
           { path: join(carry.ep_dir, "captions_서버원본.ass"), content: ass, note: "볼케이노 stitch_master 가 내던 captions.ass 와 같은 꼴(스타일 8종 · 실측 누적 시각). 한번에.sh 입력 ①" },
           { path: join(carry.ep_dir, "captions.ass"), content: ass, note: "서버 원본 자리 — 완성검사 [8] sha256 대조용" },
         ],
