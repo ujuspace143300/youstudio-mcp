@@ -112,8 +112,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_cut", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_cut → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_transcript", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_transcript → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -920,6 +920,23 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(sc?.probe_summary?.letterbox?.content_h === 800 && sc?.carry?.includes("probe_summary"), "lb_probe → probe_summary(레터박스) carry", JSON.stringify(sc?.probe_summary?.letterbox));
   const noCrop = await lbCall("lb_probe", { payload: { ...LB_CARRY, probe: PROBE_LB } });
   ok(noCrop.structuredContent?.status === "execute" && (noCrop.structuredContent?.warnings ?? []).some((w) => /레터박스/.test(w)) && noCrop.structuredContent?.metrics?.win === Math.round((1080 * 1080) / 1020), "lb_probe(cropdetect 없음) → 경고 + WIN 은 원본 높이로", JSON.stringify(noCrop.structuredContent?.warnings));
+}
+
+// L3) lb_cut
+{
+  const LB_CARRY = { source: LB_SRC, ...LB, ep_dir: "C:/lb_work/신병/작업/EP19", probe_summary: { fps_fraction: "24000/1001", win: 847 } };
+  const bad = await lbCall("lb_cut", { payload: { ...LB_CARRY } });
+  ok(bad.structuredContent?.status === "error" && /payload\.repo/.test(bad.structuredContent?.message ?? ""), "lb_cut(repo 없음) → 반려 + 고치는 법", bad.structuredContent?.message?.slice(0, 60));
+  const res = await lbCall("lb_cut", { payload: { ...LB_CARRY, repo: "C:/youstudio-mcp" } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "lb_transcript" && sc?.jobs_cwd === "C:/lb_work/신병/작업/EP19", "lb_cut → execute, next=lb_transcript, jobs_cwd=편 폴더", `${sc?.status}/${sc?.next_step}/${sc?.jobs_cwd}`);
+  const names = sc?.jobs?.map((j) => j.name);
+  ok(JSON.stringify(names) === JSON.stringify(["cut", "keep", "cut_probe", "scene_cuts"]), "lb_cut → jobs 4 (cut·keep·cut_probe·scene_cuts)", JSON.stringify(names));
+  const cut = sc?.jobs?.[0]?.argv ?? [];
+  ok(cut.indexOf("-i") < cut.indexOf("-ss") && cut[cut.indexOf("-ss") + 1] === "1495" && cut[cut.indexOf("-to") + 1] === "1635" && cut.includes("libx264") && cut[cut.indexOf("-crf") + 1] === "16" && cut[cut.indexOf("-b:a") + 1] === "320k" && !cut.includes("-r") && cut.at(-1) === "C:/lb_work/신병/작업/EP19/구간.mp4", "lb_cut → cut argv: -i 뒤 -ss/-to · 재인코딩 crf16 · 320k · -r 없음", cut.join(" ").slice(0, 120));
+  ok(sc?.jobs?.[1]?.argv?.includes("copy") && sc.jobs[1].argv.at(-1) === "C:/lb_work/신병/작업/EP19/구간_원본.mp4", "lb_cut → keep: 구간_원본.mp4 스트림 복사(§84)", sc?.jobs?.[1]?.argv?.join(" "));
+  ok(sc?.jobs?.[3]?.argv?.[1] === "C:/youstudio-mcp/서버/runner/린박스/도구/장면컷.py" && sc.jobs[3].argv.includes("--쓰기"), "lb_cut → scene_cuts: repo 밑 러너 도구 장면컷.py --쓰기", sc?.jobs?.[3]?.argv?.join(" "));
+  ok(JSON.stringify(sc?.measure?.map((m) => [m.as, m.unit])) === JSON.stringify([["cut_probe", "json_stdout"], ["scene_cuts_log", "stdout"]]) && sc?.carry?.includes("repo") && sc?.carry?.includes("probe_summary"), "lb_cut → measure(cut_probe·scene_cuts_log) · carry 에 repo·probe_summary", JSON.stringify(sc?.measure));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

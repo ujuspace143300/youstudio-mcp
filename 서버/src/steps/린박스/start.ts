@@ -38,6 +38,8 @@ export const lbStart: StepHandler = {
     }
     const spanS = end_s - start_s;
     const ep_dir = epDir(workdir, ep);
+    // 저장소 루트 — lb_cut 부터 러너 도구(서버/runner/린박스/도구/)를 절대경로로 부르려면 필요하다. 여기서 받아 두면 carry 로 이어 간다
+    const repo = str(payload, "repo");
     const probeOut = join(ep_dir, "_probe.json");
     const mid = Math.round(((start_s + end_s) / 2) * 1000) / 1000;
 
@@ -48,7 +50,7 @@ export const lbStart: StepHandler = {
       instructions: [
         `① 편 폴더 ${ep_dir} 를 만든다 (드라마 폴더 아래 작업/${ep}). 이미 있으면 그대로 둔다 — 안의 파일을 지우지 않는다.`,
         "② jobs 의 두 명령을 그대로 실행한다. probe 는 표준출력(JSON)을 out 에 저장하고, cropdetect 는 표준오류(ffmpeg 로그)를 통째로 payload.cropdetect_raw 에 넣는다 (measure 대로).",
-        "③ carry 의 값(source·workdir·ep·ep_dir·start_s·end_s)을 payload 에 그대로 실어 lb_probe 를 부른다.",
+        "③ carry 의 값(source·workdir·ep·ep_dir·start_s·end_s·repo)을 payload 에 그대로 실어 lb_probe 를 부른다." + (repo ? "" : " ★payload.repo(youstudio-mcp 저장소 루트 절대경로)를 아직 안 실었다 — lb_cut 부터 러너 도구를 거기서 찾으므로 다음 호출부터 실어라."),
       ],
       then_call_with: [
         "step: 'lb_probe'",
@@ -75,13 +77,14 @@ export const lbStart: StepHandler = {
         { as: "probe", from: "job:probe", unit: "json_stdout" },
         { as: "cropdetect_raw", from: "job:cropdetect", unit: "stderr" },
       ],
-      carry: [...CARRY_KEYS],
+      carry: [...CARRY_KEYS, ...(repo ? ["repo"] : [])],
       source,
       workdir,
       ep,
       ep_dir,
       start_s,
       end_s,
+      ...(repo ? { repo } : {}),
     });
   },
 };

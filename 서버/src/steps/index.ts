@@ -25,6 +25,7 @@ import { skAsr, skCut, skRender, skSubs, skSync } from "./스케치코미디/flo
 import { skDeliver } from "./스케치코미디/deliver.js";
 import { lbStart } from "./린박스/start.js";
 import { lbProbe } from "./린박스/probe.js";
+import { lbCut } from "./린박스/cut.js";
 import type { StepHandler } from "./types.js";
 
 const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
@@ -57,6 +58,7 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     setup, // 공유 — workDirs·spec 은 등록표에서 온다. lb_* 처리기는 한 단계씩 만들어 여기 한 줄씩 (그 전엔 stub 이 «아직 구현 안 됨» 을 돌려준다)
     start: lbStart, // 드라마 로컬 영상 + 편 이름 + 구간 → ffprobe·cropdetect 지시
     lb_probe: lbProbe, // 소재 확인 · 구간 범위 · 레터박스·WIN · «프레임률» 파일
+    lb_cut: lbCut, // 구간 절단(-i 뒤 -ss 재인코딩) · 구간_원본 사본 · 절단본 재기 · 장면컷.py
   },
 };
 
