@@ -112,8 +112,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_transcript", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_transcript → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_plan", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_plan → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -937,6 +937,30 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(sc?.jobs?.[1]?.argv?.includes("copy") && sc.jobs[1].argv.at(-1) === "C:/lb_work/신병/작업/EP19/구간_원본.mp4", "lb_cut → keep: 구간_원본.mp4 스트림 복사(§84)", sc?.jobs?.[1]?.argv?.join(" "));
   ok(sc?.jobs?.[3]?.argv?.[1] === "C:/youstudio-mcp/서버/runner/린박스/도구/장면컷.py" && sc.jobs[3].argv.includes("--쓰기"), "lb_cut → scene_cuts: repo 밑 러너 도구 장면컷.py --쓰기", sc?.jobs?.[3]?.argv?.join(" "));
   ok(JSON.stringify(sc?.measure?.map((m) => [m.as, m.unit])) === JSON.stringify([["cut_probe", "json_stdout"], ["scene_cuts_log", "stdout"]]) && sc?.carry?.includes("repo") && sc?.carry?.includes("probe_summary"), "lb_cut → measure(cut_probe·scene_cuts_log) · carry 에 repo·probe_summary", JSON.stringify(sc?.measure));
+}
+
+// L4) lb_transcript — ① 절단 검사 + 유료 지시 ② 결과 검사
+{
+  const LB_C = { source: LB_SRC, ...LB, ep_dir: "C:/lb_work/신병/작업/EP19", repo: "C:/youstudio-mcp", probe_summary: { fps_fraction: "24000/1001" } };
+  const CUT_PROBE = { streams: [{ codec_type: "video", start_time: "0.000000", duration: "140.02" }, { codec_type: "audio" }], format: { duration: "140.021000" } };
+  const SCENE_LOG = "소재 구간.mp4 — 140.0초 · 23.98fps · 프레임 3357개\n찾은 장면전환 21개  (9.0개/분)\nscene_cuts.txt 에 21개를 적었다.\n";
+  const bad = await lbCall("lb_transcript", { payload: LB_C });
+  ok(bad.structuredContent?.status === "error" && /cut_probe/.test(bad.structuredContent?.message ?? ""), "lb_transcript(cut_probe 없음) → 반려", bad.structuredContent?.message?.slice(0, 50));
+  const short = await lbCall("lb_transcript", { payload: { ...LB_C, cut_probe: { ...CUT_PROBE, format: { duration: "120.0" } }, scene_cuts_log: SCENE_LOG } });
+  ok(short.structuredContent?.status === "error" && /0\.5초/.test(short.structuredContent?.message ?? ""), "lb_transcript(절단본 120초 ≠ 140초) → 반려 + 재절단 지시", short.structuredContent?.message?.slice(0, 60));
+  const res = await lbCall("lb_transcript", { payload: { ...LB_C, cut_probe: CUT_PROBE, scene_cuts_log: SCENE_LOG, dictionary: [{ content: "김현욱", sounds_like: ["김현국"] }] } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "lb_transcript" && sc?.jobs_cwd === "C:/lb_work/신병/작업/EP19", "lb_transcript① → execute, 다시 자기 자신(검사 위해), cwd 편 폴더", `${sc?.status}/${sc?.next_step}`);
+  ok(/유료/.test(sc?.message ?? "") && /7분/.test(sc?.message ?? "") && /승인/.test(sc?.instructions?.[0] ?? ""), "lb_transcript① → ★유료 비용(140초×3벌 = 7분) 보고·승인 지시", sc?.message?.slice(0, 80));
+  ok(sc?.do?.[0]?.name === "write_dict" && sc.do[0].argv.at(-1).includes("김현욱"), "lb_transcript① → do: 사전.json(낱말사전) 먼저 쓰기", sc?.do?.[0]?.argv?.at(-1)?.slice(0, 60));
+  ok(JSON.stringify(sc?.jobs?.map((j) => j.name)) === JSON.stringify(["transcribe", "speakers", "read_words"]) && sc.jobs[0].argv[1] === "C:/youstudio-mcp/서버/runner/린박스/도구/전사.py" && sc.jobs[1].optional === true, "lb_transcript① → jobs 전사.py·화자표.py(optional)·대사 읽기", JSON.stringify(sc?.jobs?.map((j) => j.name)));
+  ok(sc?.metrics?.scene_count === 21 && sc?.scene_count === 21 && sc?.carry?.includes("scene_count"), "lb_transcript① → 장면컷 21개 읽어 carry", JSON.stringify(sc?.metrics));
+  const WORDS = { words: [{ s: 0.74, e: 1.43, t: "기절했어", c: 0.9, spk: "S1", votes: 3, sure: true }, { s: 2.03, e: 2.15, t: "주", c: 0.5, spk: "S1", votes: 1, sure: false }, { s: 6.3, e: 7.78, t: "일이", c: 0.95, spk: "S2", votes: 3, sure: true }] };
+  const empty = await lbCall("lb_transcript", { payload: { ...LB_C, scene_count: 21, 대사: { words: [] } } });
+  ok(empty.structuredContent?.status === "error" && /낱말이 하나도/.test(empty.structuredContent?.message ?? ""), "lb_transcript②(낱말 0) → 반려", empty.structuredContent?.message?.slice(0, 50));
+  const r2 = await lbCall("lb_transcript", { payload: { ...LB_C, scene_count: 21, 대사: WORDS } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "execute" && s2?.next_step === "lb_plan" && s2?.metrics?.words === 3 && s2?.metrics?.speech_s === 2.29 && s2?.metrics?.sure_ratio_pct === 67 && s2?.metrics?.speakers === 2 && s2?.carry?.includes("대사"), "lb_transcript② → next=lb_plan · metrics(낱말 3·말 2.29초·일치 67%·화자 2) · 대사 carry", JSON.stringify(s2?.metrics));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");
