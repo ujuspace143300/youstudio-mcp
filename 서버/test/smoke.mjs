@@ -21,6 +21,7 @@ let TR = [];   // subtitle① 응답의 대사줄(시각 기반 id + 영어)로 
  *   8) tools/call select — ① 지시: do[](프레임·클립) + judge 3콜(Google, @inline_file/@file_uri, auth env 만)
  *      ② 결과: 우선순위 채움 → 시간순·비겹침·크레딧 이전 · 역할 · metrics(최대 미선택 스트레치) · 게이트 · write_files 2개
  */
+import { readFileSync } from "node:fs";
 const URL_ = process.env.MCP_URL ?? "http://localhost:8787";
 const PROTOCOL = "2025-11-25"; // 2025 세대(stateless) 로 붙는다 — 서버가 legacy 폴백으로 받는다
 
@@ -112,8 +113,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_blocks", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_blocks → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_subs", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_subs → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -1056,6 +1057,76 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(r3.structuredContent?.status === "error" && /낱말이 없는 나레 블록: 2/.test(r3.structuredContent?.message ?? ""), "lb_voice③(블록 2 낱말 없음) → 반려", r3.structuredContent?.message?.slice(0, 60));
   const r4 = await lbCall("lb_voice", { payload: { ...LB_C, wav_secs: { "0": 2.29, "2": 1.96 }, narr_words: { "0": [[0.1, 0.5, "부대"], [0.6, 1.0, "카페에"]], "2": [[0.2, 0.7, "누군가"]] } } });
   ok(r4.structuredContent?.status === "execute" && r4.structuredContent?.next_step === "lb_blocks" && r4.structuredContent?.metrics?.narr_words === 3 && r4.structuredContent?.carry?.includes("narr_words"), "lb_voice③ → next=lb_blocks · narr_words 3 · carry", JSON.stringify(r4.structuredContent?.metrics));
+}
+
+// L8) lb_blocks — 신병4 EP19 실물 견본으로 블록 계획·argv·captions_서버원본.ass 를 대조 (설계 5.6.1)
+{
+  const FX = JSON.parse(readFileSync(new URL("./fixtures/린박스_EP19.json", import.meta.url), "utf-8"));
+  const EP = "C:/lb_work/신병/작업/EP19";
+  const LB_C = { source: LB_SRC, ...LB, ep_dir: EP, repo: "C:/youstudio-mcp", probe_summary: { win: 847, fps_fraction: "30000/1001" }, scene_count: 21, 대사: { words: [] }, 편정보: {}, authored: FX.authored, wav_secs: FX.wav_secs };
+  // A) 편 폴더 차리기 + 얼굴·재프레이밍·컷 손질 지시
+  const rA = await lbCall("lb_blocks", { payload: LB_C });
+  const sA = rA.structuredContent;
+  ok(sA?.status === "execute" && sA?.next_step === "lb_blocks" && sA?.do?.[0]?.name === "setup_ep" && sA.do[0].argv.includes("--win") && sA.do[0].argv[sA.do[0].argv.indexOf("--win") + 1] === "847", "lb_blocks A → 편폴더차리기(--win 847) do", JSON.stringify(sA?.do?.[0]?.argv?.slice(0, 4)));
+  ok(JSON.stringify(sA?.jobs?.map((j) => j.name)) === JSON.stringify(["faces", "follow", "reframe", "fix_cuts", "trim_cuts", "deflicker", "script_check2", "read_authored"]) && sA?.measure?.some((m) => m.as === "authored2"), "lb_blocks A → jobs 8(얼굴→재프레이밍→컷 손질→대본검사→되읽기) · measure authored2", JSON.stringify(sA?.jobs?.map((j) => j.name)));
+  // B) 블록 계획 — 실물 _block_jobs 와 35개 전부 대조
+  const rB = await lbCall("lb_blocks", { payload: { ...LB_C, authored2: FX.authored, script_log2: "  대본에서 보이는 튐 없음 ✓\n" } });
+  const sB = rB.structuredContent;
+  const jobsJson = JSON.parse(sB?.do?.[0]?.argv?.[3] ?? "[]");
+  ok(sB?.status === "execute" && sB?.next_step === "lb_blocks" && jobsJson.length === 35 && sB?.jobs?.length === 36 && sB.jobs[35].name === "concat", "lb_blocks B → _block_jobs 35 + ffmpeg 35 + concat", `${jobsJson.length}/${sB?.jobs?.length}`);
+  const diffs = [];
+  for (const fj of FX.jobs) {
+    const j = jobsJson[fj.index]; const a = j.argv; const fc = a[a.indexOf("-filter_complex") + 1];
+    const frames = Number((fc.match(/trim=end_frame=(\d+)/) || [])[1]); const whole = Number((fc.match(/apad=whole_len=(\d+)/) || [])[1]);
+    const ss = Number(a[a.indexOf("-ss") + 1]); const tt = Number(a[a.indexOf("-t") + 1]);
+    if (j.kind !== fj.kind || frames !== fj.frames || Math.abs(ss - fj.ss) > 1e-6 || Math.abs(tt - fj.t) > 1e-6 || Math.abs(j.seconds - fj.seconds) > 1e-6 || whole !== fj.whole_len) diffs.push([fj.index, fj.kind, { frames, ss, tt, sec: j.seconds, whole }, fj]);
+  }
+  ok(diffs.length === 0, "lb_blocks B → 35블록 전부 실물과 같음(kind·frames·-ss·-t·seconds·whole_len)", JSON.stringify(diffs.slice(0, 2)));
+  const a0 = jobsJson[0].argv; const fc0 = a0[a0.indexOf("-filter_complex") + 1];
+  ok(!/crop=/.test(fc0) && !/unsharp/.test(fc0) && /fps=30000\/1001/.test(fc0) && a0[a0.indexOf("-r") + 1] === "30000/1001" && a0.includes(EP + "/blocks/n00.wav") && /volume=0.1778/.test(fc0) && /amix=inputs=2/.test(fc0), "lb_blocks B → N argv: crop·unsharp 없음(훅 결과) · fps 소재값 · 나레 amix", fc0.slice(0, 80));
+  ok(JSON.stringify(sB?.measure?.[0]) === JSON.stringify({ as: "clip_secs_00", from: "job:b00", unit: "seconds" }) && sB?.measure?.length === 35, "lb_blocks B → measure clip_secs_NN 35개", JSON.stringify(sB?.measure?.[0]));
+  const rBbad = await lbCall("lb_blocks", { payload: { ...LB_C, authored2: FX.authored, script_log2: "  ✗ b03  전환 24.500 → 앞 0.50초\n  막힘 1건\n" } });
+  ok(rBbad.structuredContent?.status === "error" && /막았다/.test(rBbad.structuredContent?.message ?? ""), "lb_blocks B(대본검사 ✗) → 반려", rBbad.structuredContent?.message?.slice(0, 60));
+  // C) 실측 길이 → ass — 실물 captions_서버원본.ass 와 대조 (N 카드 낱말 시각은 실물 카드에서 거꾸로 만든 것)
+  const ts = (x) => { const [h, m, s] = x.split(":"); return Number(h) * 3600 + Number(m) * 60 + Number(s); };
+  const fxLines = FX.ass.split("\n");
+  const cum = []; let tt = 0; for (let i = 0; i < 35; i++) { cum.push(tt); tt += FX.clip_secs[String(i)]; }
+  const narrWords = {};
+  for (const l of fxLines) {
+    if (!l.startsWith("Dialogue:") || !l.includes(",band_narr,")) continue;
+    const p = l.split(","); const st = ts(p[1]), en = ts(p[2]); const text = l.split(",,0,0,0,,")[1].replace(/\{[^}]*\}/, "");
+    const blk = Math.max(...cum.map((c, i) => (c <= st + 0.005 ? i : -1)));
+    const ws = text.split(" "); const per = (en - st) / ws.length;
+    narrWords[String(blk)] = narrWords[String(blk)] ?? [];
+    ws.forEach((w, k) => narrWords[String(blk)].push([Math.round((st - cum[blk] + k * per) * 1000) / 1000, Math.round((st - cum[blk] + (k + 1) * per) * 1000) / 1000, w]));
+  }
+  const clipPayload = Object.fromEntries(Object.entries(FX.clip_secs).map(([k, v]) => [`clip_secs_${String(k).padStart(2, "0")}`, v]));
+  const rC = await lbCall("lb_blocks", { payload: { ...LB_C, ...clipPayload, narr_words: narrWords } });
+  const sC = rC.structuredContent;
+  ok(sC?.status === "execute" && sC?.next_step === "lb_blocks" && sC?.write_files?.[0]?.path === EP + "/captions_서버원본.ass" && sC?.jobs?.[0]?.name === "jump_check", "lb_blocks C → captions_서버원본.ass write_files + 장면튐검사", `${sC?.status}/${sC?.write_files?.[0]?.path}`);
+  const ours = String(sC?.write_files?.[0]?.content ?? "").split("\n");
+  const headOurs = ours.slice(0, ours.findIndex((l) => l.startsWith("[Events]")) + 2).join("\n");
+  const headFx = fxLines.slice(0, fxLines.findIndex((l) => l.startsWith("[Events]")) + 2).join("\n");
+  ok(headOurs === headFx, "lb_blocks C → ass 머리(Script Info·스타일 8종) 실물과 바이트 같음", headOurs === headFx ? "" : headOurs.slice(0, 120));
+  const dl = (ls) => ls.filter((l) => l.startsWith("Dialogue:"));
+  const parse = (l) => { const p = l.split(","); const rest = l.split(",,0,0,0,,")[1] ?? ""; return { st: ts(p[1]), en: ts(p[2]), style: p[3], tag: (rest.match(/\{[^}]*\}/) || [""])[0].replace(/\\fad\(\d+,33\)/, "\\fad(F,33)"), text: rest.replace(/\{[^}]*\}/, "") }; };
+  const A1 = dl(ours).map(parse), A2 = dl(fxLines).map(parse);
+  const bad = [];
+  if (A1.length !== A2.length) bad.push(["줄 수", A1.length, A2.length]);
+  for (let i = 0; i < Math.min(A1.length, A2.length); i++) {
+    const x = A1[i], y = A2[i];
+    if (x.style !== y.style || x.text !== y.text || x.tag !== y.tag) bad.push([i, "글/태그", x, y]);
+    else if (Math.abs(x.st - y.st) > 0.011 || Math.abs(x.en - y.en) > 0.011) bad.push([i, "시각", x.st, y.st, x.en, y.en]);
+  }
+  ok(bad.length === 0, `lb_blocks C → Dialogue ${A2.length}줄 실물과 같음(스타일·글·태그 동일 · 시각 ±0.01)`, JSON.stringify(bad.slice(0, 3)).slice(0, 300));
+  const exact = A1.filter((x, i) => A2[i] && x.st === A2[i].st && x.en === A2[i].en).length;
+  ok(exact >= A2.length - 6, `lb_blocks C → 시각이 정확히 같은 줄 ${exact}/${A2.length} (실물의 D 카드 끝 1cs 차이 ≤ 5 + 페이드 무관)`, `${exact}`);
+  ok(sC?.metrics?.total_s === 51.652 && sC?.metrics?.cards === 40, "lb_blocks C → 총 실측 51.652 · 카드 40장", JSON.stringify(sC?.metrics));
+  // D) 장면튐검사 로그
+  const rD1 = await lbCall("lb_blocks", { payload: { ...LB_C, clip_secs: FX.clip_secs, total_s: 51.652, jump_log: "  그림 35개 · 총 51.65초 · 40.7컷/분\n  ✗ 그림 b09 가 0.97초뿐이다 — 번쩍인다\n  막힘 1건\n" } });
+  ok(rD1.structuredContent?.status === "error" && /장면튐검사가 막았다/.test(rD1.structuredContent?.message ?? ""), "lb_blocks D(✗) → 반려 + 번쩍임정리 지시", rD1.structuredContent?.message?.slice(0, 60));
+  const rD2 = await lbCall("lb_blocks", { payload: { ...LB_C, clip_secs: FX.clip_secs, total_s: 51.652, jump_log: "  화면 튐 없음 ✓\n" } });
+  ok(rD2.structuredContent?.status === "execute" && rD2.structuredContent?.next_step === "lb_subs" && rD2.structuredContent?.carry?.includes("clip_secs"), "lb_blocks D → next=lb_subs (한번에.sh 입력 6개 갖춤)", `${rD2.structuredContent?.status}/${rD2.structuredContent?.next_step}`);
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");
