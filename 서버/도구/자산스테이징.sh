@@ -13,10 +13,20 @@ if [ ! -d "$SRC" ]; then
   echo "★볼트 자산이 없다: $SRC — 옵시디언 Sync 가 끝났는지 보라"; exit 1
 fi
 mkdir -p "$DST"
-for d in "$SRC"/*/; do
-  p="$(basename "$d")"
-  mkdir -p "$DST/$p"
-  rsync -a --delete --exclude '_목록.json' "$d" "$DST/$p/"
-done
+# rsync 가 있으면 rsync(--delete 로 지운 자산도 반영), 없으면(윈도우 git-bash) cp 폴백.
+if command -v rsync >/dev/null 2>&1; then
+  for d in "$SRC"/*/; do
+    p="$(basename "$d")"
+    mkdir -p "$DST/$p"
+    rsync -a --delete --exclude '_목록.json' "$d" "$DST/$p/"
+  done
+else
+  for d in "$SRC"/*/; do
+    p="$(basename "$d")"
+    rm -rf "$DST/$p"; mkdir -p "$DST/$p"      # --delete 흉내: 통째로 새로
+    cp -R "$d". "$DST/$p/" 2>/dev/null || cp -R "$d"* "$DST/$p/"
+    rm -f "$DST/$p/_목록.json"                 # --exclude 흉내
+  done
+fi
 node "$HERE/도구/자산목록.mjs"
 echo "자산 스테이징: $SRC → $DST"
