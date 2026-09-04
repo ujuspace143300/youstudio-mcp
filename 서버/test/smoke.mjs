@@ -1250,8 +1250,8 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   const LOGS = { font_log: "글꼴                      폴백과 겹침률   판정\nPaperlogy-5Medium            12.0%      ✔ 제 글꼴\nGmarket Sans Bold            10.2%      ✔ 제 글꼴\n", master_check_log: "확인만 rc=0\n", end_check_log: "x.prproj: 영상 끝 1549프레임 · 넘는 End 값 [] · 클립 0개\n확인만 rc=0\n", missing_log: "  말과 자막이 어긋난 자리 없음 ✓\n", head_log: "  말과 어긋난 카드 없음 ✓\n" };
   const r2 = await lbCall("lb_check", { payload: { ...LB_K, check: CHECK, ...LOGS } });
   const s2 = r2.structuredContent;
-  ok(s2?.status === "execute" && s2?.next_step === "lb_deliver" && s2?.metrics?.passed === 12 && s2?.metrics?.pending === 1 && (s2?.check_table ?? []).length === 14 && (s2?.instructions ?? []).some((x) => /사람 확인 9\./.test(x)) && (s2?.instructions ?? []).some((x) => /낭독 전문/.test(x)), "lb_check② → 기계 항목 12 통과 · △1(길이 사장님 확인) · 사람 확인 9·10 + 낭독 전문 → lb_deliver", JSON.stringify(s2?.metrics));
-  const b2 = await lbCall("lb_check", { payload: { ...LB_K, check: { ...CHECK, w: 1080, h: 1900, matte: { ...CHECK.matte, top_side: 55 }, fx: [{ y: [1300], t: "??" }], headline: ["열한글자열한글자열한", "b"], fp: "ffff" }, ...LOGS, font_log: "★ 폴백으로 그려지는 글꼴 1개 — 깔거나 글꼴방에 넣어라: Paperlogy\n", master_check_log: "확인만 rc=1\n", head_log: "  ✗ b19  30.93 → 31.10\n" } });
+  ok(s2?.status === "execute" && s2?.next_step === "lb_deliver" && s2?.metrics?.passed === 13 && s2?.metrics?.pending === 0 && (s2?.check_table ?? []).length === 14 && (s2?.instructions ?? []).some((x) => /사람 확인 9\./.test(x)) && (s2?.instructions ?? []).some((x) => /낭독 전문/.test(x)), "lb_check② → 기계 항목 13 통과(길이 51.6초는 규격 40~60 안) · 사람 확인 9·10 + 낭독 전문 → lb_deliver", JSON.stringify(s2?.metrics));
+  const b2 = await lbCall("lb_check", { payload: { ...LB_K, check: { ...CHECK, w: 1080, h: 1900, matte: { ...CHECK.matte, top_side: 55 }, fx: [{ y: [1300], t: "??" }], headline: ["열한글자열한글자열한자", "b"], fp: "ffff" }, ...LOGS, font_log: "★ 폴백으로 그려지는 글꼴 1개 — 깔거나 글꼴방에 넣어라: Paperlogy\n", master_check_log: "확인만 rc=1\n", head_log: "  ✗ b19  30.93 → 31.10\n" } });
   const bm = b2.structuredContent?.message ?? "";
   ok(b2.structuredContent?.status === "error" && /미통과 8건/.test(bm) && /미완/.test(bm) && /✗ 3\./.test(bm) && /✗ 4\./.test(bm) && /✗ 5\./.test(bm) && /✗ 6\./.test(bm) && /✗ 7\./.test(bm) && /✗ 8\./.test(bm) && /✗ 11\./.test(bm) && /✗ 14\./.test(bm), "lb_check②(매트·헤드라인·효과 y·글꼴·해상도·지문·마스터 효과·말머리) → «미완» 8건 표", bm.slice(0, 120));
 }
@@ -1265,10 +1265,10 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   const r1 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true } });
   const s1 = r1.structuredContent; const a = s1?.jobs?.[0]?.argv ?? [];
   ok(s1?.status === "execute" && s1?.next_step === "lb_deliver" && s1?.jobs?.[0]?.name === "assemble" && a[4] === "C:/lb_work/신병/완성/EP19" && a.at(-1)?.endsWith("/도구/납품SRT4벌.py") && s1?.deliver_dir === "C:/lb_work/신병/완성/EP19", "lb_deliver① → 조립 job(완성/EP19 · 납품SRT4벌)", JSON.stringify(a.slice(3, 6)));
-  const r2 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true, deliver_log: "  신병4_EP19_자막.srt  41장\n완성/EP19: 김현욱을 살린 취사병의 정체(최종본).mp4 신병4_EP19.prproj 신병4_EP19_숏폼.mp4 신병4_EP19_자막.srt 자막_나레이션.srt 자막_대사.srt 자막_효과.srt 편집소스\n편집소스: 그래픽 7 · 나레 4 · 원음 31 · 효과음 0\n최종본: 김현욱을 살린 취사병의 정체(최종본).mp4\n" } });
+  const r2 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true, deliver_log: "  신병4_EP19_자막.srt  41장\n완성/EP19: 김현욱을 살린 취사병의 정체(최종본).mp4 | 신병4_EP19.prproj | 신병4_EP19_숏폼.mp4 | 신병4_EP19_자막.srt | 자막_나레이션.srt | 자막_대사.srt | 자막_효과.srt | 편집소스\n편집소스: 그래픽 7 · 나레 4 · 원음 31 · 효과음 0\n최종본: 김현욱을 살린 취사병의 정체(최종본).mp4\n" } });
   const s2 = r2.structuredContent;
   ok(s2?.status === "done" && s2?.next_step === null && s2?.metrics?.srt_sets === 4 && s2?.metrics?.files === 8 && s2?.metrics?.stems === 31, "lb_deliver② → done · SRT 4벌 · 파일 8 · 원음 31", JSON.stringify(s2?.metrics));
-  const b2 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true, deliver_log: "완성/EP19: 신병4_EP19_숏폼.mp4 자막_대사.srt\n편집소스: 그래픽 0 · 나레 0 · 원음 0 · 효과음 0\n" } });
+  const b2 = await lbCall("lb_deliver", { payload: { ...LB_D, human_ok: true, deliver_log: "완성/EP19: 신병4_EP19_숏폼.mp4 | 자막_대사.srt\n편집소스: 그래픽 0 · 나레 0 · 원음 0 · 효과음 0\n" } });
   ok(b2.structuredContent?.status === "error" && /4건|5건/.test(b2.structuredContent?.message ?? "") && /prproj/.test(b2.structuredContent?.message ?? "") && /SRT/.test(b2.structuredContent?.message ?? ""), "lb_deliver②(prproj·최종본·SRT·그래픽·원음 없음) → 반려", b2.structuredContent?.message?.slice(0, 80));
 }
 
