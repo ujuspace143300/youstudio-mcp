@@ -87,7 +87,7 @@ console.log(`서버: ${URL_}`);
   ok(adm.status === 200 && /text\/html/.test(adm.headers.get("content-type") ?? "") && /발급 대장/.test(admHtml) && !/ADMIN_TOKEN=|Bearer [A-Za-z0-9_-]{20,}/.test(admHtml), "/admin → 페이지(HTML · 비밀 없음)", String(adm.status));
   const noTok = await fetch(URL_ + "/admin/api/list");
   ok(noTok.status === 401 || noTok.status === 503, "/admin/api/list 토큰 없음 → 401(설정돼 있으면) / 503(ADMIN_TOKEN 미설정)", String(noTok.status));
-  const wrong = await fetch(URL_ + "/admin/api/list", { headers: { authorization: "Bearer 틀린값" } });
+  const wrong = await fetch(URL_ + "/admin/api/list", { headers: { authorization: "Bearer wrong-token" } });
   ok(wrong.status === 401 || wrong.status === 503, "/admin/api/list 틀린 토큰 → 401", String(wrong.status));
   if (process.env.ADMIN_TOKEN) {
     const right = await fetch(URL_ + "/admin/api/list", { headers: { authorization: "Bearer " + process.env.ADMIN_TOKEN } });
