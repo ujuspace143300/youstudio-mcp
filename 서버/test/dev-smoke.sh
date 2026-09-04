@@ -10,6 +10,7 @@ t=io.open('wrangler.jsonc',encoding='utf-8').read()
 t2=re.sub(r'\n\s*"kv_namespaces": \[\{[^\]]*\]\s*,?', '\n', t)   # KV 줄(과 뒤 쉼표)만 뺀다 — assets 는 남긴다(자산 시험)
 io.open('.wrangler-devtmp.jsonc','w',encoding='utf-8').write(t2)
 PY
+bash 도구/자산스테이징.sh >/dev/null || { echo "★자산 스테이징 실패"; exit 1; }   # 새 클론엔 자산/ 이 없다 — 볼트에서 채운다
 LOG="${TMPDIR:-/tmp}/wrangler-dev-smoke.log"
 npx wrangler dev -c .wrangler-devtmp.jsonc --port 8787 > "$LOG" 2>&1 &
 WP=$!
