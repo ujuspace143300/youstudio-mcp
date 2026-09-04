@@ -132,17 +132,21 @@ export const lbScript: StepHandler = {
       const log = String(payload.script_log ?? "");
       const tlog = String(payload.title_log ?? "");
       const mlog = String(payload.missing_log ?? "");
-      const bad = [...log.split("\n"), ...tlog.split("\n"), ...mlog.split("\n")].filter((l) => l.includes("✗")).map((l) => l.trim());
-      if (bad.length || /막힘 \d+건/.test(log) || /막힘 \d+건/.test(mlog)) {
+      // ★대본검사(장면전환·번쩍임)는 여기서 «경고»다 — 정본(한편.py 굽기)은 fix_cuts·컷다듬기·번쩍임정리로 손질한 **뒤** render.py 관문에서 막는다.
+      //   유스튜디오도 같다: 손질은 lb_blocks A, 관문은 lb_blocks B(script_log2). 손질 전에 막으면 손질이 고칠 자리(실호출 EP19 b06 내부 컷 0.43초)까지 사람이 고쳐야 한다(2026-09-04 실호출에서 잡음).
+      const scriptWarn = log.split("\n").filter((l) => l.includes("✗")).map((l) => l.trim());
+      const bad = [...tlog.split("\n"), ...mlog.split("\n")].filter((l) => l.includes("✗")).map((l) => l.trim());
+      if (bad.length || /막힘 \d+건/.test(mlog)) {
         return reject("lb_script", preset, `굽기 전 게이트가 막았다 (${bad.length}건)`, "대본검사.py: 원음 블록의 시작이 장면전환에 붙지 않았거나 전환을 가로질러 짧은 조각이 남는다 — 그 블록의 시작·끝을 scene_cuts.txt 의 전환 앞뒤로 옮기거나 그 대사를 빼라(§20·§30). 제목검사.py: 지침서 [단계 2] 대로 다시 짓는다. 대사빠짐검사.py(§94): 말은 나는데 자막이 그 말을 안 담았다 — SRT 글자(srt대사.txt)를 자막에 넣거나 블록을 그 말 뒤에서 열어라. 고친 authored 를 실어 lb_script 를 다시 부르라(script_log 는 빼고). " + bad.slice(0, 8).join(" | "));
       }
       const a = payload.authored as Authored | undefined;
       const H = Array.isArray(a?.HEADLINE) ? (a!.HEADLINE as unknown[]).map(String) : [];
       const 편정보새 = { ...(편정보 ?? {}), 제목: H };
+      const warnings = scriptWarn.length ? [`대본검사(장면전환·번쩍임) ${scriptWarn.length}건 — lb_blocks A 의 fix_cuts·컷다듬기·번쩍임정리가 손질한 뒤 다시 잰다(거기서 남으면 막힌다): ` + scriptWarn.slice(0, 6).join(" | ")] : [];
       return base("lb_script", preset, {
         status: "execute",
         next_step: "lb_voice",
-        message: `대본 게이트 통과 — 제목 「${H.join(" / ")}」. 편정보.json 의 제목을 맞추고 lb_voice(★유료 TTS)로.`,
+        message: `대본 게이트 통과 — 제목 「${H.join(" / ")}」${scriptWarn.length ? ` · 대본검사 경고 ${scriptWarn.length}건(손질 뒤 재판정)` : ""}. 편정보.json 의 제목을 맞추고 lb_voice(★유료 TTS)로.`,
         instructions: [
           "① write_files 대로 편정보.json 을 다시 쓴다(제목 = authored HEADLINE — 다르면 서버 자막과 우리 제목이 갈린다, 한번에.sh 첫 관문).",
           "② carry 의 값(… authored 포함)을 payload 에 그대로 실어 lb_voice 를 부른다 — 유료(Typecast) 단계라 그 응답이 먼저 비용을 묻는다.",
@@ -157,6 +161,7 @@ export const lbScript: StepHandler = {
         ...common,
         편정보: 편정보새,
         authored: payload.authored,
+        ...(warnings.length ? { warnings } : {}),
       });
     }
 
