@@ -12,5 +12,6 @@
 |---|---|---|---|
 | lb_cut | `도구/장면컷.py` · `도구/영상읽기.py` | 도구/장면컷.py · 도구/영상읽기.py | 장면전환 표 `scene_cuts.txt`(화소차+히스토그램+이웃 대비) · 프레임 읽기(av→cv2 사다리) |
 | lb_transcript | `도구/전사.py` · `도구/화자표.py` · `자산/yunet.onnx` | 도구/전사.py · 도구/화자표.py · (yunet 은 저장소 자산/스케치코미디/models 것과 같은 파일) | ★Speechmatics 세 벌 전사 → 대사.json·대사표.txt·seg_asr.json (키는 ~/.volcano/keys/speechmatics · 환경변수) · 화자 뭉치별 얼굴 → _화자.jpg·화자.json 틀 |
+| lb_script | `도구/대본검사.py` · `도구/제목검사.py` · `도구/구둣점검사.py` | 같은 이름 | 굽기 전 게이트 — 원음 블록이 전환에 붙었는가·짧은 조각(대본검사, rc 1+✗) · 제목 지침서 [단계 2](제목검사) · 구둣점검사는 ass 단계(lb_subs)에서 쓴다(대본의 구두점은 서버가 잰다) |
 
 다음 단계에서 더 가져올 것(설계 5.6.1·지시 ③): 전사.py · 화자표.py(lb_transcript) · 쓸거리검사.py(lb_plan) · author 본보기·나레카드.py·대본검사.py·제목검사.py·구둣점검사.py·편별검사.py(lb_script) · speed_narr.py·narr_align.py(lb_voice) · find_faces.py·인물따라가기.py·reframe.py·fix_cuts.py·컷다듬기.py·번쩍임정리.py·d_sync.py·장면튐검사.py(lb_blocks).

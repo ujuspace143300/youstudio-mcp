@@ -112,8 +112,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_script", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_script → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_voice", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_voice → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -991,6 +991,44 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(wf?.path === "C:/lb_work/신병/작업/EP19/편정보.json" && wf?.content?.로고 === "logo/logo_bottom.png" && wf?.content?.완성본 === "자동" && wf?.content?.구간오프셋 === 1495 && wf?.content?.마스터 === "신병4_EP4_EPK.mp4" && wf?.content?.하단확인 === true && wf?.content?.나레TTS?.voice?.includes("tc_62686be9deec4c1bb7fd077c"), "lb_plan② → write_files 편정보.json(로고 logo/logo_bottom.png · 완성본 자동 · 구간오프셋 1495 · 이나)", JSON.stringify(wf?.content).slice(0, 160));
   const r4 = await lbCall("lb_plan", { payload: { ...LB_C, 대사: WORDS_OK, 편정보: { 로고: "없음", 크레딧: ["<더 글로리>는", "넷플릭스에서!"], 하단확인: true } } });
   ok(r4.structuredContent?.status === "execute" && r4.structuredContent?.jobs?.length === 0 && r4.structuredContent?.write_files?.[0]?.content?.로고 === "없음", "lb_plan②(로고 없음) → 복사 job 없음 · 로고 «없음»", JSON.stringify(r4.structuredContent?.write_files?.[0]?.content?.로고));
+}
+
+// L6) lb_script — ① need_input ② 서버 검사 + 게이트 도구 ③ 로그 검사
+{
+  const 편정보 = { 제목: ["", ""], 크레딧: ["〈신병4 사보타주〉", "는 본편에서!"], 로고: "logo/logo_bottom.png", 하단확인: true };
+  const LB_C = { source: LB_SRC, ...LB, ep_dir: "C:/lb_work/신병/작업/EP19", repo: "C:/youstudio-mcp", probe_summary: {}, scene_count: 21, 대사: { words: [{ s: 1, e: 2, t: "말" }] }, 편정보 };
+  const r1 = await lbCall("lb_script", { payload: LB_C });
+  ok(r1.structuredContent?.status === "need_input" && r1.structuredContent?.need_input?.keys?.includes("title_choice") && r1.structuredContent?.need_input?.keys?.includes("authored"), "lb_script① → need_input(authored·title_candidates·title_choice)", JSON.stringify(r1.structuredContent?.need_input?.keys));
+  const D = (s, e, cap) => [s, e, cap, "quote", cap.replace(/\|/g, " ")];
+  const GOOD = {
+    HEADLINE: ["폭로 글 범인으로", "몰린 신병의 정체"], CREDIT: 편정보.크레딧,
+    BLOCKS: [
+      ["N", "부대 카페에 총기 사고 은폐 글이 올라왔는데", [[2.15, 1]]],
+      ["D", [D(6.3, 7.78, "일이 있는|거 아냐"), D(15.04, 17.05, "아 이거 뭐야|미치겠네")]],
+      ["N", "누군가 부대 카페에 글을 올린 거였고", [[20.0, 1]]],
+      ["D", [D(24.0, 40.0, "이병 김현욱"), D(41.0, 60.0, "현욱아 그냥|말을 해")]],
+      ["N", "선임을 두고 먼저 들어가 버린 신병이었던 거죠", [[70.0, 1]]],
+    ],
+    EFFECTS_BY_BLOCK: [[0, 0.15, 0.85, "#F070C0", "비상", 540, 640], [3, 0.2, 0.85, "#F070C0", "추궁", 540, 640], [3, 0.5, 0.85, "#F070C0", "한숨", 540, 700], [4, 0.1, 0.85, "#F070C0", "하극상", 540, 640]],
+    강조: ["말을 해"],
+  };
+  const noChoice = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD } });
+  ok(noChoice.structuredContent?.status === "error" && /title_choice/.test(noChoice.structuredContent?.message ?? ""), "lb_script②(사장님 선택 없음) → 반려", noChoice.structuredContent?.message?.slice(0, 60));
+  const BAD = { ...GOOD, HEADLINE: ["폭로 글 범인으로 몰린 신병", "정체😱"], BLOCKS: [["N", "부대 카페에, 글이", [[2, 1]]], ["D", [D(6.3, 7.78, "일이 있는 거 아냐.")]]], EFFECTS_BY_BLOCK: [[0, 0.1, 0.8, "#F070C0", "비상", 540, 1300]] };
+  const bad = await lbCall("lb_script", { payload: { ...LB_C, authored: BAD, title_choice: BAD.HEADLINE } });
+  const bm = bad.structuredContent?.message ?? "";
+  ok(bad.structuredContent?.status === "error" && /10자/.test(bm) && /이모지/.test(bm) && /구두점/.test(bm) && /안전대/.test(bm) && /최소 40초/.test(bm), "lb_script②(10자 초과·이모지·구두점·모션 y 밖·길이 미달) → 반려 사유 전부", bm.slice(0, 120));
+  const r2 = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_candidates: [GOOD.HEADLINE, ["a", "b"], ["c", "d"], ["e", "f"]], title_choice: GOOD.HEADLINE } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "execute" && s2?.next_step === "lb_script" && s2?.do?.[0]?.name === "write_authored" && JSON.stringify(s2?.jobs?.map((j) => j.name)) === JSON.stringify(["script_check", "title_check"]) && s2?.jobs?.[0]?.argv?.[1] === "C:/youstudio-mcp/서버/runner/린박스/도구/대본검사.py", "lb_script② → authored.json 쓰기(do) + 대본검사·제목검사 jobs, 다시 자기 자신", JSON.stringify(s2?.jobs?.map((j) => j.name)));
+  const m = s2?.metrics ?? {};
+  ok(m.n_blocks === 3 && m.d_blocks === 2 && m.dlg_sec === 38.49 && m.narr_chars === 52 && m.narr_sec === 5.098 && m.est_sec === 43.588 && m.dlg_ratio_pct === 88 && m.effects === 4 && m.emph === 1, "lb_script② → metrics(N3 D2 · 원음 38.49초 · 나레 52자=5.1초 · 어림 43.6 · 88:12 · 모션 4 · 강조 1)", JSON.stringify(m));
+  ok((s2?.warnings ?? []).some((w) => /15~19장/.test(w)), "lb_script② → 나레 3장(15~19 밖) 경고", JSON.stringify(s2?.warnings));
+  const fail = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_choice: GOOD.HEADLINE, script_log: "■ 대본 검사\n  ✗ b03  전환 24.500 → 앞 0.50초 / 뒤 15.50초\n  막힘 1건 — 고치기 전에는 굽지 마라\n", title_log: "  제목이 지침서를 지킨다 ✓\n" } });
+  ok(fail.structuredContent?.status === "error" && /막았다/.test(fail.structuredContent?.message ?? "") && /b03/.test(fail.structuredContent?.message ?? ""), "lb_script③(대본검사 ✗) → 반려 + 고치는 길", fail.structuredContent?.message?.slice(0, 80));
+  const r3 = await lbCall("lb_script", { payload: { ...LB_C, authored: GOOD, title_choice: GOOD.HEADLINE, script_log: "  대본에서 보이는 튐 없음 ✓\n", title_log: "  제목이 지침서를 지킨다 ✓\n", script_metrics: m } });
+  const s3 = r3.structuredContent;
+  ok(s3?.status === "execute" && s3?.next_step === "lb_voice" && s3?.write_files?.[0]?.path?.endsWith("/편정보.json") && JSON.stringify(s3.write_files[0].content?.제목) === JSON.stringify(GOOD.HEADLINE) && s3?.carry?.includes("authored"), "lb_script③ → next=lb_voice · 편정보 제목 갱신 · authored carry", JSON.stringify(s3?.write_files?.[0]?.content?.제목));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");

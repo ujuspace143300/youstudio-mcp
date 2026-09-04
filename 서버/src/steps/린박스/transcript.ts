@@ -99,8 +99,6 @@ export const lbTranscript: StepHandler = {
       ? [{
           name: "write_dict",
           argv: ["python", "-c", "import json,sys;json.dump(json.loads(sys.argv[1]),open('사전.json','w',encoding='utf-8'),ensure_ascii=False,indent=1);print('사전.json',len(json.loads(sys.argv[1])))", JSON.stringify(dict)],
-          inputs: [],
-          auth: { env: "", header: "", note: "키 없음 — 로컬 파일 쓰기" },
           out: join(carry.ep_dir, "_dict_log.txt"),
           note: "낱말사전(이름·고유명사 sounds_like) → 편 폴더 사전.json. 전사.py 가 additional_vocab 으로 보낸다(없으면 「고니」를 「보니」로 듣는다).",
         }]
