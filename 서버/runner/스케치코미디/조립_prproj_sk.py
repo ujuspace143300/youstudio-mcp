@@ -736,6 +736,19 @@ def main():
     # ★패치 4(2026-09-03 Deep06) — 도구는 1장만 못 찾아도 통째로 중단해 나머지 50장까지
     #   안 달린다. 1장까지는 계속 달고 나가게 완화(2장부터는 원래대로 중단).
     _fixes.append(("if 못:\n    raise SystemExit", "if len(못) > 1:\n    raise SystemExit"))
+    # ★패치 5(2026-09-04 Deep08 «3»·«2») — 한글 없는 자막(숫자·부호뿐)은 도구가 블롭에서
+    #   글자를 못 읽어 짝을 못 짓는다(2026-08-27 «?!» 제안과 같은 클래스의 잔여 구멍).
+    #   위치(한가운데)는 쟀으므로 공통 팝으로 단다 — 글자는 이후 안 쓰인다(그 줄뿐).
+    _fixes.append((
+        "    if 글자 and 글자 in 팝표 and 가운데:\n"
+        "        짝.append((c, 글자, 팝표[글자][0], 가운데))\n"
+        "    else:\n",
+        "    if 글자 and 글자 in 팝표 and 가운데:\n"
+        "        짝.append((c, 글자, 팝표[글자][0], 가운데))\n"
+        "    elif 글자 is None and 가운데 and 팝표:\n"
+        "        print('  ★글자 못 읽은 장(한글 없는 자막) — 위치는 쟀으므로 공통 팝으로 단다')\n"
+        "        짝.append((c, '(글자없음)', next(iter(팝표.values()))[0], 가운데))\n"
+        "    else:\n"))
     for _o, _n in _fixes:
         assert _o in 아모르src, "아모르입히기 패치 2 지점을 못 찾았다: " + _o
         아모르src = 아모르src.replace(_o, _n)
@@ -749,6 +762,12 @@ def main():
             팝 = "{\\fscx150\\t(0,182,\\fscx175)}" if 층 != "title" else ""
             텍 = cue["text"].replace("\r", " ")
             f.write(f"Dialogue: 0,0:00:00.00,0:00:05.00,{층},,0,0,0,,{팝}{텍}\n")
+    # ★묵은 기준 사본 제거(2026-09-04 Deep08 재조립 실측) — 도구는 .아모르전 이 «없을 때만»
+    #   만든다. 재조립 때 옛 판 기준이 남으면 주입검사 기준 대조가 어긋나 가짜 «탈»이 뜨고,
+    #   수가 우연히 맞으면 진짜 탈을 가린다. 이번 판의 직전 상태로 늘 갱신한다.
+    _bak = out_path + ".아모르전"
+    if os.path.exists(_bak):
+        os.remove(_bak)
     r = _sp.run([sys.executable, os.path.join(stage, "아모르입히기.py"), out_path, ass_p,
                  "--본", 아모르본], capture_output=True)
     아모르ok = r.returncode == 0

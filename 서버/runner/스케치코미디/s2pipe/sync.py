@@ -97,7 +97,13 @@ def 작표(words, slug, logline):
             assert all(추임새다(w["w"]) for w in 건너뜀), "첫 발화가 자막 밖이다"
             return out
 
-        out = 한번()
+        try:
+            out = 한번()
+        except Exception as e1:
+            # ★한 번의 일시 오류(JSON 깨짐·타임아웃)로 의미 단위를 모르는 폴백에 떨어지면
+            #   «것» 고아 같은 줄이 나온다(2026-09-04 실측) — 폴백 전에 1회 재시도한다.
+            print(f"  모델 작표 1차 실패({str(e1)[:120]}) — 재시도 1회")
+            out = 한번()
         긴줄 = [d["text"] for d in out if len(d["text"]) > 14]
         if 긴줄:                                            # ★14자 게이트 — 1회 재요청
             print(f"  14자 초과 {len(긴줄)}줄 — 의미 단위 재분할을 다시 시킨다")
@@ -147,7 +153,7 @@ def 작표(words, slug, logline):
                 print(f"  ★줄 첫머리가 조사다(금지 패턴 ⓑ): 「{d['text']}」 — 눈 확인 필요")
         return out
     except Exception as e:
-        print("모델 작표 실패 — 쉼 기준 묶음(ASR 원문 14자)으로 간다:", str(e)[:70])
+        print("★모델 작표 실패(재시도 포함) — 쉼 기준 묶음(ASR 원문 14자)으로 간다:", str(e)[:200])
         return None
 
 
@@ -387,7 +393,46 @@ def main():
     관문 = []
     # 추임새 단독 줄(«아» 등)은 자막 가치가 없고 아모르 도구도 못 삼킨다(2026-09-03 Deep06)
     dlg = [d for d in dlg if not all(추임새다(tok) for tok in d["text"].split())]
-    for d in sorted(dlg, key=lambda x: x["t"]):
+    # ★기능어 고아 줄 병합 (2026-09-04 사장님 «것 이라는 자막이 혼자» — 모델 작표가
+    #   실패하면 폴백(쉼 기준 묶음)이 의미 단위를 몰라 의존명사를 고아로 남겼다.
+    #   생성 경로가 무엇이든 여기서 잡는다 — 규칙은 최종 관문 하나에.)
+    from s2pipe.asr import 의존명사
+    dlg.sort(key=lambda x: x["t"])
+    병합후 = []
+    for d in dlg:
+        내글 = CLEAN.sub("", d["text"])
+        if 병합후 and " " not in d["text"].strip() and 내글 in 의존명사:
+            앞줄 = 병합후[-1]
+            앞줄["text"] = (앞줄["text"] + " " + d["text"]).strip()   # 14자 초과는 아래 스택이 재분할
+            if d.get("t1"):
+                앞줄["t1"] = max(앞줄.get("t1", 0), d["t1"])
+            print(f"  ★기능어 고아 줄 병합: 「{d['text']}」 → 「{앞줄['text']}」")
+        else:
+            병합후.append(d)
+    # ★의존명사로 시작하는 줄 재흐름 (같은 클래스 — «계시는 | 것 같은데요» 도 수식어와
+    #   피수식어를 가른 것이다): 앞줄 마지막 어절을 끌어내려 「계시는 것 같은데요」로 만든다.
+    #   시각은 끌어내린 단어의 실측 시각으로 민다(asr_words 대조) — 안 찾히면 문구만 옮긴다.
+    _말들 = [w for w in (proj.get("asr_words") or []) if w.get("type") != "punctuation"]
+    for k in range(1, len(병합후)):
+        줄, 앞줄 = 병합후[k], 병합후[k - 1]
+        첫어절 = 줄["text"].split()[0]
+        앞어절들 = 앞줄["text"].split()
+        if CLEAN.sub("", 첫어절) not in 의존명사 or len(앞어절들) < 2:
+            continue
+        내릴 = 앞어절들[-1]
+        if len(내릴 + " " + 줄["text"]) > 최대:
+            continue
+        앞줄["text"] = " ".join(앞어절들[:-1])
+        줄["text"] = 내릴 + " " + 줄["text"]
+        후보 = [w for w in _말들 if CLEAN.sub("", w["w"]) == CLEAN.sub("", 내릴)
+                and 앞줄["t"] - 0.1 <= w["t"] <= 줄["t"] + 0.1]
+        if 후보:
+            w = 후보[-1]
+            줄["t"] = round(float(w["t"]), 2)
+            앞줄["t1"] = min(앞줄.get("t1") or 줄["t"], 줄["t"])
+        print(f"  ★의존명사 줄머리 재흐름: 「…{내릴} | {줄['text'].split(' ', 1)[1]}」 → 「{줄['text']}」")
+    dlg = 병합후
+    for d in dlg:
         스택 = [d]
         while 스택:
             c = 스택.pop(0)
@@ -395,9 +440,17 @@ def main():
                 관문.append(c)
                 continue
             mid, best = len(c["text"]) // 2, None
+            어절들 = c["text"].split()
             for j, ch in enumerate(c["text"]):
-                if ch == " " and (best is None or abs(j - mid) < abs(best - mid)):
+                if ch != " ":
+                    continue
+                # 의존명사 바로 앞은 절단 금지 — 고아를 다시 만든다 (2026-09-04)
+                if c["text"][j + 1:].split()[0] in 의존명사 and len(어절들) > 2:
+                    continue
+                if best is None or abs(j - mid) < abs(best - mid):
                     best = j
+            if best is None:
+                best = c["text"].index(" ")
             앞, 뒤 = c["text"][:best].strip(), c["text"][best:].strip()
             t1c = c.get("t1", c["t"] + 2.0)
             중간 = round(c["t"] + (t1c - c["t"]) * (len(앞) / max(len(앞) + len(뒤), 1)), 2)

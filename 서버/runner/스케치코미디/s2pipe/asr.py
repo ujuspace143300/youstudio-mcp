@@ -76,10 +76,17 @@ def words_of(job_id):
     return out
 
 
+의존명사 = {"것", "거", "건", "게", "줄", "수", "지", "데", "때", "뿐",
+            "채", "듯", "척", "체", "바", "터", "리"}
+
+
 def to_lines(words, max_chars, gap=0.55):
     """단어를 자막 줄로 묶는다 — 말 쉼(gap)이 1순위. 글자수에 걸리면 문장 한중간을
     싹둑 자르지 않고 ★뭉치 안에서 가장 크게 쉰 자리로 되끊는다(2026-09-03,
-    «…다음 / 주까지야» «잠 / 오는 사람» 실측 후 개정)."""
+    «…다음 / 주까지야» «잠 / 오는 사람» 실측 후 개정).
+    ★되끊는 자리는 쉼 크기만이 아니라 의미 단위를 본다(2026-09-04 «것» 고아 실측:
+    0.03초 차이 쉼만 보고 «계시는 | 것 | 같은데요»로 잘랐다) — 문장부호 뒤 가점,
+    의존명사 앞 감점."""
     lines, cur = [], []                       # cur: [{"w","t","e"}...]
 
     def emit(part):
@@ -98,8 +105,14 @@ def to_lines(words, max_chars, gap=0.55):
             cur = []
         elif len(" ".join(x["w"] for x in cur)) >= max_chars:
             if len(cur) > 1:
-                gaps = [cur[k + 1]["t"] - cur[k]["e"] for k in range(len(cur) - 1)]
-                k = max(range(len(gaps)), key=lambda j: gaps[j])
+                def 점수(j):
+                    s = cur[j + 1]["t"] - cur[j]["e"]
+                    if cur[j]["w"][-1:] in ".?!…":       # 문장 끝 뒤가 최선의 절단 자리
+                        s += 2.0
+                    if cur[j + 1]["w"] in 의존명사:       # 의존명사 앞 절단 = «것» 고아
+                        s -= 5.0
+                    return s
+                k = max(range(len(cur) - 1), key=점수)
                 emit(cur[:k + 1])
                 cur = cur[k + 1:]
             else:
