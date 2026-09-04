@@ -87,7 +87,9 @@ export const lbProbe: StepHandler = {
       : null;
     // 재프레이밍 창 폭 — 규격 layout.reframe.win_formula: round(소재높이 × 1080/1020). 레터박스를 걷어낸 높이로 센다
     const contentH = letterbox ? letterbox.content_h : height;
-    const win = contentH ? Math.round((contentH * VB.w) / VB.h) : null;
+    // ★WIN 은 정본(한편.py 준비 ②)대로 **구간.mp4 실제 높이**로 센다 — 레터박스는 이 단계에서 안 자른다(reframe.py 머리 · EP19 실물 WIN 1143).
+    //   레터박스 뺀 높이(960)로 세면 1016 이 되어 reframe.py 가 «WIN 은 1143 이어야 한다» 로 죽는다(2026-09-04 실호출). content_h 는 lb_render 크롭·lb_xml 배율에만 쓴다.
+    const win = height ? Math.round((height * VB.w) / VB.h) : null;
 
     const warnings: string[] = [];
     if (!fpsFraction || fps === null) warnings.push("프레임률을 읽지 못했다 — «프레임률» 파일을 못 쓴다. 규격 §82(소재와 같은 프레임률) 를 lb_cut 전에 사람이 확인하라.");

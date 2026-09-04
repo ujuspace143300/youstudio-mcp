@@ -916,7 +916,7 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   const sc = res.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "lb_cut", "lb_probe → execute, next=lb_cut", `${sc?.status}/${sc?.next_step}`);
   const m = sc?.metrics ?? {};
-  ok(m.fps === 23.976 && m.fps_fraction === "24000/1001" && m.letterbox_top === 140 && m.letterbox_bottom === 140 && m.win === Math.round((800 * 1080) / 1020) && m.span_s === 140, "lb_probe → metrics(fps 23.976 · 레터박스 140/140 · WIN 847 · 구간 140초)", JSON.stringify(m));
+  ok(m.fps === 23.976 && m.fps_fraction === "24000/1001" && m.letterbox_top === 140 && m.letterbox_bottom === 140 && m.win === Math.round((1080 * 1080) / 1020) && m.span_s === 140, "lb_probe → metrics(fps 23.976 · 레터박스 140/140 · WIN 1143 = 실제 높이 기준(정본 한편.py) · 구간 140초)", JSON.stringify(m));
   ok(sc?.write_files?.[0]?.path === "C:/lb_work/신병/작업/EP19/프레임률" && sc.write_files[0].content === "24000/1001", "lb_probe → write_files 프레임률 = 24000/1001 (§82)", JSON.stringify(sc?.write_files?.[0]));
   ok(sc?.probe_summary?.letterbox?.content_h === 800 && sc?.carry?.includes("probe_summary"), "lb_probe → probe_summary(레터박스) carry", JSON.stringify(sc?.probe_summary?.letterbox));
   const noCrop = await lbCall("lb_probe", { payload: { ...LB_CARRY, probe: PROBE_LB } });
