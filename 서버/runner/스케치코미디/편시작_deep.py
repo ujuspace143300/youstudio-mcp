@@ -83,7 +83,14 @@ def main():
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", dst, "-vn",
                         "-ac", "1", "-ar", "16000", "-b:a", "48k", aud], check=True)
         print("전사 제출 (Speechmatics ko)…")
-        job = asr.submit(aud, lang="ko")
+        # ★낱말사전(2026-09-04 사장님 규칙) — 소재 폴더 *사전*.json 이 있으면 work 로 옮겨
+        #   고유명사를 미리 일러 준다. 편 중간에 확정된 이름은 work/<슬러그>_사전.json 에.
+        for _사 in glob.glob(os.path.join(d, "*사전*.json")):
+            shutil.copy2(_사, os.path.join(work, f"{vid}_사전.json"))
+        vocab = asr.load_vocab(vid)
+        if vocab:
+            print(f"  낱말사전 {len(vocab)}개: {', '.join(e['content'] for e in vocab[:8])}")
+        job = asr.submit(aud, lang="ko", vocab=vocab)
         asr.wait(job)
         words = asr.words_of(job)
         lines = asr.to_lines(words, 28)

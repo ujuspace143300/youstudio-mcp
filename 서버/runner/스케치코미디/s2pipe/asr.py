@@ -39,11 +39,31 @@ def req(url, data=None, ctype=None, method=None):
         return json.loads(res.read().decode())
 
 
-def submit(audio_path, lang="ko"):
+def load_vocab(slug, proj=None):
+    """낱말사전 — 린박스 전사.py 와 같은 사상(2026-09-04 사장님 «전사는 무조건 스피치매틱스»:
+       고유명사 오인(«사보타지→서버 타지»)의 근본은 사전을 안 보낸 것이었다).
+       work/<슬러그>_사전.json 과 proj «낱말사전» 을 합친다. 항목 = "낱말" 또는
+       {"content": "낱말", "sounds_like": ["잘못 들리는 꼴", ...]}."""
+    항목 = []
+    p = os.path.join(HERE, CFG["paths"]["work"], f"{slug}_사전.json")
+    if os.path.exists(p):
+        항목 += json.load(open(p, encoding="utf-8"))
+    항목 += (proj or {}).get("낱말사전") or []
+    본 = {}
+    for e in 항목:
+        if isinstance(e, str):
+            e = {"content": e}
+        본[e["content"]] = e
+    return list(본.values())
+
+
+def submit(audio_path, lang="ko", vocab=None):
     cfg = {"type": "transcription",
            "transcription_config": {"language": lang,
                                     "operating_point": "enhanced",
                                     "enable_entities": False}}
+    if vocab:                          # ★이름을 미리 일러 주면 그쪽으로 받아 적는다
+        cfg["transcription_config"]["additional_vocab"] = vocab
     data, ctype = multipart({"config": json.dumps(cfg)},
                             {"data_file": (os.path.basename(audio_path),
                                            open(audio_path, "rb").read(), "audio/wav")})
@@ -157,7 +177,10 @@ def main():
     mb = os.path.getsize(wav) / 1024 / 1024
     print(f"오디오 {mb:.1f}MB — Speechmatics 로 보낸다", flush=True)
 
-    job = submit(wav)
+    vocab = load_vocab(proj["slug"], proj)
+    if vocab:
+        print(f"  낱말사전 {len(vocab)}개: {', '.join(e['content'] for e in vocab[:8])}")
+    job = submit(wav, vocab=vocab)
     print(f"  job {job}", flush=True)
     if not wait(job):
         return 1

@@ -386,10 +386,11 @@ def main():
                     # 에서도 공정. quick_ratio 는 길이차에 눌려 정상 줄까지 지웠다 — 실측 14줄)
                     sm = difflib.SequenceMatcher(None, 내글, CLEAN.sub("", 창글), autojunk=False)
                     맞은 = sum(b.size for b in sm.get_matching_blocks())
-                    if 맞은 / len(내글) < 0.4:
+                    if 맞은 / len(내글) < 0.8:
                         # ★지우지 않는다(2026-09-04 «권은비의 사보타지» 삭제 실측) — 원본 전사
-                        #   «도» 오인할 수 있다(«거 냄비에 서버 타지»). 말은 있는데 문구만 안
-                        #   닮은 줄은 ③c 이중 전사 중재로 회부한다. 삭제는 말 없는 유령만.
+                        #   «도» 오인할 수 있다(«거 냄비에 서버 타지»). 말은 있는데 문구가 안
+                        #   닮은 줄(«양보 좀↔좋아» 한 단어 차이 0.71 실측 포함)은 ③c 중재로
+                        #   회부한다. 삭제는 말 없는 유령만.
                         d["_분쟁원문"] = 창글.strip()[:40]
             if 유령:
                 print(f"  ★유령/오인 자막 {len(유령)}줄 제거 — 원본 전사와 대조:")
@@ -400,82 +401,49 @@ def main():
     except Exception as e:
         print("★원본 전사 교차 대조 실패(복원 없이 진행):", str(e)[:60])
 
-    # ── ③c 이중 전사 대조 (2026-09-04 사장님 «배경음 있을 때 오타가 심하다» — 근본:
-    #    Speechmatics 는 배경음 구간에서 원본·완성본을 «똑같이» 오인해 교차 대조가 무력
-    #    (실측: «양보 좀 하시죠» → 두 전사 모두 «양보 좋아하시죠»). 한 엔진의 귀를 참값으로
-    #    믿는 구조가 구멍이다 — 제2 엔진(whisper, 로컬·무료)으로 한 번 더 듣고, 두 엔진이
-    #    갈린 줄만 모델이 영상·문맥으로 중재해 문구를 확정한다. 갈림 = 못 믿을 곳 신호.)
+    # ── ③c 문구 갈림 중재 (2026-09-04 사장님 «전사는 무조건 스피치매틱스» — 제2 엔진
+    #    (whisper) 금지. 근본은 이미 옆에 있었다: 린박스 전사.py 처럼 Speechmatics 에
+    #    additional_vocab(낱말사전)을 보내면 고유명사를 그쪽으로 받아 적는다(s2pipe.asr).
+    #    그래도 원본↔완성본 두 전사가 갈린 줄(③b 의 _분쟁원문)은 모델이 영상+로그라인으로
+    #    중재해 문구를 확정한다. 갈림 = 못 믿을 곳 신호.)
     try:
-        from s2pipe.cfg import CFG as _C4
-        wdir4 = os.path.join(HERE, _C4["paths"]["work"], proj["slug"])
-        cut4 = os.path.join(wdir4, "cut.mp4")
-        wj = os.path.join(wdir4, "cut_whisper.json")
-        위스퍼 = os.path.expanduser("~/.local/bin/whisper")
-        if os.path.exists(cut4) and os.path.exists(위스퍼):
-            if not (os.path.exists(wj) and os.path.getmtime(wj) > os.path.getmtime(cut4)):
-                import subprocess as _sp4
-                print("  이중 전사(whisper medium) 실행 — 로컬·무료, 수 분")
-                _sp4.run([위스퍼, cut4, "--model", "medium", "--language", "Korean",
-                          "--output_format", "json", "--output_dir", wdir4,
-                          "--fp16", "False", "--verbose", "False"],
-                         check=True, capture_output=True, timeout=1800)
-                os.replace(os.path.join(wdir4, "cut.json"), wj)
-            wsegs = json.load(open(wj, encoding="utf-8"))["segments"]
-            분쟁 = []
-            for d in dlg:
-                if d["text"].startswith("(") or not CLEAN.sub("", d["text"]):
-                    continue
-                내글 = CLEAN.sub("", d["text"])
-                if len(내글) < 4:
-                    continue
-                t0d, t1d = d["t"], d.get("t1", d["t"] + 2.0)
-                창 = "".join(s["text"] for s in wsegs if s["end"] > t0d - 0.3 and s["start"] < t1d + 0.3)
-                창글 = CLEAN.sub("", 창)
-                if not 창글 and not d.get("_분쟁원문"):
-                    continue          # whisper 가 아예 못 들은 구간 — 갈림 판정 불가
-                sm = difflib.SequenceMatcher(None, 내글, 창글, autojunk=False)
-                비율 = sum(b.size for b in sm.get_matching_blocks()) / len(내글)
-                # 0.8 — «양보 좋아하시죠↔양보 좀 하시죠» 한 단어 차이가 0.71 로 통과했다
-                # (2026-09-04 실측). 과검출은 무해 — 갈린 줄은 모델이 중재해 A안 유지 가능.
-                # ③b 가 원본 전사와 안 닮았다고 표시한 줄(_분쟁원문)은 무조건 회부한다.
-                if 비율 < 0.8 or d.get("_분쟁원문"):
-                    분쟁.append((d, (창.strip() or d.get("_분쟁원문", "")), 비율))
-            if 분쟁:
-                print(f"  ★두 엔진이 갈린 줄 {len(분쟁)}건 — 모델이 영상·문맥으로 중재:")
-                import base64 as _b64
-                from s2pipe import gem as _gem
-                models4 = _C4.get("gemini", {}).get("models", ["gemini-3.5-flash"])
-                vb = _b64.b64encode(open(_gem.shrink_for_inline(cut4), "rb").read()).decode()
-                목록 = "\n".join(f"- t={d['t']:.1f}s A안(현재)「{d['text']}」 B안(제2엔진)「{w[:40]}」"
-                                 for d, w, _r in 분쟁)
-                pr = (f"숏폼 영상이다(로그라인: {proj.get('logline', '')}).\n"
-                      "아래 각 시각의 대사를 두 전사 엔진이 다르게 들었다.\n"
-                      "영상을 그 시각에서 직접 듣고(입모양·문맥 포함) 실제 대사를 판정하라.\n"
-                      "- 고유명사(신곡명·이름·브랜드)는 로그라인·화면 표기를 따른다 — 전사 엔진은\n"
-                      "  고유명사를 자주 엉뚱한 낱말로 쪼갠다(«사보타지»→«서버 타지» 실측).\n"
-                      "- text 는 그 줄의 실제 말. A안·B안 중 맞는 쪽을 고르거나, 둘 다 틀리면 들리는 대로.\n"
-                      "- 공백 포함 14자 이내, 뜻·말투 유지, 없는 말 금지. 확신이 없으면 A안 그대로.\n"
-                      f"JSON 만: {{\"fixes\":[{{\"t\":시각,\"text\":\"문구\"}},...]}}\n\n{목록}")
-                payload = {"contents": [{"role": "user", "parts": [
-                    {"inline_data": {"mime_type": "video/mp4", "data": vb}}, {"text": pr}]}],
-                    "generationConfig": {"maxOutputTokens": 4000, "responseMimeType": "application/json"}}
-                txt4, _r4, _m4 = _gem.ask(payload, models4, timeout=600)
-                고정 = {round(float(f["t"]), 1): str(f["text"]).strip()
-                        for f in json.loads(txt4).get("fixes", [])}
-                정정 = 0
-                for d, w, _r in 분쟁:
-                    새 = 고정.get(round(d["t"], 1))
-                    if 새 and 새 != d["text"] and len(새) <= 20:
-                        print(f"     [{d['t']:.1f}s] 「{d['text']}」 → 「{새}」")
-                        d["text"] = 새
-                        정정 += 1
-                print(f"  [OK] 이중 전사 대조 — 갈림 {len(분쟁)}건 · 정정 {정정}건")
-            else:
-                print("  [OK] 이중 전사 대조 — 두 엔진 일치(갈린 줄 없음)")
+        분쟁 = [(d, d["_분쟁원문"]) for d in dlg if d.get("_분쟁원문")]
+        if 분쟁:
+            from s2pipe.cfg import CFG as _C4
+            cut4 = os.path.join(HERE, _C4["paths"]["work"], proj["slug"], "cut.mp4")
+            print(f"  ★원본·완성본 전사가 갈린 줄 {len(분쟁)}건 — 모델이 영상·문맥으로 중재:")
+            import base64 as _b64
+            from s2pipe import gem as _gem
+            models4 = _C4.get("gemini", {}).get("models", ["gemini-3.5-flash"])
+            vb = _b64.b64encode(open(_gem.shrink_for_inline(cut4), "rb").read()).decode()
+            목록 = "\n".join(f"- t={d['t']:.1f}s A안(완성본 전사)「{d['text']}」 B안(원본 전사)「{w[:40]}」"
+                             for d, w in 분쟁)
+            pr = (f"숏폼 영상이다(로그라인: {proj.get('logline', '')}).\n"
+                  "아래 각 시각의 대사를 두 번의 전사(원본·완성본)가 다르게 들었다.\n"
+                  "영상을 그 시각에서 직접 듣고(입모양·문맥 포함) 실제 대사를 판정하라.\n"
+                  "- 고유명사(신곡명·이름·브랜드)는 로그라인·화면 표기를 따른다 — 전사 엔진은\n"
+                  "  고유명사를 자주 엉뚱한 낱말로 쪼갠다(«사보타지»→«서버 타지» 실측).\n"
+                  "- text 는 그 줄의 실제 말. A안·B안 중 맞는 쪽을 고르거나, 둘 다 틀리면 들리는 대로.\n"
+                  "- 공백 포함 14자 이내, 뜻·말투 유지, 없는 말 금지. 확신이 없으면 A안 그대로.\n"
+                  f"JSON 만: {{\"fixes\":[{{\"t\":시각,\"text\":\"문구\"}},...]}}\n\n{목록}")
+            payload = {"contents": [{"role": "user", "parts": [
+                {"inline_data": {"mime_type": "video/mp4", "data": vb}}, {"text": pr}]}],
+                "generationConfig": {"maxOutputTokens": 4000, "responseMimeType": "application/json"}}
+            txt4, _r4, _m4 = _gem.ask(payload, models4, timeout=600)
+            고정 = {round(float(f["t"]), 1): str(f["text"]).strip()
+                    for f in json.loads(txt4).get("fixes", [])}
+            정정 = 0
+            for d, w in 분쟁:
+                새 = 고정.get(round(d["t"], 1))
+                if 새 and 새 != d["text"] and len(새) <= 20:
+                    print(f"     [{d['t']:.1f}s] 「{d['text']}」 → 「{새}」")
+                    d["text"] = 새
+                    정정 += 1
+            print(f"  [OK] 문구 갈림 중재 — 갈림 {len(분쟁)}건 · 정정 {정정}건")
         else:
-            print("  ★이중 전사 대조 건너뜀 — cut.mp4 또는 whisper 없음:", cut4)
+            print("  [OK] 문구 갈림 중재 — 원본·완성본 전사 일치")
     except Exception as e:
-        print("★이중 전사 대조 실패(현재 문구 유지 — 눈 확인 필요):", str(e)[:120])
+        print("★문구 갈림 중재 실패(현재 문구 유지 — 눈 확인 필요):", str(e)[:120])
     for d in dlg:
         d.pop("_분쟁원문", None)
 
