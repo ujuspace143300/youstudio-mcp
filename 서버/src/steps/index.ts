@@ -31,6 +31,7 @@ import { lbPlan } from "./린박스/plan.js";
 import { lbScript } from "./린박스/script.js";
 import { lbVoice } from "./린박스/voice.js";
 import { lbBlocks } from "./린박스/blocks.js";
+import { lbSubs } from "./린박스/subs.js";
 import type { StepHandler } from "./types.js";
 
 const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
@@ -69,6 +70,7 @@ const PIPELINES: Record<Preset, Partial<Record<Step, StepHandler>>> = {
     lb_script: lbScript, // 대본·제목(need_input, 사장님 선택) → 서버 검사 → authored.json + 대본검사·제목검사 게이트 → 편정보 제목 · 세 번 부름
     lb_voice: lbVoice, // ★유료 Typecast 나레 합성(볼케이노 stitch_narr 꼴·raw 캐시·정규화 2단계) → wav 검사 → ★Speechmatics narr_align → narr_words · 세 번 부름
     lb_blocks: lbBlocks, // 얼굴·재프레이밍·컷 손질 → 블록 계획(_block_jobs 꼴)·굽기 → 실측으로 captions_서버원본.ass → 장면튐검사 · 네 번 부름
+    lb_subs: lbSubs, // 한번에.sh ①·①.5 — 자막말머리맞춤(§93) → 서식.py → 폭맞춤·ass자리검사·구둣점검사 → 그래픽짓기·계획짓기 → 자막끝맞춤 → 원음스템 · 두 번 부름
   },
 };
 

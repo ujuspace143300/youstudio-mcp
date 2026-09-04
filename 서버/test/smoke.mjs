@@ -113,8 +113,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_subs", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_subs → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_xml", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_xml → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -1149,6 +1149,30 @@ const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", argu
   ok(rD1.structuredContent?.status === "error" && /장면튐검사가 막았다/.test(rD1.structuredContent?.message ?? ""), "lb_blocks D(✗) → 반려 + 번쩍임정리 지시", rD1.structuredContent?.message?.slice(0, 60));
   const rD2 = await lbCall("lb_blocks", { payload: { ...LB_C, clip_secs: FX.clip_secs, total_s: 51.652, jump_log: "  화면 튐 없음 ✓\n" } });
   ok(rD2.structuredContent?.status === "execute" && rD2.structuredContent?.next_step === "lb_subs" && rD2.structuredContent?.carry?.includes("clip_secs"), "lb_blocks D → next=lb_subs (한번에.sh 입력 6개 갖춤)", `${rD2.structuredContent?.status}/${rD2.structuredContent?.next_step}`);
+}
+
+// L9) lb_subs — 한번에.sh ①·①.5 (자막말머리맞춤 §93 · 서식 · 폭·자리·구둣점 · 그래픽·계획 · 자막끝맞춤 · 원음스템)
+{
+  const EP = "C:/lb_work/신병/작업/EP19";
+  const LB_S = { source: LB_SRC, ...LB, ep_dir: EP, repo: "C:/youstudio-mcp", probe_summary: { win: 847, fps_fraction: "30000/1001" }, 편정보: { 로고: "logo/logo_bottom.png", 제목: ["김현욱을 살린", "취사병의 정체"] }, authored: {}, clip_secs: {}, total_s: 51.652 };
+  const r1 = await lbCall("lb_subs", { payload: LB_S });
+  const s1 = r1.structuredContent;
+  const names = s1?.jobs?.map((j) => j.name) ?? [];
+  ok(s1?.status === "execute" && s1?.next_step === "lb_subs" && s1?.jobs_cwd === EP && JSON.stringify(names) === JSON.stringify(["head_fix", "head_check", "restyle", "fit_width", "logo_ass", "pos_check", "punct_check", "graphics", "plan", "end_fit", "end_fit_logo", "stems", "read_plan"]), "lb_subs① → jobs 13 (말머리 --쓰기·재기 → 서식 → 폭 → 로고판 → 자리 → 구둣점 → 그래픽 → 계획 → 끝맞춤×2 → 원음스템 → 되읽기)", JSON.stringify(names));
+  const J = Object.fromEntries((s1?.jobs ?? []).map((j) => [j.name, j.argv]));
+  ok(J.restyle?.[1]?.endsWith("/도구/서식.py") && J.restyle?.[2] === EP + "/captions.ass" && J.restyle?.[3] === EP + "/captions_신병4.ass" && J.fit_width?.[3] === EP + "/fonts" && J.fit_width?.[4] === "1000" && J.pos_check?.at(-1) === "20" && J.graphics?.includes("--로고") && J.graphics?.at(-1) === EP + "/logo/logo_bottom.png" && J.end_fit_logo?.[2] === EP + "/captions_신병4_로고.ass" && J.head_fix?.at(-1) === "--쓰기" && J.head_check?.length === 2, "lb_subs① → 인자가 한번에.sh 와 같다(서식 captions.ass→captions_신병4.ass · 폭 1000 · 여백 20 · 로고 · 로고판 끝맞춤)", JSON.stringify([J.restyle?.slice(2), J.graphics?.slice(-2)]));
+  ok(s1?.measure?.length === 10 && s1.measure.at(-1).as === "배치계획" && s1.measure.at(-1).unit === "json_stdout" && s1?.carry?.includes("ass") && s1?.ass === EP + "/captions_신병4.ass" && s1?.title === "신병4", "lb_subs① → measure 10(로그 9 + 배치계획) · ass·title carry", JSON.stringify(s1?.measure?.map((m) => m.as)));
+  const noLogo = await lbCall("lb_subs", { payload: { ...LB_S, 편정보: { 로고: "없음" } } });
+  ok(!noLogo.structuredContent?.jobs?.find((j) => j.name === "graphics")?.argv?.includes("--로고"), "lb_subs①(로고 없음) → 그래픽짓기에 --로고 안 붙임", "");
+  const LOGS = { head_log: "■ 자막 말머리 맞춤 — 원음 카드 31장 · D 블록 31개\n  말과 어긋난 카드 없음 ✓\n", width_log: "좁힌 줄 3개 (참 폭으로 다시 잼)\n", pos_log: "잰 자막 48장 · **벗어난 것 0장**\n", punct_log: "  구둣점 없음 ✓\n", graphics_log: "효과자막 4장\n", plan_log: "컷 35개 · 블록 35개 · 나레 4개 · 효과 4장 · 전체 1549프레임 (51.63초) · 구간오프셋 1495.000초\n", endfit_log: "자막끝맞춤: 한계 1549프레임(51.633s) · 끝 자른 줄 2 · 뺀 줄 0 · 되읽기 초과 0\n", endfit_logo_log: "자막끝맞춤: 한계 1549프레임(51.633s) · 끝 자른 줄 2 · 뺀 줄 0 · 되읽기 초과 0\n", stems_log: "원음 스템 31개 → 편집소스/원음\n", 배치계획: { total: 1549 } };
+  const r2 = await lbCall("lb_subs", { payload: { ...LB_S, ...LOGS } });
+  const s2 = r2.structuredContent;
+  ok(s2?.status === "execute" && s2?.next_step === "lb_xml" && s2?.metrics?.total_frames === 1549 && s2?.metrics?.narrowed_lines === 3 && s2?.metrics?.stems === 31 && s2?.carry?.includes("배치계획") && !(s2?.warnings ?? []).length, "lb_subs② → 전부 통과 → next=lb_xml · metrics(1549프레임 · 좁힘 3 · 스템 31) · 배치계획 carry", JSON.stringify(s2?.metrics));
+  const b1 = await lbCall("lb_subs", { payload: { ...LB_S, ...LOGS, head_log: "  ✗ b19  30.93 → 31.10 (+0.17초 늦춤)\n  1장을 옮긴다\n  ✗ 말과 어긋난 카드 1장\n", pos_log: "잰 자막 48장 · **벗어난 것 2장**\n", punct_log: "  ✗ b03 대사   하나, 그리고\n", endfit_log: "자막끝맞춤: 한계 1549프레임(51.633s) · 끝 자른 줄 0 · 뺀 줄 0 · 되읽기 초과 1\n" } });
+  const bm = b1.structuredContent?.message ?? "";
+  ok(b1.structuredContent?.status === "error" && /4건/.test(bm) && /자막말머리맞춤/.test(bm) && /2장이 화면/.test(bm) && /구둣점/.test(bm) && /초과 1|넘는 줄이 1개/.test(bm), "lb_subs②(말머리 ✗·자리 2장·구둣점·끝 초과) → 반려 4건 전부", bm.slice(0, 100));
+  const w1 = await lbCall("lb_subs", { payload: { ...LB_S, ...LOGS, 배치계획: { total: 1600 } } });
+  ok(w1.structuredContent?.status === "execute" && (w1.structuredContent?.warnings ?? []).some((w) => /0\.25초 넘게/.test(w)), "lb_subs②(계획 1600프레임 ≠ 실측 51.65초) → 통과하되 경고", JSON.stringify(w1.structuredContent?.warnings).slice(0, 80));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");
