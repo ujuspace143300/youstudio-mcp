@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><title>volcano</title></head><body>
+<script>
+var cep = window.__adobe_cep__;
+function run(name){
+  try{
+    var base = decodeURI(window.__adobe_cep__.getSystemPath('extension'));
+    if(base.indexOf('file://')===0){ base = base.substring(7); }
+    cep.evalScript('$.evalFile(new File("'+base+'/jsx/'+name+'"))', function(r){});
+  }catch(e){}
+}
+setTimeout(function(){ run('auto_prproj.jsx'); }, 8000);
+setInterval(function(){ run('auto_prproj.jsx'); }, 15000);
+setInterval(function(){ run('다음.jsx'); }, 15000);
+</script></body></html>
