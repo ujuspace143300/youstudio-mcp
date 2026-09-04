@@ -133,7 +133,8 @@ export const lbBlocks: StepHandler = {
         return reject("lb_blocks", preset, `블록 계획을 못 짰다: ${(e as Error).message}`, "lb_voice 의 wav_secs(나레 블록마다 길이)가 carry 로 왔는지 보라.");
       }
       const jobs = plan.map((p) => ({ index: p.index, kind: p.kind, seconds: p.seconds, cuts: 1, out: join(carry.ep_dir, "blocks", `${nn(p.index)}.mp4`), argv: blockArgv(p, carry.ep_dir, fps) }));
-      const concatTxt = plan.map((p) => `file '${nn(p.index)}.mp4'`).join("\n") + "\n";
+      // ★볼케이노 꼴 그대로 **절대경로** — 마스터맞춤.py 가 편 폴더(cwd)에서 이 줄을 그대로 열므로 상대경로면 못 찾는다(2026-09-04 실호출)
+      const concatTxt = plan.map((p) => `file '${join(carry.ep_dir, "blocks", `${nn(p.index)}.mp4`)}'`).join("\n") + "\n";
       const plannedTotal = r3(plan.reduce((x, p) => x + p.seconds, 0));
       return base("lb_blocks", preset, {
         status: "execute",
