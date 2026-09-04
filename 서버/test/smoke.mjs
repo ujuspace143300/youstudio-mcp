@@ -112,8 +112,8 @@ console.log(`서버: ${URL_}`);
   ok(sc?.status === "execute" && sc?.next_step === "start", "린박스 setup → execute, next_step=start", `${sc?.status}/${sc?.next_step}`);
   ok(typeof sc?.spec?._from === "string" && sc.spec._from.startsWith("스타일/린박스/") && sc?.spec?.layout?.video_box?.h === 1020, "린박스 setup → 린박스 규격이 실려 옴(영상창 1020)", `${sc?.spec?._from} / ${sc?.spec?.layout?.video_box?.h}`);
   ok(JSON.stringify(sc?.workdir_layout?.dirs) === JSON.stringify(["소재", "작업", "완성"]), "린박스 setup → 작업 폴더 소재/작업/완성", JSON.stringify(sc?.workdir_layout?.dirs));
-  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_probe", preset: "린박스" } });
-  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_probe → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
+  const r2 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "lb_cut", preset: "린박스" } });
+  ok(r2.structuredContent?.status === "not_implemented" || /구현/.test(JSON.stringify(r2)), "린박스 lb_cut → 아직 stub(구현 안 됨)", JSON.stringify(r2.structuredContent?.status ?? r2).slice(0, 80));
   const r3 = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "sk_plan", preset: "린박스" } });
   ok(/error|반려|isError/.test(JSON.stringify(r3)) || r3.isError, "린박스에 없는 단계(sk_plan) → 반려", JSON.stringify(r3).slice(0, 80));
 }
@@ -881,6 +881,45 @@ const skCall = (step, args = {}) => rpc("tools/call", { name: "youstudio_video",
   ok((sc?.instructions ?? []).join(" ").includes("_B"), "sk_deliver(A 편) → B 편 안내", "");
   const b = await skCall("sk_deliver", { payload: { ...SK_CARRY, source: { ...SK_CARRY.source, kind: "youtube", url: SK.source.url, slug: "TESTID_B" } } });
   ok((b.structuredContent?.instructions ?? []).join(" ").includes("두 채널에 나눠"), "sk_deliver(B 편) → 두 채널 안내", "");
+}
+
+// ── 린박스 (프리셋 3호) — 앞 7단계 «볼케이노 산출물 베끼기» · 한 단계씩 (2026-09-04) ──────────
+const LB_SRC = { kind: "local_video", path: "C:/drama/신병4_EP4_EPK.mp4", title: "신병4", lang: "ko" };
+const LB = { workdir: "C:/lb_work/신병", ep: "EP19", start_s: 1495, end_s: 1635 };
+const lbCall = (step, args) => rpc("tools/call", { name: "youstudio_video", arguments: { step, preset: "린박스", ...args } });
+// L1) start
+{
+  const bad = await lbCall("start", { payload: LB });
+  ok(bad.structuredContent?.status === "error" && /local_video/.test(bad.structuredContent?.message ?? ""), "린박스 start(소재 없음) → 반려 + 고치는 법", bad.structuredContent?.message?.slice(0, 60));
+  const bad2 = await lbCall("start", { source: LB_SRC, payload: { ...LB, ep: "19화" } });
+  ok(bad2.structuredContent?.status === "error" && /EP01/.test(bad2.structuredContent?.message ?? ""), "린박스 start(편 이름 꼴 아님) → 반려", bad2.structuredContent?.message?.slice(0, 60));
+  const bad3 = await lbCall("start", { source: LB_SRC, payload: { ...LB, end_s: 1400 } });
+  ok(bad3.structuredContent?.status === "error" && /start_s/.test(bad3.structuredContent?.message ?? ""), "린박스 start(끝 ≤ 시작) → 반려", bad3.structuredContent?.message?.slice(0, 60));
+  const res = await lbCall("start", { source: LB_SRC, payload: LB });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "lb_probe", "린박스 start → execute, next=lb_probe", `${sc?.status}/${sc?.next_step}`);
+  ok(sc?.jobs_kind === "argv" && sc?.jobs?.length === 2 && sc.jobs[0].name === "probe" && sc.jobs[1].name === "cropdetect" && sc.jobs[1].argv.includes("cropdetect=24:16:0") && sc.jobs[1].argv[sc.jobs[1].argv.indexOf("-ss") + 1] === "1565", "린박스 start → ffprobe + 구간 한가운데(1565s) cropdetect argv", JSON.stringify(sc?.jobs?.map((j) => j.name)));
+  ok(JSON.stringify(sc?.measure?.map((m) => [m.as, m.unit])) === JSON.stringify([["probe", "json_stdout"], ["cropdetect_raw", "stderr"]]), "린박스 start → measure probe(json)·cropdetect_raw(stderr)", JSON.stringify(sc?.measure));
+  ok(sc?.ep_dir === "C:/lb_work/신병/작업/EP19" && sc?.carry?.includes("ep") && sc?.carry?.includes("end_s"), "린박스 start → 편 폴더 작업/EP19 · carry 에 편·구간", `${sc?.ep_dir} ${JSON.stringify(sc?.carry)}`);
+}
+// L2) lb_probe
+{
+  const LB_CARRY = { source: LB_SRC, ...LB, ep_dir: "C:/lb_work/신병/작업/EP19" };
+  const PROBE_LB = { ...PROBE_OK, streams: [{ ...PROBE_OK.streams[0], start_time: "0.000000", duration: "2100.0" }, PROBE_OK.streams[1]], format: { ...PROBE_OK.format, duration: "2100.0" } };
+  const CROP = "[Parsed_cropdetect_0 @ 0x1] x1:0 x2:1919 y1:140 y2:939 w:1920 h:800 x:0 y:140 pts:12 t:0.5 crop=1920:800:0:140\n[Parsed_cropdetect_0 @ 0x1] x1:0 x2:1919 y1:140 y2:939 w:1920 h:800 x:0 y:140 pts:24 t:1.0 crop=1920:800:0:140\n";
+  const bad = await lbCall("lb_probe", { payload: LB_CARRY });
+  ok(bad.structuredContent?.status === "error" && /probe/.test(bad.structuredContent?.message ?? ""), "lb_probe(probe 없음) → 반려", bad.structuredContent?.message?.slice(0, 60));
+  const out = await lbCall("lb_probe", { payload: { ...LB_CARRY, probe: PROBE_OK, cropdetect_raw: CROP } });
+  ok(out.structuredContent?.status === "error" && /소재 길이/.test(out.structuredContent?.message ?? ""), "lb_probe(구간 끝 1635 > 소재 929초) → 반려", out.structuredContent?.message?.slice(0, 60));
+  const res = await lbCall("lb_probe", { payload: { ...LB_CARRY, probe: PROBE_LB, cropdetect_raw: CROP } });
+  const sc = res.structuredContent;
+  ok(sc?.status === "execute" && sc?.next_step === "lb_cut", "lb_probe → execute, next=lb_cut", `${sc?.status}/${sc?.next_step}`);
+  const m = sc?.metrics ?? {};
+  ok(m.fps === 23.976 && m.fps_fraction === "24000/1001" && m.letterbox_top === 140 && m.letterbox_bottom === 140 && m.win === Math.round((800 * 1080) / 1020) && m.span_s === 140, "lb_probe → metrics(fps 23.976 · 레터박스 140/140 · WIN 847 · 구간 140초)", JSON.stringify(m));
+  ok(sc?.write_files?.[0]?.path === "C:/lb_work/신병/작업/EP19/프레임률" && sc.write_files[0].content === "24000/1001", "lb_probe → write_files 프레임률 = 24000/1001 (§82)", JSON.stringify(sc?.write_files?.[0]));
+  ok(sc?.probe_summary?.letterbox?.content_h === 800 && sc?.carry?.includes("probe_summary"), "lb_probe → probe_summary(레터박스) carry", JSON.stringify(sc?.probe_summary?.letterbox));
+  const noCrop = await lbCall("lb_probe", { payload: { ...LB_CARRY, probe: PROBE_LB } });
+  ok(noCrop.structuredContent?.status === "execute" && (noCrop.structuredContent?.warnings ?? []).some((w) => /레터박스/.test(w)) && noCrop.structuredContent?.metrics?.win === Math.round((1080 * 1080) / 1020), "lb_probe(cropdetect 없음) → 경고 + WIN 은 원본 높이로", JSON.stringify(noCrop.structuredContent?.warnings));
 }
 
 console.log(process.exitCode ? "\n실패 있음" : "\n전부 통과");
