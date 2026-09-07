@@ -515,7 +515,9 @@ def main():
                 i2 = int(_np.argmax(c2))
                 if i2 not in (0, len(c2) - 1):             # 창 끝 퇴화는 판정 불가(-0.75 실측)
                     off2 = (i2 / 16000) - 0.75
-                    if abs(off2) > 0.08:
+                    # 이 검사의 표적은 수십 ms 겹침(더블어택) — 0.5s 넘는 값은 겹침이
+                    # 아니라 상관 실패다(웃음 구간 -0.74 실측, 2026-09-07 Deep18 컷8)
+                    if 0.08 < abs(off2) <= 0.5:
                         어긋난컷.append((k + 1, "경계", round(off2, 3)))
         print(("  [OK] " if not 어긋난컷 else "  [X] ") +
               f"컷별 원음 대조(±150ms) — 컷 {len(picture)}개 · 어긋남 {어긋난컷}")

@@ -14,12 +14,12 @@ DONOR="/Users/yustudio1/Desktop/볼케이노 MCP/23. 신병4/1편_공유_신병�
 BON="/Users/yustudio1/Desktop/유스튜디오-규격서/스크립트/린박스/키트/스타일/아모르_부품.prproj"
 
 단계() {  # 단계 <이름> <요약 grep 패턴> <명령...>
-  local 이름="$1" 패턴="$2"; shift 2
-  echo "── $이름"
+  local NAME="$1" PAT="$2"; shift 2
+  echo "── $NAME"
   if ! "$@" > "$LOG" 2>&1; then
-    echo "★실패 — $이름. 로그 끝:"; tail -8 "$LOG"; exit 1
+    echo "★실패 — $NAME. 로그 끝:"; tail -8 "$LOG"; exit 1
   fi
-  grep -E "$패턴" "$LOG" || true
+  grep -E "$PAT" "$LOG" || true
 }
 
 단계 "① 검사"       "반려|통과"                                    "$PY" make.py "$PJ" --check
