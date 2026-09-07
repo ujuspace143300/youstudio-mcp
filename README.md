@@ -50,3 +50,12 @@
 ## 원칙 한 줄
 
 문서와 실제가 어긋나면 문서를 고친다. 적히지 않은 것은 없는 것이다.
+
+## 지인 설치 — 토큰 하나로 (한 줄)
+
+관리자에게 받은 토큰을 `<토큰>` 자리에. 파일 이름·위치가 ASCII 인 이유는 raw URL 에 한글이 들어가면 환경마다 %인코딩이 갈려 404 가 나기 때문이다.
+
+- 맥: `curl -fsSL https://raw.githubusercontent.com/ujuspace143300/youstudio-mcp/main/install.sh | bash -s -- <토큰>`
+- 윈도우(PowerShell): `irm https://raw.githubusercontent.com/ujuspace143300/youstudio-mcp/main/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1 <토큰>`
+
+하는 일: 도구(node·ffmpeg·python·git) → Claude Code → 코드 clone → 설치 id → 서버 자산(토큰 인증·sha256) → 러너 venv → API 키(본인 발급) → `claude mcp add` → 프리미어 CEP 확장. 여러 번 실행해도 안전. 관리자는 `/admin` 페이지에서 발급·차단·연장.

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================
 #  유스튜디오 한방 설치 (맥) — 지인용. 토큰 하나로 끝낸다.
+#    한 줄 설치:  curl -fsSL https://raw.githubusercontent.com/ujuspace143300/youstudio-mcp/main/install.sh | bash -s -- <토큰>
+#    (파일 이름·위치가 ASCII 인 이유: raw URL 에 한글이 들어가면 환경마다 %인코딩이 갈려 404 가 난다 · 2026-09-07)
 #
-#    bash 한방설치.sh <관리자에게-받은-토큰> [--저장소 <git URL>] [--서버 <URL>] [--자리 <폴더>]
+#    bash install.sh <관리자에게-받은-토큰> [--저장소 <git URL>] [--서버 <URL>] [--자리 <폴더>]
 #
 #  하는 일 (여러 번 실행해도 안전 — 있는 것은 건너뛴다)
 #    1 Homebrew · node · ffmpeg · python · git      2 Claude Code
@@ -31,7 +33,7 @@ say(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 ok(){ printf '   \033[32m✔ %s\033[0m\n' "$*"; }
 warn(){ printf '   \033[33m⚠ %s\033[0m\n' "$*"; }
 stop(){ printf '   \033[31m★ %s\033[0m\n' "$*"; exit 1; }
-[ -n "$TOKEN" ] || stop "토큰이 필요하다:  bash 한방설치.sh <토큰>   (관리자에게 받는다 · 한 번만 보인다)"
+[ -n "$TOKEN" ] || stop "토큰이 필요하다:  bash install.sh <토큰>   (관리자에게 받는다 · 한 번만 보인다)"
 
 # ── 1. Homebrew · 도구 ───────────────────────────────────────
 say "1/8 Homebrew · node · ffmpeg · python · git"

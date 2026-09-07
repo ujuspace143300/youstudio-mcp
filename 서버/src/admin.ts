@@ -176,7 +176,7 @@ const ADMIN_HTML = `<!doctype html>
 <div id="token"><b>발급됐다 — 이 토큰은 지금 한 번만 보인다. 지인에게 전달하고 창을 닫아라.</b><code id="tokval"></code><button id="copy">복사</button> <span id="tokwho"></span></div>
 <div id="msg"></div>
 <table><thead><tr><th>이메일</th><th>발급</th><th>만료</th><th>기기</th><th>대수</th><th>차단</th><th>허용프리셋</th><th>id</th><th>조작</th></tr></thead><tbody id="rows"></tbody></table>
-<p style="color:#777;font-size:12px;margin-top:12px">지인 설치: <code>bash 설치/한방설치.sh &lt;토큰&gt;</code> (맥) · <code>powershell -ExecutionPolicy Bypass -File 설치\\한방설치.ps1 &lt;토큰&gt;</code> (윈도우)</p>
+<p style="color:#777;font-size:12px;margin-top:12px">지인 설치: <code>curl -fsSL https://raw.githubusercontent.com/ujuspace143300/youstudio-mcp/main/install.sh | bash -s -- &lt;토큰&gt;</code> (맥) · <code>irm https://raw.githubusercontent.com/ujuspace143300/youstudio-mcp/main/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\\install.ps1 &lt;토큰&gt;</code> (윈도우)</p>
 </div>
 <script>
 (function(){

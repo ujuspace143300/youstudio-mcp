@@ -1,7 +1,9 @@
 ﻿# ============================================================
 #  유스튜디오 한방 설치 (윈도우) — 지인용. PowerShell 에서:
 #
-#    powershell -ExecutionPolicy Bypass -File 한방설치.ps1 <관리자에게-받은-토큰> [-저장소 <git URL>] [-서버 <URL>] [-자리 <폴더>]
+#    powershell -ExecutionPolicy Bypass -File install.ps1 <관리자에게-받은-토큰> [-저장소 <git URL>] [-서버 <URL>] [-자리 <폴더>]
+#    한 줄 설치(PowerShell):  irm https://raw.githubusercontent.com/ujuspace143300/youstudio-mcp/main/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1 <토큰>
+#    (파일 이름·위치가 ASCII 인 이유: raw URL 에 한글이 들어가면 환경마다 %인코딩이 갈려 404 가 난다 · 2026-09-07)
 #
 #  하는 일 (여러 번 실행해도 안전 — 있는 것은 건너뛴다)
 #    1 winget 으로 node · ffmpeg · python · git      2 Claude Code
@@ -24,7 +26,7 @@ function Say($m) { Write-Host "`n== $m" -ForegroundColor Cyan }
 function Ok($m) { Write-Host "   ✔ $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "   ⚠ $m" -ForegroundColor Yellow }
 function Stop-Here($m) { Write-Host "   ★ $m" -ForegroundColor Red; exit 1 }
-if (-not $토큰) { Stop-Here "토큰이 필요하다:  powershell -ExecutionPolicy Bypass -File 한방설치.ps1 <토큰>" }
+if (-not $토큰) { Stop-Here "토큰이 필요하다:  powershell -ExecutionPolicy Bypass -File install.ps1 <토큰>" }
 
 # ── 1. 도구 ───────────────────────────────────────────────────
 Say "1/8 node · ffmpeg · python · git (winget)"
