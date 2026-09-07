@@ -15,5 +15,6 @@
   // 자산(글꼴·효과음·모델 — 저작권물) — 저장소 자산/ 을 배포 때 Workers Static Assets 로 올린다(길 C · 이식원칙 ⑥).
   //   run_worker_first: 정적 경로로 바로 못 받고 반드시 이 워커(인증)를 거친다 → /asset/<프리셋>/<경로>.
   //   목록(_목록.json)은 배포 전 `node 도구/자산목록.mjs` 가 만든다(배포.sh 가 부른다).
-  "assets": { "directory": "../자산", "binding": "ASSETS", "run_worker_first": true }
+  //   ★directory 는 저장소 자산/ 이 아니라 도구/자산목록.mjs 가 ASCII 키로 채운 .assets/ — 배포본에서 한글 경로가 404 였다(2026-09-07).
+  "assets": { "directory": ".assets", "binding": "ASSETS", "run_worker_first": true }
 }

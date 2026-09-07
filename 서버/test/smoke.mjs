@@ -77,6 +77,7 @@ console.log(`서버: ${URL_}`);
   const buf = new Uint8Array(await bin.arrayBuffer());
   const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", buf))).map((b) => b.toString(16).padStart(2, "0")).join("");
   ok(bin.status === 200 && buf.length === f0.bytes && sha === f0.sha256 && bin.headers.get("cache-control") === "private, no-store", "/asset/린박스/fonts/GmarketSansBold.otf → 바이트·sha256 목록과 같음 · no-store", `${bin.status} ${buf.length}/${f0.bytes}`);
+  ok(/^[0-9a-f]{16}\.otf$/.test(f0.key ?? "") && /^[0-9a-f]{8}$/.test(man.preset_key ?? "") && bin.headers.get("x-youstudio-sha256") === f0.sha256, "/asset → 서버 키는 ASCII(프리셋키 8자·파일키 16자+확장자) · sha256 헤더", `${man.preset_key}/${f0.key}`);
   const none = await fetch(URL_ + "/asset/린박스/fonts/없는파일.otf");
   ok(none.status === 404, "/asset 없는 파일 → 404", String(none.status));
   const trav = await fetch(URL_ + "/asset/린박스/../src/index.ts");

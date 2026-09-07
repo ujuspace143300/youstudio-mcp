@@ -83,29 +83,57 @@ async function authorize(request: Request, env: Env, presets: string[]): Promise
   return null;
 }
 
-/** /asset/<프리셋>/<경로> → 자산 파일. 프리셋 권한은 authorize 가 봤다. 경로는 자산/<프리셋>/ 아래로만(.. 금지). */
+/** sha256 hex 앞 n자 — 도구/자산목록.mjs 의 presetKey/fileKey 와 같은 식 */
+async function shaHex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+interface AssetIndex { preset: string; preset_key: string; files: { path: string; key: string; bytes: number; sha256: string }[]; total_bytes: number; made?: string }
+
+/**
+ * /asset/<프리셋>/<경로> → 자산 파일. 프리셋 권한은 authorize 가 봤다. 경로는 자산/<프리셋>/ 아래로만(.. 금지).
+ * ★서버에 올라간 이름은 ASCII 키다(.assets/<프리셋키>/<파일키> · 도구/자산목록.mjs) — 배포본에서 한글 경로가 전부 404 였다(2026-09-07 지인 테스트).
+ *   사람이 부르는 경로(한글 그대로)는 <프리셋키>/_index.json 으로 키를 찾아 준다. `_목록.json` 을 부르면 그 인덱스를 준다.
+ */
 async function serveAsset(request: Request, env: Env, url: URL): Promise<Response> {
   const rest = url.pathname.slice("/asset/".length);
   const parts = rest.split("/").map((s) => { try { return decodeURIComponent(s); } catch { return s; } });
-  const preset = parts[0] ?? "";
-  const rel = parts.slice(1);
+  const preset = (parts[0] ?? "").normalize("NFC");
+  const rel = parts.slice(1).map((s) => s.normalize("NFC"));
   if (!preset || !rel.length || parts.some((p) => p === "" || p === "." || p === ".." || p.includes("\\"))) {
     return Response.json({ error: "경로가 틀렸다 — /asset/<프리셋>/<파일 경로> (예: /asset/린박스/_목록.json)" }, { status: 400 });
   }
   if (!env.ASSETS) {
     return Response.json({ error: "이 서버에는 자산 바인딩(ASSETS)이 없다 — wrangler.jsonc assets 를 보라." }, { status: 503 });
   }
-  const assetUrl = new URL(request.url);
-  assetUrl.pathname = "/" + [preset, ...rel].map((s) => encodeURIComponent(s)).join("/");
-  assetUrl.search = "";
-  const r = await env.ASSETS.fetch(new Request(assetUrl.toString(), { method: "GET" }));
-  if (r.status === 404) {
-    return Response.json({ error: `자산이 없다: ${preset}/${rel.join("/")} — /asset/${preset}/_목록.json 을 보라.` }, { status: 404 });
+  const pk = (await shaHex(preset)).slice(0, 8);
+  const origin = new URL(request.url).origin;
+  const idxRes = await env.ASSETS.fetch(new Request(`${origin}/${pk}/_index.json`, { method: "GET" }));
+  if (idxRes.status !== 200) {
+    return Response.json({ error: `그 프리셋(${preset})의 자산이 서버에 없다(${idxRes.status}) — 배포 때 도구/자산목록.mjs(.assets/${pk}/) 가 돌았는지 보라.` }, { status: 404 });
+  }
+  let idx: AssetIndex;
+  try { idx = (await idxRes.json()) as AssetIndex; } catch { return Response.json({ error: "자산 인덱스를 못 읽었다" }, { status: 500 }); }
+  const relPath = rel.join("/");
+  if (relPath === "_목록.json") {
+    return Response.json(idx, { headers: { "cache-control": "private, no-store", "x-youstudio-asset": `${preset}/_목록.json` } });
+  }
+  const hit = idx.files.find((f) => f.path.normalize("NFC") === relPath);
+  if (!hit) {
+    return Response.json({ error: `자산이 없다: ${preset}/${relPath} — /asset/${preset}/_목록.json 을 보라.` }, { status: 404 });
+  }
+  const r = await env.ASSETS.fetch(new Request(`${origin}/${pk}/${hit.key}`, { method: "GET" }));
+  if (r.status !== 200) {
+    return Response.json({ error: `자산 실물을 못 찾았다(${r.status}): ${preset}/${relPath} → .assets/${pk}/${hit.key}` }, { status: 404 });
   }
   const h = new Headers(r.headers);
   h.set("cache-control", "private, no-store"); // 토큰 있는 사람에게만 — 중간 캐시 금지
-  h.set("x-youstudio-asset", `${preset}/${rel.join("/")}`);
-  return new Response(r.body, { status: r.status, headers: h });
+  h.set("x-youstudio-asset", `${preset}/${relPath}`);
+  h.set("x-youstudio-sha256", hit.sha256);
+  h.set("content-length", String(hit.bytes));
+  if (!h.get("content-type") || /octet-stream/.test(h.get("content-type") ?? "")) h.set("content-type", "application/octet-stream");
+  return new Response(r.body, { status: 200, headers: h });
 }
 
 export default {
