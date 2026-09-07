@@ -153,6 +153,28 @@ def cut_and_join(src, segs, dst, work, fps):
 
     prev = None
     for i, s in enumerate(segs):
+        if s.get("원문화면"):
+            # ★원문화면 (2026-09-07 사장님 «결론 빼먹었어» — 결말 명언 카드): 화면 속 글이
+            #   내용이라 얼굴 추적·확대 금지. 원본 «가로 전체»를 박스 폭에 맞춰 넣고(글이
+            #   잘리면 결이 잘린다) 빈 위아래는 같은 화면의 흐림 배경으로 채운다.
+            #   준비(prproj)의 컷 상자도 같은 fit-width 규칙을 쓴다 — 경로마다 따로 금지.
+            # setsar=1 필수 — scale 1080:-2(607.5→608 반올림)가 SAR 를 24289:24300 으로
+            # 틀어 concat 필터가 Invalid argument 로 거부했다(2026-09-07 실측)
+            vf = ("split=2[bg][fg];[bg]crop=ih*1080/908:ih,scale=1080:908,boxblur=24:2[b];"
+                  "[fg]scale=1080:-2[f];[b][f]overlay=(W-w)/2:(H-h)/2,setsar=1")
+            p = os.path.join(work, f"seg{len(parts):03d}.mov")
+            d_q = round((s["t1"] - s["t0"]) * fps) / fps
+            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
+                 "-to", str(s["t1"]), "-i", src, "-filter_complex", vf, "-t", f"{d_q:.5f}",
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
+                 "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
+            parts.append(p)
+            prev = None
+            log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
+                                    "phase": s.get("phase"), "part": p, "beats": 0})
+            print(f"    P{s.get('phase')} 조각 {i} {s['t1']-s['t0']:5.1f}초 → 원문화면"
+                  f" fit-width(흐림 배경) — 얼굴 추적 없음", flush=True)
+            continue
         plan = framing.plan_beats(src, s, i, W, H, usable_h, b, work, cuts, prev)
         if not plan:
             vf, info = framing.plan_frame(src, s, i, W, H, usable_h, b, work, prev=prev)

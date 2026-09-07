@@ -780,6 +780,14 @@ def main():
             burn[i] = True
             print(f"  컷{i+1:02d}: 발화 {말수}건 겹침({근거}) → 자막 구역 무조건 배제(근본 규칙 v2)")
 
+    # ★원문화면 (2026-09-07 사장님 «결론 어디에 빼먹었어» — Deep09 결말 명언 화면을 번인
+    #   취급해 잘라냈다): 화면 속 글이 «내용»인 컷은 사람이 segments 에 "원문화면": true 로
+    #   선언한다 → 풀샷 유지·잔존 게이트 면제. 그 구간 우리 대사 자막은 sync 가 뺀다(두 겹 방지).
+    for i, seg in enumerate(segs):
+        if seg.get("원문화면"):
+            burn[i] = False
+            print(f"  컷{i+1:02d}: 원문화면 선언 — 화면 속 글이 내용 → 풀샷 유지·잔존 면제")
+
     # ★확대율은 컷별(2026-09-03 사장님 «고친다고 인물 포커싱 나가면 안 된다») —
     #   그 컷의 자막이 요구하는 만큼만 확대한다. 전역 최솟값으로 다 키우면
     #   멀쩡한 컷의 얼굴까지 커진다.
@@ -801,6 +809,12 @@ def main():
         return s_i, xf, yf
 
     for i, (seg, pic) in enumerate(zip(segs, picture)):
+        if seg.get("원문화면"):
+            # ★fit-width — 원본 가로 전체가 박스 폭에 들어간다 (굽기의 원문화면 화면꼴과 동일)
+            pic["box"] = {"scale": round(1080 / 1920 * 100, 3),
+                          "pos": f"0.5:{(b['y0'] + b['y1']) / 2 / CFG['video']['h']:.6f}"}
+            print(f"  컷{i+1:02d}: 원문화면 → fit-width (가로 전체, 글 안 잘림)")
+            continue
         if not burn[i]:
             pic["box"] = {"scale": round(box_h / 1080 * 100, 3),
                           "pos": f"0.5:{(b['y0'] + b['y1']) / 2 / CFG['video']['h']:.6f}"}
@@ -860,14 +874,16 @@ def main():
         return False
 
     for round_ in range(3):
-        걸림 = [i for i in range(len(picture)) if 컷잔존(i)]
+        걸림 = [i for i in range(len(picture))
+                if not segs[i].get("원문화면") and 컷잔존(i)]
         if not 걸림:
             break
         print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 윗변을 45px 올려 다시 잡는다")
         for i in 걸림:
             유효탑[i] = 유효탑.get(i, sub_top or int(1080 * 0.872)) - 45
             상자잡기(i, 유효탑[i])
-    잔존 = [i + 1 for i in range(len(picture)) if 컷잔존(i)]
+    잔존 = [i + 1 for i in range(len(picture))
+            if not segs[i].get("원문화면") and 컷잔존(i)]
     print(("  [OK] " if not 잔존 else "  [X] ") + f"컷 하단 잔존 번인 자막 0  걸린 컷 {잔존}")
     assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대 후에도 남는다"
     미리보기생성()          # 승격된 컷의 미리보기 갱신

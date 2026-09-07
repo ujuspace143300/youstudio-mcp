@@ -142,6 +142,27 @@ def check(proj, path):
     elif segs[-1].get("punch", 0) < PHASES[5]["min_punch"]:
         warn.append(f"마지막 punch {segs[-1].get('punch')} — 최고 웃음 포인트로 끝나야 한다")
 
+    # ★결말 포함 게이트 (2026-09-07 사장님 «기승전결이 맞아? 결론 어디에 빼먹었어» —
+    #   Deep09 실측: 잔존 번인 게이트에 걸리자 결말 명언 화면을 잘라내고 발견 장면에서
+    #   끊었다. 길이·밀도·절정 위치는 재는데 «결(結)이 소재의 실제 엔딩을 담는가»는 아무도
+    #   안 쟀다). 마지막 조각은 원본의 마지막 유의미 발화 비트와 겹쳐야 한다.
+    try:
+        import re as _re
+        _vtt = os.path.join(HERE, CFG["paths"]["work"], f"{proj['source']['id']}.ko.vtt")
+        끝발화 = None
+        if os.path.exists(_vtt):
+            for m in _re.finditer(r"(\d+):(\d+):(\d+\.\d+) --> [^\n]+\n(.*)", open(_vtt, encoding="utf-8").read()):
+                글 = _re.sub(r"[^가-힣]", "", m.group(4))
+                if len(글) >= 3 and not _re.fullmatch(r"[하호흐히헤아어오우음야에]+", 글):
+                    끝발화 = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        if 끝발화 and segs[-1]["t1"] < 끝발화 - 1.0:
+            bad.append(f"★결말 비트 누락 — 원본 마지막 유의미 발화가 {끝발화:.0f}초인데 마지막"
+                       f" 조각이 {segs[-1]['t1']:.0f}초에 끝난다. 이야기의 결(結)이 잘렸다 —"
+                       f" 엔딩 비트를 마지막 조각에 담아라 (명언·카드 화면이면 «원문화면»: true 로"
+                       f" 풀샷 유지 + 우리 자막 면제)")
+    except Exception:
+        pass
+
     for s in segs:
         ph = PHASES.get(s.get("phase"))
         if ph and s.get("punch", 0) < ph["min_punch"]:
