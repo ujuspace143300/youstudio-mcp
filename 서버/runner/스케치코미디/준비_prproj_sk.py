@@ -373,6 +373,25 @@ def main():
             # ★상단 정렬(2026-09-01 사장님) — 영상 바로 아래 붙이되(침범 없음) 세로 중앙이 아니라 위로
             cmt_overlays.append((cp, i * each, (i + 1) * each, (1080 - w2) // 2, zone0))
         print(f"댓글 {len(picked)}장 → 슬롯 {each:.1f}초씩 · 자리 y{zone0}~{zone1}")
+    # ★원문화면 띠 (2026-09-07 사장님 «위아래가 검은색으로 짤리는 게 맞아?» — fit-width
+    #   컷의 상자 위아래 빈 띠가 프리미어에선 시퀀스 검정으로 보였다): 그 구간만 템플릿이
+    #   띠를 페이지색으로 덮는다 → 페이지 위에 카드가 놓인 모양. 띠 높이 = (상자 908 −
+    #   카드 608)/2 = 150px, 굽기(compose)의 페이지색 채움과 같은 기하.
+    카드h = 608          # 1080×(1080/1920)=607.5 → ffmpeg scale -2 와 같은 짝수 올림
+    띠h = (b["y1"] - b["y0"] - 카드h) // 2
+    누c = 0.0
+    띠png = None
+    for s in (x for x in proj.get("segments", []) if x.get("keep", True)):
+        a0, a1 = 누c, 누c + s["t1"] - s["t0"]
+        누c = a1
+        if not s.get("원문화면"):
+            continue
+        if 띠png is None:
+            띠png = os.path.join(sdir, "_원문띠.png")
+            Image.new("RGB", (1080, 띠h), bg[:3]).save(띠png)
+        cmt_overlays.append((띠png, a0, a1, 0, b["y0"]))
+        cmt_overlays.append((띠png, a0, a1, 0, b["y1"] - 띠h))
+        print(f"  원문화면 띠 {a0:.1f}~{a1:.1f}s — 상자 위아래 {띠h}px 페이지색")
     if cmt_overlays:
         args = ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba]
         for cp, *_r in cmt_overlays:
