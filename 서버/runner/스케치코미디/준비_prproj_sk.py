@@ -940,6 +940,13 @@ def main():
         px_, cy_ = pxn * 1080, cyn * 1920
         x0 = clamp(960 + (0 - px_) / sc, 0, 1920 - 1080 / sc)
         y0 = clamp(540 + (b["y0"] - cy_) / sc, 0, 1080 - box_h / sc)
+        # ★기하 우선(2026-09-07 Deep11 컷3 — 노란 배지 «사회화» 글자를 자막으로 오인해
+        #   확대 3회에도 계속 걸림, Deep10 «PUBLIC» 티셔츠와 같은 소품 글자 FP 클래스):
+        #   크롭 밑변이 실측 자막 밴드 윗변보다 위면 밴드는 «기하학적으로» 이미 배제 —
+        #   그 아래서 검출된 글자는 자막일 수 없다. 검출은 밴드가 걸릴 때만 판정한다.
+        밴드탑 = min(v for v in (컷탑들[i], sub_top) if v) if (컷탑들[i] or sub_top) else None
+        if 밴드탑 and y0 + box_h / sc <= 밴드탑 - 6:
+            return False
         타임들, tt = [], seg["t0"] + 0.25
         while tt < seg["t1"] - 0.05 and len(타임들) < 70:   # ★0.5초 간격 전수(성긴 샘플 금지)
             타임들.append(tt)

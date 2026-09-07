@@ -564,6 +564,43 @@ def main():
     assert not 긴, "14자 초과 줄이 남았다(공백 없는 장문) — 위 목록"
     dlg = 관문
 
+    # ── 겹침 정리 (2026-09-07 Deep11 — 같은 트랙(화자 색)에 시간이 겹치는 줄이 3쌍 나와
+    #    프리미어 V8 트랙 겹침으로 조립 검사가 실패했다. 겹침은 어느 경로에서 왔든 여기서
+    #    닫는다): ① 같은 시각 충돌은 뒤 줄을 제 첫 어절의 단어 실측 시각으로 재정박,
+    #    ② 그래도 겹치면 앞줄 끝을 다음 줄 직전(-0.03s)으로 당긴다.
+    말들G = [w for w in (proj.get("asr_words") or []) if w.get("type") != "punctuation"]
+    dlg.sort(key=lambda x: (x["t"], x.get("t1", x["t"])))
+    def _제자리(ln):
+        첫 = CLEAN.sub("", ln["text"].split()[0])[:2]
+        return any(abs(w["t"] - ln["t"]) <= 0.15 and CLEAN.sub("", w["w"]).startswith(첫)
+                   for w in 말들G)
+
+    for a2, b2 in zip(dlg, dlg[1:]):
+        if b2["t"] <= a2["t"] + 0.05:                       # 같은 시각 충돌
+            # 제 시각에 제 첫 어절 단어가 «없는» 줄이 밀린 줄이다 — 단어 실측으로 재정박
+            # («오라 그래!»가 «있으면 그거 들고»와 같은 24.29s 에 박혀 있던 실측: 오라=24.89)
+            for ln in (a2, b2):
+                if _제자리(ln):
+                    continue
+                첫 = CLEAN.sub("", ln["text"].split()[0])[:2]
+                cand = [w for w in 말들G
+                        if ln["t"] + 0.05 <= w["t"] <= ln["t"] + 6.0
+                        and CLEAN.sub("", w["w"]).startswith(첫)]
+                if cand:
+                    옛dur = max(ln.get("t1", ln["t"]) - ln["t"], 0.8)
+                    print(f"  ★겹침 재정박: 「{ln['text']}」 {ln['t']:.2f}s → {cand[0]['t']:.2f}s")
+                    ln["t"] = round(float(cand[0]["t"]), 2)
+                    ln["t1"] = round(ln["t"] + 옛dur, 2)
+                break
+    dlg.sort(key=lambda x: (x["t"], x.get("t1", x["t"])))
+    겹침수 = 0
+    for a2, b2 in zip(dlg, dlg[1:]):
+        if a2.get("t1", 0) > b2["t"] - 0.03:
+            a2["t1"] = round(max(a2["t"] + 0.3, b2["t"] - 0.03), 2)
+            겹침수 += 1
+    print(f"  [OK] 자막 겹침 정리 — 당긴 끝 {겹침수}건 · 잔여 겹침 "
+          f"{sum(1 for x, y in zip(dlg, dlg[1:]) if x.get('t1', 0) > y['t'] + 0.01)}건")
+
     # ── ③ 커버리지 게이트 — 모든 발화 단어는 자기 자막 줄 시작에서 6초(표시 최대) 안 ──
     dlg.sort(key=lambda x: x["t"])
     시작들 = [d["t"] for d in dlg]
