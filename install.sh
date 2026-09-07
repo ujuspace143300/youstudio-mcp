@@ -102,9 +102,11 @@ ver_ok python3 --version '^Python 3\.' || stop "python3 이 진짜가 아니다(
 # ── 6. API 키 ────────────────────────────────────────────────
 say "6/8 API 키 (본인이 발급 · ~/.volcano/keys/) — 린박스: speechmatics(전사) · typecast(나레)"
 K="$HOME/.volcano/keys"; mkdir -p "$K"
+[ -t 0 ] || warn "대화형 터미널이 아니라(파이프 실행) 키 입력을 건너뛴다 — 나중에 $K/speechmatics · $K/typecast 에 키 한 줄씩 넣어라"
 for name in speechmatics typecast; do
   if [ -s "$K/$name" ]; then ok "$name 이미 있음"; continue; fi
-  printf '   %s 키 붙여넣고 엔터 (건너뛰려면 그냥 엔터): ' "$name"; read -r val
+  [ -t 0 ] || continue
+  printf '   %s 키 붙여넣고 엔터 (건너뛰려면 그냥 엔터): ' "$name"; read -r val < /dev/tty
   if [ -n "$val" ]; then printf '%s\n' "$val" > "$K/$name"; chmod 600 "$K/$name"; ok "$name 저장"; else warn "$name 건너뜀 — 나중에 $K/$name 에 넣으면 된다"; fi
 done
 printf 'YOUSTUDIO_TOKEN=%s\n' "$TOKEN" > "$HOME/.youstudio/env"; chmod 600 "$HOME/.youstudio/env"

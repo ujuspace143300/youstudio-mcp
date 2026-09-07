@@ -44,9 +44,23 @@ const args = [
 console.log("이 컴퓨터의 설치 id: " + dev + "  (~/.youstudio/device 에 저장됨)");
 console.log("");
 
+/**
+ * ★윈도우에서 `spawnSync("claude", args, {shell:true})` 는 배열 원소를 셸이 다시 파싱해
+ *   "Authorization: Bearer <토큰>" 이 공백에서 쪼개져 헤더가 «Bearer» 만 갔다(2026-09-07 사장님 깨끗한 윈도우 실전).
+ *   그렇다고 shell:false 로 .cmd 를 못 띄운다(node 는 .cmd/.bat 을 셸 없이 spawn 하면 EINVAL).
+ *   → 윈도우는 인자를 하나하나 큰따옴표로 감싼 **한 문자열**을 cmd.exe /d /s /c 에 windowsVerbatimArguments 로 그대로 넘긴다.
+ *     맥·리눅스는 shell:false 배열 그대로.
+ */
+function runClaude(args) {
+  if (process.platform !== "win32") return spawnSync("claude", args, { stdio: "inherit" });
+  const q = (a) => '"' + String(a).replace(/"/g, '\\"') + '"';
+  const line = ["claude", ...args].map(q).join(" ");
+  return spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", '"' + line + '"'], { stdio: "inherit", windowsVerbatimArguments: true });
+}
+
 if (붙이기) {
   console.log("클로드코드에 붙이는 중…");
-  const r = spawnSync("claude", args, { stdio: "inherit", shell: process.platform === "win32" });
+  const r = runClaude(args);
   if (r.status === 0) {
     console.log("\n붙였습니다. 클로드코드에서 /mcp 로 'youstudio · 연결됨' 을 확인하세요.");
   } else {

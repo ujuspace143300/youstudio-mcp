@@ -119,8 +119,11 @@ Ok ("venv 준비 (" + (& "$venv\Scripts\python.exe" --version) + ")")
 # ── 6. API 키 ────────────────────────────────────────────────
 Say "6/8 API 키 (본인이 발급 · ~/.volcano/keys/) — 린박스: speechmatics(전사) · typecast(나레)"
 $K = "$HOME\.volcano\keys"; New-Item -ItemType Directory -Force -Path $K | Out-Null
+$interactive = -not [Console]::IsInputRedirected
+if (-not $interactive) { Warn "대화형 터미널이 아니라 키 입력을 건너뛴다 — 나중에 $K\speechmatics · $K\typecast 파일에 키 한 줄씩 넣어라(메모장 · 줄 끝 공백 없이)" }
 foreach ($name in @("speechmatics", "typecast")) {
   if ((Test-Path "$K\$name") -and ((Get-Item "$K\$name").Length -gt 0)) { Ok "$name 이미 있음"; continue }
+  if (-not $interactive) { continue }
   $val = Read-Host "   $name 키 붙여넣고 엔터 (건너뛰려면 그냥 엔터)"
   if ($val) { [IO.File]::WriteAllText("$K\$name", $val.Trim() + "`n", (New-Object System.Text.UTF8Encoding $false)); Ok "$name 저장" } else { Warn "$name 건너뜀 — 나중에 $K\$name 에 넣으면 된다" }
 }
