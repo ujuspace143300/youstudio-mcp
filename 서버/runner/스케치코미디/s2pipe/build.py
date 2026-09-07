@@ -601,6 +601,14 @@ def run_build(proj, path):
 
     print("1/5 구간 자르고 붙이기", flush=True)
     cut = cut_and_join(src, segs, os.path.join(work, "cut.mp4"), work, fps)
+    # ★검은 꼬리 절단이 마지막 조각 t1 을 고쳤으면 계획(proj)에도 되쓴다 (2026-09-07
+    #   Deep09 실측: -6.7s 절단이 파일에 안 남아 «완성본 ≠ 계획» 게이트에 걸렸고,
+    #   자막·나레 총길이도 절단 전 값으로 구워졌다). 계획 = 실물, 근원은 하나다.
+    새총 = sum(s["t1"] - s["t0"] for s in segs)
+    if abs(새총 - total) > 0.01:
+        print(f"    절단 반영 — 총길이 {total:.1f}s → {새총:.1f}s (계획 저장)", flush=True)
+        total = 새총
+        json.dump(proj, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("2/5 층 그리기", flush=True)
     ov = draw_frame(proj, os.path.join(work, "frame.png"))
     # ★나레이션을 먼저 굽는다 — 자막이 **실제 음성 길이**를 그대로 써야 어긋나지 않는다
