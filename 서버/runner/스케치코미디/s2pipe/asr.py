@@ -45,6 +45,11 @@ def load_vocab(slug, proj=None):
        work/<슬러그>_사전.json 과 proj «낱말사전» 을 합친다. 항목 = "낱말" 또는
        {"content": "낱말", "sounds_like": ["잘못 들리는 꼴", ...]}."""
     항목 = []
+    # ★작품 공통 사전 (2026-09-07 사장님 «이름은 절대 오타내면 안 돼» — Deep 주인공
+    #   김규남·윤태용·윤혁준. 편마다 새로 적지 않게 work/_공통사전.json 에 상주)
+    공통 = os.path.join(HERE, CFG["paths"]["work"], "_공통사전.json")
+    if os.path.exists(공통):
+        항목 += json.load(open(공통, encoding="utf-8"))
     p = os.path.join(HERE, CFG["paths"]["work"], f"{slug}_사전.json")
     if os.path.exists(p):
         항목 += json.load(open(p, encoding="utf-8"))
