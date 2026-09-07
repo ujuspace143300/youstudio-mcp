@@ -149,12 +149,29 @@ def check(proj, path):
     try:
         import re as _re
         _vtt = os.path.join(HERE, CFG["paths"]["work"], f"{proj['source']['id']}.ko.vtt")
+        _src = os.path.join(HERE, CFG["paths"]["work"], f"{proj['source']['id']}.mp4")
+
+        def _어두운가(t):
+            # 검은꼬리 절단(build)과 같은 기준(밝기<12) — 게이트끼리 기준이 갈리면 충돌한다
+            # (2026-09-07 Deep10: 암전 위 아웃트로 노래를 «마지막 발화»로 세서 절단과 싸웠다)
+            import subprocess as _sp
+            r = _sp.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", _src,
+                         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                        capture_output=True)
+            return len(r.stdout) > 0 and (sum(r.stdout) / len(r.stdout)) < 12
+
         끝발화 = None
+        후보들 = []
         if os.path.exists(_vtt):
             for m in _re.finditer(r"(\d+):(\d+):(\d+\.\d+) --> [^\n]+\n(.*)", open(_vtt, encoding="utf-8").read()):
                 글 = _re.sub(r"[^가-힣]", "", m.group(4))
                 if len(글) >= 3 and not _re.fullmatch(r"[하호흐히헤아어오우음야에]+", 글):
-                    끝발화 = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+                    후보들.append(int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)))
+        for t in reversed(후보들[-4:]):          # 끝에서 최대 4개만 프레임을 재본다
+            if os.path.exists(_src) and _어두운가(t + 0.3):
+                continue                          # 암전 위 소리(아웃트로 노래·크레딧)는 결이 아니다
+            끝발화 = t
+            break
         if 끝발화 and segs[-1]["t1"] < 끝발화 - 1.0:
             bad.append(f"★결말 비트 누락 — 원본 마지막 유의미 발화가 {끝발화:.0f}초인데 마지막"
                        f" 조각이 {segs[-1]['t1']:.0f}초에 끝난다. 이야기의 결(結)이 잘렸다 —"

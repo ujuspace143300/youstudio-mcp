@@ -261,7 +261,7 @@ def main():
     여운 = float(proj.get("여운", 1.8))
     ext = max(0.0, min(여운, proj["source"]["dur"] - 0.3 - segs[-1]["t1"]))
     if ext:
-        segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext)
+        segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext, _여운전t1=segs[-1]["t1"])
         total = round(total + ext, 4)
         print(f"끝맺음 여운 +{ext:.1f}s → 총 {total:.1f}s")
 
@@ -508,6 +508,26 @@ def main():
         print(("  [OK] " if not 어긋난컷 else "  [X] ") +
               f"컷별 원음 대조(±150ms) — 컷 {len(picture)}개 · 어긋남 {어긋난컷}")
         assert not 어긋난컷, "완성본 컷이 계획 지점과 어긋난다 — make 굽기·조각을 확인하라"
+
+    # ★컷 안 통암전 게이트 (2026-09-07 Deep10 실측 — 컷6 앞 5.8초가 원본의 암전 전환부라
+    #   완성본 한복판에 검은 화면이 들어갔다. 기존 암전 게이트는 «끝»(검은 꼬리·여운)만 봤다).
+    #   컷마다 1초 간격 표본에서 통암전(밝기<12)이 1.5초 이상 이어지면 미완이다.
+    암전컷 = []
+    for k, seg in enumerate(segs):
+        연속, t = 0, seg["t0"] + 0.5
+        끝 = seg.get("_여운전t1", seg["t1"])   # 여운 연장분은 여운 암전 프로브가 따로 판정한다
+        while t < 끝:
+            r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
+                                "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                               capture_output=True)
+            어둠 = len(r.stdout) > 0 and (sum(r.stdout) / len(r.stdout)) < 12
+            연속 = 연속 + 1 if 어둠 else 0
+            if 연속 >= 2:
+                암전컷.append((k + 1, round(t - 1.0, 1)))
+                break
+            t += 1.0
+    print(("  [OK] " if not 암전컷 else "  [X] ") + f"컷 안 통암전 없음 — 걸린 컷 {암전컷}")
+    assert not 암전컷, "컷 안에 통암전 구간이 있다 — 구간을 옮기거나 잘라라 (검은 화면 출력 금지)"
 
     subs = sorted(proj["subs"], key=lambda x: x["t"])
     nar_seg = next(s for s in segs if s.get("narration"))
@@ -827,7 +847,50 @@ def main():
         picture[i]["box"] = {"scale": round(s_i * 100, 3), "pos": f"{px / 1080:.6f}:{cy / 1920:.6f}"}
         return s_i, xf, yf
 
+    def 안쪽경계(seg):
+        """프레임-인-프레임 아웃트로 감지(2026-09-07 Deep10 컷7 — 검은 테두리째 담겨
+        검은 띠가 박혔다). 굽기(build)의 감지와 같은 기준: 밝기>16 경계, 3프레임 일치."""
+        import numpy as np
+        박들 = []
+        for f in (0.25, 0.5, 0.75):
+            try:
+                a = grab(seg["t0"] + (seg["t1"] - seg["t0"]) * f,
+                         f"fb{seg['t0']:.0f}_{f}").astype(int).mean(axis=2)
+            except Exception:
+                return None
+            m = a > 16
+            rows, cols = np.where(m.any(axis=1))[0], np.where(m.any(axis=0))[0]
+            if not len(rows) or not len(cols):
+                continue        # 통암전 프레임(여운이 소재 밖까지 늘림) — 표본에서 뺀다.
+                                # ★return None 이었더니 여운 붙은 마지막 컷이 조용히 탈락
+                                # (2026-09-07 실측: 0.75 지점이 소재 밖 암전)
+            x, y = int(cols[0]), int(rows[0])
+            w, h = int(cols[-1] - cols[0] + 1), int(rows[-1] - rows[0] + 1)
+            if w > a.shape[1] * 0.92 and h > a.shape[0] * 0.92:
+                return None
+            박들.append((x, y, w, h))
+        if len(박들) < 2:
+            return None
+        if max(abs(박들[0][k] - 박[k]) for 박 in 박들[1:] for k in range(4)) > 8:
+            return None
+        return 박들[0]
+
+    안쪽컷 = set()
     for i, (seg, pic) in enumerate(zip(segs, picture)):
+        안쪽 = 안쪽경계(seg)
+        if 안쪽:
+            x, y, w, h = 안쪽
+            s_f = max(1080.0 / w, box_h / h)
+            cx, cy0 = x + w / 2.0, y + h / 2.0
+            px = 540 - (cx - 960) * s_f
+            cyv = (b["y0"] + b["y1"]) / 2.0 - (cy0 - 540) * s_f
+            pic["box"] = {"scale": round(s_f * 100, 3), "pos": f"{px/1080:.6f}:{cyv/1920:.6f}"}
+            # 잔존 게이트 면제 — 원본 자막 밴드는 검은 테두리 쪽이라 안쪽만 자르면 물리적으로
+            # 못 들어온다. 검출을 돌리면 옷 글씨(«PUBLIC» 티셔츠)를 자막으로 오인한다(실측).
+            안쪽컷.add(i)
+            print(f"  컷{i+1:02d}: 프레임-인-프레임 감지({w}x{h}@{x},{y}) → 안쪽만 확대 {s_f*100:.0f}%"
+                  f" · 잔존 면제(자막 밴드는 테두리에 있음)")
+            continue
         if seg.get("원문화면"):
             # ★fit-width — 원본 가로 전체가 박스 폭에 들어간다 (굽기의 원문화면 화면꼴과 동일)
             pic["box"] = {"scale": round(1080 / 1920 * 100, 3),
@@ -894,7 +957,7 @@ def main():
 
     for round_ in range(3):
         걸림 = [i for i in range(len(picture))
-                if not segs[i].get("원문화면") and 컷잔존(i)]
+                if not segs[i].get("원문화면") and i not in 안쪽컷 and 컷잔존(i)]
         if not 걸림:
             break
         print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 윗변을 45px 올려 다시 잡는다")
@@ -902,7 +965,7 @@ def main():
             유효탑[i] = 유효탑.get(i, sub_top or int(1080 * 0.872)) - 45
             상자잡기(i, 유효탑[i])
     잔존 = [i + 1 for i in range(len(picture))
-            if not segs[i].get("원문화면") and 컷잔존(i)]
+            if not segs[i].get("원문화면") and i not in 안쪽컷 and 컷잔존(i)]
     print(("  [OK] " if not 잔존 else "  [X] ") + f"컷 하단 잔존 번인 자막 0  걸린 컷 {잔존}")
     assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대 후에도 남는다"
     미리보기생성()          # 승격된 컷의 미리보기 갱신

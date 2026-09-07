@@ -151,8 +151,45 @@ def cut_and_join(src, segs, dst, work, fps):
              "-avoid_negative_ts", "make_zero", "-y", p])
         parts.append(p)
 
+    def _안쪽경계(t):
+        """프레임-인-프레임(원본 아웃트로가 화면을 절반으로 줄이고 검은 테두리) 감지 —
+        검은 테두리째 구우면 결과물에 검은 띠가 박힌다(2026-09-07 Deep10 컷7 실측:
+        960x540 중앙). 밝기>16 인 실화면 경계를 돌려준다. 테두리가 없으면 None."""
+        import numpy as _np
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", src,
+                            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                           capture_output=True)
+        a = _np.frombuffer(r.stdout, dtype=_np.uint8)
+        if len(a) != W * H:
+            return None
+        m = a.reshape(H, W) > 16
+        rows, cols = _np.where(m.any(axis=1))[0], _np.where(m.any(axis=0))[0]
+        if not len(rows) or not len(cols):
+            return None
+        x, y = int(cols[0]), int(rows[0])
+        w, h = int(cols[-1] - cols[0] + 1), int(rows[-1] - rows[0] + 1)
+        return (x, y, w, h) if w <= W * 0.92 and h <= H * 0.92 else None
+
     prev = None
     for i, s in enumerate(segs):
+        박들 = [_안쪽경계(s["t0"] + (s["t1"] - s["t0"]) * f) for f in (0.25, 0.5, 0.75)]
+        if all(박들) and max(abs(박들[0][k] - 박들[j][k]) for j in (1, 2) for k in range(4)) <= 8:
+            x, y, w, h = 박들[1]
+            vf = (f"crop={w}:{h}:{x}:{y},scale=-2:908,"
+                  f"crop=1080:908:(iw-1080)/2:0,setsar=1")
+            p = os.path.join(work, f"seg{len(parts):03d}.mov")
+            d_q = round((s["t1"] - s["t0"]) * fps) / fps
+            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
+                 "-to", str(s["t1"]), "-i", src, "-vf", vf, "-t", f"{d_q:.5f}",
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
+                 "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
+            parts.append(p)
+            prev = None
+            log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
+                                    "phase": s.get("phase"), "part": p, "beats": 0})
+            print(f"    P{s.get('phase')} 조각 {i} {s['t1']-s['t0']:5.1f}초 → 프레임-인-프레임"
+                  f" 감지({w}x{h}@{x},{y}) — 안쪽만 잘라 확대", flush=True)
+            continue
         if s.get("원문화면"):
             # ★원문화면 (2026-09-07 사장님 «결론 빼먹었어» — 결말 명언 카드): 화면 속 글이
             #   내용이라 얼굴 추적·확대 금지. 원본 «가로 전체»를 박스 폭에 맞춰 넣고(글이
@@ -522,7 +559,7 @@ def pick_sfx(tag):
     return os.path.join(HERE, CFG["assets"]["sfx_dir"], random.choice(sorted(cands)))
 
 
-def compose(cut, frame, ass, narrs, sfx_at, dst):
+def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
     """정적 층 위에 영상 상자를 얹고 자막을 태운 뒤 소리를 섞는다.
 
     ★입력 0 = 배경(정지 그림, loop) · 1 = 잘라 붙인 영상 · 2.. = 나레이션 · 그 뒤 = 효과음
@@ -558,8 +595,19 @@ def compose(cut, frame, ass, narrs, sfx_at, dst):
         amix.append(f"[{base+k}:a]adelay={int(at*1000)}|{int(at*1000)},volume=0.25[s{k}]")
         labels.append(f"[s{k}]")
 
-    fc = (f"[0:v][1:v]overlay=0:{b['y0']}:shortest=1[o];"
-          f"[o]ass='{ass_p}':fontsdir='{fontsdir}'[v];"
+    # ★댓글 카드 (2026-09-07 자체 검수 실측 — Deep09·10 완성본에 하단 댓글이 없었다.
+    #   PNG 카드 방식이 준비(프리미어 템플릿)에만 구현되고 굽기 합성엔 빠져 있었다 —
+    #   경로 갈라짐 클래스): 준비와 같은 자리·슬롯 회전으로 시간 창 오버레이.
+    base2 = 2 + len(narrs) + len(sfx_at)
+    vch, cur = "", "o"
+    for j, (cp, a0, a1, x, y) in enumerate(cmts):
+        ins += ["-loop", "1", "-i", cp]
+        nxt = f"oc{j}"
+        vch += (f"[{cur}][{base2 + j}:v]overlay={x}:{y}"
+                f":enable='between(t,{a0:.2f},{a1:.2f})'[{nxt}];")
+        cur = nxt
+    fc = (f"[0:v][1:v]overlay=0:{b['y0']}:shortest=1[o];" + vch
+          + f"[{cur}]ass='{ass_p}':fontsdir='{fontsdir}'[v];"
           + ";".join(amix)
           + f";{''.join(labels)}amix=inputs={len(labels)}:normalize=0[am];"
           + f"[am]loudnorm=I={a['target_lufs']}:TP={a['true_peak_db']}:LRA={a['lra']}[ao]")
@@ -654,8 +702,32 @@ def run_build(proj, path):
                     sfx_at.append((round(at, 3), p))
             at += s["t1"] - s["t0"]
 
+    # 댓글 카드 — 준비의 폴백(앞 12장)과 같은 선택·자리·슬롯 (2026-09-07 자체 검수:
+    # 완성본에만 댓글이 빠져 있었다)
+    cmts = []
+    try:
+        import glob as _g
+        from PIL import Image as _I
+        카드들 = sorted(_g.glob(os.path.join(HERE, CFG["paths"]["work"], f"{slug}_댓글",
+                                             "**", "*.png"), recursive=True))[:12]
+        if 카드들:
+            Lb = L["video_box"]
+            zone0, zone1 = Lb["y1"] + 8, L["credit"]["y0"] - 10
+            each = total / len(카드들)
+            for i2, cp in enumerate(카드들):
+                im = _I.open(cp).convert("RGB")
+                w2, h2 = 1080, int(im.height * 1080 / im.width)
+                if h2 > zone1 - zone0:
+                    w2, h2 = int(im.width * (zone1 - zone0) / im.height), zone1 - zone0
+                p2 = os.path.join(work, f"_cmt{i2:02d}.png")
+                im.resize((w2, h2)).save(p2)
+                cmts.append((p2, i2 * each, (i2 + 1) * each, (1080 - w2) // 2, zone0))
+            print(f"    댓글 카드 {len(카드들)}장 → 하단 슬롯 {each:.1f}s씩", flush=True)
+    except Exception as e:
+        print("    ★댓글 카드 합성 준비 실패:", str(e)[:80])
+
     print("5/5 합성·렌더", flush=True)
-    dst = compose(cut, ov, ass, narrs, sfx_at, os.path.join(out, out_name(proj)))
+    dst = compose(cut, ov, ass, narrs, sfx_at, os.path.join(out, out_name(proj)), cmts)
     print(f"\n완성: {dst}  ({os.path.getsize(dst)/1024/1024:.1f} MB)")
     report_cuts(proj, work, src)
     return 0

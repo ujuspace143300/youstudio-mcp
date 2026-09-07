@@ -473,7 +473,13 @@ def main():
                   if d["t"] - 0.4 <= 핀tf <= d.get("t1", d["t"] + 2.0) + 0.4]
         if 후보줄:
             d = min(후보줄, key=lambda x: abs(x["t"] - 핀tf))
-            if CLEAN.sub("", 핀글) in CLEAN.sub("", d["text"]):
+            if 핀글 == "":
+                # ★빼기 핀 (2026-09-07 Deep10 — 노래 가사를 ASR 이 뜻 없는 글로 오인.
+                #   가사는 정본을 알 수 없으니 지어내지 않고 자막을 뺀다. 소리는 남는다.)
+                print(f"  ★빼기 핀 적용: [{d['t']:.1f}s] 「{d['text']}」 자막 제거(노래 등)")
+                dlg.remove(d)
+                면제구간.append((d["t"] - 0.3, d.get("t1", d["t"] + 2.0) + 0.3))
+            elif CLEAN.sub("", 핀글) in CLEAN.sub("", d["text"]):
                 print(f"  [OK] 문구교정 핀 [{핀t}s] — 확정 문구가 이미 들어 있다: 「{d['text']}」")
             else:
                 print(f"  ★문구교정 핀 적용: [{d['t']:.1f}s] 「{d['text']}」 → 「{핀글}」")
