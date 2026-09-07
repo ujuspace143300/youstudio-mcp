@@ -28,15 +28,48 @@ function Warn($m) { Write-Host "   ⚠ $m" -ForegroundColor Yellow }
 function Stop-Here($m) { Write-Host "   ★ $m" -ForegroundColor Red; exit 1 }
 if (-not $토큰) { Stop-Here "토큰이 필요하다:  powershell -ExecutionPolicy Bypass -File install.ps1 <토큰>" }
 
-# ── 1. 도구 ───────────────────────────────────────────────────
-Say "1/8 node · ffmpeg · python · git (winget)"
-$pk = @{ node = "OpenJS.NodeJS.LTS"; ffmpeg = "Gyan.FFmpeg"; python = "Python.Python.3.12"; git = "Git.Git" }
-foreach ($k in $pk.Keys) {
-  if (-not (Get-Command $k -ErrorAction SilentlyContinue)) { winget install -e --id $pk[$k] --accept-source-agreements --accept-package-agreements | Out-Null }
+# ── 도구 진짜인가 — «명령이 있나」가 아니라 «버전을 뱉나」로 본다 ─────────
+#   ★윈도우 기본 python 은 Microsoft Store 리다이렉터 껍데기다: Get-Command 는 성공하지만 `python --version` 이
+#     «Python» 만 찍고 exit 9009 로 끝난다(2026-09-07 사장님 깨끗한 윈도우 실전). 그걸 «있음」으로 보고 winget 을 건너뛰면
+#     5단계 venv 에서 python.exe 가 없어 죽는다. 그래서 «Python 3.x» 를 실제로 뱉는 것만 python 으로 친다.
+function Test-Ver($cmd, $argv, $pattern) {   # $args 는 PowerShell 자동 변수라 이름을 피한다
+  try { $out = (& $cmd @argv 2>&1 | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { return $null }; if ($out -match $pattern) { return $out.Split("`n")[0].Trim() } } catch {}
+  return $null
 }
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-foreach ($k in @("node", "ffmpeg", "python", "git")) { if (-not (Get-Command $k -ErrorAction SilentlyContinue)) { Stop-Here "$k 가 아직 PATH 에 없다 — PowerShell 을 새로 열고 다시 돌려라" } }
-Ok "node $(node -v) · python $(python --version) · git $(git --version)"
+function Find-Python {
+  # ① py 런처  ② PATH 의 python  ③ winget/공식 설치 자리(%LOCALAPPDATA%\Programs\Python\Python3xx · Program Files)
+  if (Test-Ver "py" @("-3", "--version") "^Python 3\.") { return "py -3" }
+  if (Test-Ver "python" @("--version") "^Python 3\.") { return (Get-Command python).Source }
+  $cands = @()
+  foreach ($root in @("$env:LOCALAPPDATA\Programs\Python", "$env:ProgramFiles", "${env:ProgramFiles(x86)}")) {
+    if ($root -and (Test-Path $root)) { $cands += Get-ChildItem -Path $root -Directory -Filter "Python3*" -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName "python.exe" } }
+  }
+  foreach ($c in ($cands | Sort-Object -Descending)) { if ((Test-Path $c) -and (Test-Ver $c @("--version") "^Python 3\.")) { return $c } }
+  return $null
+}
+function Invoke-Py { param([string]$py, [string[]]$rest) if ($py -eq "py -3") { & py -3 @rest } else { & $py @rest } }
+function Refresh-Path { $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + $env:Path }
+
+# ── 1. 도구 ───────────────────────────────────────────────────
+Say "1/8 node · ffmpeg · python · git (winget) — 진짜 버전을 뱉는지로 본다"
+$need = @()
+if (-not (Test-Ver "node" @("-v") "^v\d+")) { $need += "OpenJS.NodeJS.LTS" }
+if (-not (Test-Ver "ffmpeg" @("-version") "^ffmpeg version")) { $need += "Gyan.FFmpeg" }
+if (-not (Test-Ver "git" @("--version") "^git version")) { $need += "Git.Git" }
+$py = Find-Python
+if (-not $py) { $need += "Python.Python.3.12" }
+foreach ($id in $need) { Write-Host "   winget install $id"; winget install -e --id $id --accept-source-agreements --accept-package-agreements | Out-Null }
+Refresh-Path
+$missing = @()
+if (-not (Test-Ver "node" @("-v") "^v\d+")) { $missing += "node" }
+if (-not (Test-Ver "ffmpeg" @("-version") "^ffmpeg version")) { $missing += "ffmpeg" }
+if (-not (Test-Ver "git" @("--version") "^git version")) { $missing += "git" }
+$py = Find-Python
+if (-not $py) { $missing += "python" }
+if ($missing.Count -gt 0) {
+  Stop-Here ("아직 안 잡히는 것: " + ($missing -join ", ") + " — winget 으로 깔았으면 PATH 가 새 셸에서만 보인다. ★PowerShell(또는 VS Code)을 닫고 새로 연 뒤 install.ps1 을 다시 돌려라. (python 이 계속 없으면 Microsoft Store 껍데기가 아니라 https://www.python.org/downloads/ 로 «Add python.exe to PATH» 를 켜고 설치)")
+}
+Ok ("node " + (Test-Ver "node" @("-v") "^v") + " · " + (Invoke-Py $py @("--version") | Out-String).Trim() + " (" + $py + ") · " + (Test-Ver "git" @("--version") "^git"))
 
 # ── 2. Claude Code ───────────────────────────────────────────
 Say "2/8 Claude Code"
@@ -74,11 +107,14 @@ Ok "자산 $n 개 확인 → $adir"
 
 # ── 5. 러너 파이썬 ───────────────────────────────────────────
 Say "5/8 러너 파이썬 ~/.youstudio/venv (pillow · numpy · opencv)"
+$py = Find-Python
+if (-not $py) { Stop-Here "python 이 없다(Store 껍데기만 있음) — 1단계 안내대로 python 을 깔고 새 셸에서 다시 돌려라" }
 $venv = "$HOME\.youstudio\venv"
-if (-not (Test-Path "$venv\Scripts\python.exe")) { python -m venv $venv }
+if (-not (Test-Path "$venv\Scripts\python.exe")) { Invoke-Py $py @("-m", "venv", $venv) }
+if (-not (Test-Path "$venv\Scripts\python.exe")) { Stop-Here "venv 를 못 만들었다 ($py -m venv $venv) — python 이 진짜인지(python --version 이 «Python 3.x») 확인" }
 & "$venv\Scripts\python.exe" -m pip install -q --upgrade pip pillow numpy opencv-python | Out-Null
-& "$venv\Scripts\python.exe" -c "import PIL, numpy, cv2" ; if ($LASTEXITCODE -ne 0) { Stop-Here "venv 모듈이 안 들어갔다" }
-Ok "venv 준비"
+& "$venv\Scripts\python.exe" -c "import PIL, numpy, cv2" ; if ($LASTEXITCODE -ne 0) { Stop-Here "venv 모듈이 안 들어갔다 — 인터넷·pip 를 확인" }
+Ok ("venv 준비 (" + (& "$venv\Scripts\python.exe" --version) + ")")
 
 # ── 6. API 키 ────────────────────────────────────────────────
 Say "6/8 API 키 (본인이 발급 · ~/.volcano/keys/) — 린박스: speechmatics(전사) · typecast(나레)"

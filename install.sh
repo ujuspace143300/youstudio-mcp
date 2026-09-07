@@ -43,7 +43,15 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && eval "$("$b" shellenv)"; done
 grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null || echo 'eval "$('"$(command -v brew)"' shellenv)"' >> "$HOME/.zprofile"
-for p in node ffmpeg python git; do brew list "$p" >/dev/null 2>&1 || brew install "$p"; done
+# 도구는 «명령이 있나」가 아니라 «진짜 버전을 뱉나」로 본다 (윈도우 Store 껍데기 python 사고의 맥 판 · 2026-09-07)
+ver_ok(){ "$1" "$2" 2>/dev/null | head -1 | grep -qE "$3"; }
+ver_ok node -v '^v[0-9]+' || brew install node
+ver_ok ffmpeg -version '^ffmpeg version' || brew install ffmpeg
+ver_ok git --version '^git version' || brew install git
+ver_ok python3 --version '^Python 3\.' || brew install python
+for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && eval "$("$b" shellenv)"; done
+MISS=""; ver_ok node -v '^v[0-9]+' || MISS="$MISS node"; ver_ok ffmpeg -version '^ffmpeg version' || MISS="$MISS ffmpeg"; ver_ok git --version '^git version' || MISS="$MISS git"; ver_ok python3 --version '^Python 3\.' || MISS="$MISS python3"
+[ -z "$MISS" ] || stop "아직 안 잡히는 것:$MISS — 터미널을 닫고 새로 연 뒤 install.sh 를 다시 돌려라(brew 경로가 새 셸에서만 보인다)"
 ok "node $(node -v) · $(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f1-3) · $(python3 --version)"
 
 # ── 2. Claude Code ───────────────────────────────────────────
@@ -85,7 +93,9 @@ ok "자산 $N개 확인 → $ADIR"
 # ── 5. 러너 파이썬 ───────────────────────────────────────────
 say "5/8 러너 파이썬 ~/.youstudio/venv (pillow · numpy · opencv)"
 VENV="$HOME/.youstudio/venv"
+ver_ok python3 --version '^Python 3\.' || stop "python3 이 진짜가 아니다(python3 --version 이 «Python 3.x» 가 아님) — 1단계 안내대로"
 [ -x "$VENV/bin/python3" ] || python3 -m venv "$VENV"
+[ -x "$VENV/bin/python3" ] || stop "venv 를 못 만들었다 (python3 -m venv $VENV)"
 "$VENV/bin/pip" install -q --upgrade pip pillow numpy opencv-python >/dev/null && ok "venv 준비 ($("$VENV/bin/python3" --version))"
 "$VENV/bin/python3" -c "import PIL, numpy, cv2" || stop "venv 모듈이 안 들어갔다"
 
