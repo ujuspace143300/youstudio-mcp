@@ -593,12 +593,24 @@ def main():
                     ln["t1"] = round(ln["t"] + 옛dur, 2)
                 break
     dlg.sort(key=lambda x: (x["t"], x.get("t1", x["t"])))
-    겹침수 = 0
+    겹침수, 병합수 = 0, 0
+    지울 = []
     for a2, b2 in zip(dlg, dlg[1:]):
-        if a2.get("t1", 0) > b2["t"] - 0.03:
+        if a2.get("t1", 0) <= b2["t"] - 0.03:
+            continue
+        if b2["t"] - 0.03 - a2["t"] < 0.3 and len(a2["text"] + " " + b2["text"]) <= 14:
+            # 앞줄 자리가 0.3s 도 안 남는다 — 붙는 짧은 줄은 다음 줄에 합친다
+            # (2026-09-07 «왜 | 왜 갑자기 가자» 0.18s 겹침 실측 — 최소 길이 바닥이 해소를 막았다)
+            b2["text"] = (a2["text"] + " " + b2["text"]).strip()
+            b2["t"] = a2["t"]
+            지울.append(a2)
+            병합수 += 1
+        else:
             a2["t1"] = round(max(a2["t"] + 0.3, b2["t"] - 0.03), 2)
             겹침수 += 1
-    print(f"  [OK] 자막 겹침 정리 — 당긴 끝 {겹침수}건 · 잔여 겹침 "
+    for x in 지울:
+        dlg.remove(x)
+    print(f"  [OK] 자막 겹침 정리 — 당긴 끝 {겹침수}건 · 병합 {병합수}건 · 잔여 겹침 "
           f"{sum(1 for x, y in zip(dlg, dlg[1:]) if x.get('t1', 0) > y['t'] + 0.01)}건")
 
     # ── ③ 커버리지 게이트 — 모든 발화 단어는 자기 자막 줄 시작에서 6초(표시 최대) 안 ──
