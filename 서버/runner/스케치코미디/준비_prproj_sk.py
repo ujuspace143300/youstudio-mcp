@@ -486,25 +486,37 @@ def main():
             return _np.frombuffer(r.stdout, dtype=_np.int16).astype(float)
         어긋난컷 = []
         for k, pc in enumerate(picture):
-            mc = (pc["t0"] + pc["t1"]) / 2
-            ms = pc["src_in"] + (mc - pc["t0"])
-            a = _조각소리(cut_mp4, mc - 0.4, 0.8)
-            bb = _조각소리(dst_src, ms - 1.6, 3.2)
-            if len(a) < 6000 or len(bb) < 12000 or a.std() < 50:
-                continue                                   # 무음 컷은 판정 불가 — 건너뜀
-            c = _np.correlate(bb - bb.mean(), a - a.mean(), "valid")
-            off = (int(_np.argmax(c)) / 16000) - 1.2
-            if abs(off) > 0.15:
-                어긋난컷.append((k + 1, round(off, 3)))
+            # ★다점 표본 + 일관성 판정 (2026-09-07 Deep13 실측 — 전화 장면처럼 같은 대사가
+            #   근처에서 반복되는 소리는 한 점 상관이 이웃 반복에 끌려 -0.9s 오검출을 냈다.
+            #   프레임 대조로 컷은 정확함을 확인. 진짜 밀림은 컷 «전체»가 같은 값으로 밀리므로
+            #   세 점이 «같은 방향·같은 크기»로 어긋날 때만 실패다.)
+            offs = []
+            for f in (0.25, 0.5, 0.75):
+                mc = pc["t0"] + (pc["t1"] - pc["t0"]) * f
+                ms = pc["src_in"] + (mc - pc["t0"])
+                a = _조각소리(cut_mp4, mc - 0.4, 0.8)
+                bb = _조각소리(dst_src, ms - 1.6, 3.2)
+                if len(a) < 6000 or len(bb) < 12000 or a.std() < 50:
+                    continue                               # 무음 표본 — 판정 불가
+                c = _np.correlate(bb - bb.mean(), a - a.mean(), "valid")
+                i = int(_np.argmax(c))
+                if i in (0, len(c) - 1):
+                    continue                               # 창 끝 퇴화(무신호) — 판정 불가
+                offs.append((i / 16000) - 1.2)
+            if len(offs) >= 2 and all(abs(o) > 0.15 for o in offs) \
+                    and max(offs) - min(offs) <= 0.1:
+                어긋난컷.append((k + 1, round(sum(offs) / len(offs), 3)))
             # ★경계 겹침(더블어택) 감시 — 컷 시작 직후 80ms 넘게 어긋나면 실패
             #   (2026-09-03 «순간 배속»: 조각 꼬리 패딩이 46ms 겹쳐 들렸다)
             a2 = _조각소리(cut_mp4, pc["t0"] + 0.10, 0.5)
             bb2 = _조각소리(dst_src, pc["src_in"] - 0.65, 2.0)
             if len(a2) >= 4000 and len(bb2) >= 8000 and a2.std() >= 50:
                 c2 = _np.correlate(bb2 - bb2.mean(), a2 - a2.mean(), "valid")
-                off2 = (int(_np.argmax(c2)) / 16000) - 0.75
-                if abs(off2) > 0.08:
-                    어긋난컷.append((k + 1, "경계", round(off2, 3)))
+                i2 = int(_np.argmax(c2))
+                if i2 not in (0, len(c2) - 1):             # 창 끝 퇴화는 판정 불가(-0.75 실측)
+                    off2 = (i2 / 16000) - 0.75
+                    if abs(off2) > 0.08:
+                        어긋난컷.append((k + 1, "경계", round(off2, 3)))
         print(("  [OK] " if not 어긋난컷 else "  [X] ") +
               f"컷별 원음 대조(±150ms) — 컷 {len(picture)}개 · 어긋남 {어긋난컷}")
         assert not 어긋난컷, "완성본 컷이 계획 지점과 어긋난다 — make 굽기·조각을 확인하라"
