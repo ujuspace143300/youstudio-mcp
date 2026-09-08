@@ -495,6 +495,11 @@ def main():
                 print(f"  ★빼기 핀 적용: [{d['t']:.1f}s] 「{d['text']}」 자막 제거(노래 등)")
                 dlg.remove(d)
                 면제구간.append((d["t"] - 0.3, d.get("t1", d["t"] + 2.0) + 0.3))
+            elif CLEAN.sub("", 핀글) == CLEAN.sub("", d["text"]) and 핀글 != d["text"]:
+                # ★부호까지 핀 그대로 (2026-09-08 Deep31 «됐어?» — 포함 판정이 부호를 벗겨
+                #   비교해서 부호만 다른 핀이 무시됐다. 글이 같고 부호가 다르면 핀이 이긴다.)
+                print(f"  ★문구교정 핀(부호) 적용: [{d['t']:.1f}s] 「{d['text']}」 → 「{핀글}」")
+                d["text"] = 핀글
             elif CLEAN.sub("", 핀글) in CLEAN.sub("", d["text"]):
                 print(f"  [OK] 문구교정 핀 [{핀t}s] — 확정 문구가 이미 들어 있다: 「{d['text']}」")
             else:
@@ -519,7 +524,11 @@ def main():
     병합후 = []
     for d in dlg:
         내글 = CLEAN.sub("", d["text"])
-        if 병합후 and " " not in d["text"].strip() and 내글 in 의존명사:
+        # ★시간 간격 보호 (2026-09-08 Deep31 «고마워 거» — 11초 떨어진 줄에 고아를 붙였다.
+        #   병합은 같은 발화 안에서만: 앞줄 끝과 2초 넘게 떨어지면 다른 발화다.)
+        앞끝 = (병합후[-1].get("t1") or 병합후[-1]["t"]) if 병합후 else None
+        if (병합후 and " " not in d["text"].strip() and 내글 in 의존명사
+                and d["t"] - 앞끝 <= 2.0):
             앞줄 = 병합후[-1]
             앞줄["text"] = (앞줄["text"] + " " + d["text"]).strip()   # 14자 초과는 아래 스택이 재분할
             if d.get("t1"):
@@ -536,6 +545,9 @@ def main():
         첫어절 = 줄["text"].split()[0]
         앞어절들 = 앞줄["text"].split()
         if CLEAN.sub("", 첫어절) not in 의존명사 or len(앞어절들) < 2:
+            continue
+        # ★시간 간격 보호 (2026-09-08 Deep31 — 병합과 같은 클래스: 다른 발화의 어절을 끌어내리면 안 된다)
+        if 줄["t"] - (앞줄.get("t1") or 앞줄["t"]) > 2.0:
             continue
         내릴 = 앞어절들[-1]
         if len(내릴 + " " + 줄["text"]) > 최대:
