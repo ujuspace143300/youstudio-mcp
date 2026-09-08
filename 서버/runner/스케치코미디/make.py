@@ -189,7 +189,9 @@ def check(proj, path):
         # ★결말 발화 «끝» 절단 게이트 (2026-09-07 Deep18 «100만원 영원»·Deep20 «고백 직관
         #   진짜» 실측 ×2 — 마지막 조각 t1 이 결말 발화 꼬리를 잘라 문구가 토막났다.
         #   vtt 끝시각은 실제 말끝보다 이르게 찍히므로 +0.4s 여유를 요구한다.)
-        if os.path.exists(_vtt):
+        # 결말확인 명시 편은 발화 끝 게이트도 사람 판단을 따른다(엔딩 카드 위 보이스오버가
+        # 컷 경계에 걸리는 소재 — 2026-09-08 Deep23 «내가 줄게» 꼬리가 카드에 걸침)
+        if os.path.exists(_vtt) and not proj.get("결말확인"):
             for m in _re.finditer(r"(\d+):(\d+):(\d+\.\d+) --> (\d+):(\d+):(\d+\.\d+)\n(.*)",
                                   open(_vtt, encoding="utf-8").read()):
                 g2 = m.groups()
