@@ -20,7 +20,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, os.path.join(ROOT, "도너"))
 from prproj_lib import (Doc, load, save, esc, rewire, set_child, child, collect_lineage,
                         track_set_items, track_items, verify, parse_blob, blob_set_texts,
-                        blob_set_fonts, blob_set_colors, blob_set_sizes, param_blob, param_set_blob,
+                        blob_set_fonts, blob_set_colors, blob_set_sizes, blob_set_outlines,
+                        param_blob, param_set_blob,
                         is_source_text, GRAPHIC_IN, 빈블롭_RE, TPS)
 
 # ★자막 글꼴(2026-09-01 사장님: 페이퍼로지) — 도너 서체(강원교육모두체)를 이걸로 갈아 끼운다.
@@ -154,7 +155,7 @@ def lineage_stopped(doc, item):
 
 
 def clone_item(doc, item, alloc, new_blocks, span=None, inout=None, name=None,
-               params=None, texts=None, color=None, font=None, size=None):
+               params=None, texts=None, color=None, font=None, size=None, outline=None):
     """아이템 전 계보 복제 (마스터클립은 공유). texts 를 주면 소스 텍스트 블롭도 바꾼다."""
     ids, uids, _stop = lineage_stopped(doc, item)
     ids = sorted(ids, key=int)
@@ -190,6 +191,8 @@ def clone_item(doc, item, alloc, new_blocks, span=None, inout=None, name=None,
                 b64, binhash, info = blob_set_colors(b64, [list(color)] * len(info["runs"]))
             if size:                                               # 제목 크기 96(2026-09-08 A안 — 도너 견본은 112)
                 b64, binhash, info = blob_set_sizes(b64, [float(size)] * len(info["runs"]))
+            if outline is not None:                                # 제목 외곽선 0(2026-09-08 — 견본 6.0 이 «글씨체 바뀜»)
+                b64, binhash, info = blob_set_outlines(b64, [float(outline)] * len(info["runs"]))
             b = param_set_blob(b, b64, binhash)
             blob_got = "".join(r["text"] for r in info["runs"])
         elif params:
@@ -385,7 +388,8 @@ def main():
                                   name=cue["text"].replace("\r", " ")[:40], texts=texts,
                                   params={"위치": cue["pos"]} if lane == "title" else None,
                                   color=cue.get("color"),
-                                  font=cue.get("font"), size=cue.get("size"))
+                                  font=cue.get("font"), size=cue.get("size"),
+                                  outline=cue.get("outline"))
         refs[lane].append(ref)
         if lane == "dlg":
             dlg_colors.append(tuple(cue["color"]) if cue.get("color") else None)
@@ -703,6 +707,47 @@ def main():
           (r.stdout.decode(errors="replace").strip().splitlines()[0] if r.stdout else r.stderr.decode(errors="replace")[:80]))
     assert 꾸밈ok, "자막 꾸미기 실패"
 
+    # ── ⑪b 제목 그림자 제거 (2026-09-08 사장님 «글씨체가 바뀌었네» 실측 수리 2/2)
+    #    꾸미기는 «소스 텍스트» 전부에 그림자(불투명100·크기3·흐림6·거리10)를 넣는데,
+    #    굽던 제목은 민짜 검정이었다 — 외곽선 6.0(견본 잔재)과 그림자가 겹쳐 «글씨체가
+    #    바뀐» 것처럼 보였다. 제목 blob 의 그림자 값(root0 의 12·14·15·16·20)을 0 으로 되돌린다.
+    import importlib.util as _ilu
+    import base64 as _b64
+    import struct as _st2
+    _spec = _ilu.spec_from_file_location("st_", os.path.join(stage, "소스텍스트.py"))
+    _ST = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_ST)
+
+    def _제목그림자값(blob64):
+        buf, _ = _ST.unwrap(_b64.b64decode(blob64))
+        f_ = _ST._fields(buf, _ST._root0(buf))
+        return {k: _st2.unpack_from("<f", buf, f_[k])[0] for k in (12, 14, 15, 16, 20) if k in f_}
+
+    제목텍스트들 = {c["text"] for c in tl["cues"] if c["lane"] == "title"}
+    _doc3 = Doc(load(out_path))
+    _xml3, _끈 = _doc3.xml, 0
+    for _mm in list(re.finditer(r'<StartKeyframeValue Encoding="base64" BinaryHash="[^"]+">([^<]+)</StartKeyframeValue>', _xml3)):
+        _b = re.sub(r"\s+", "", _mm.group(1))
+        try:
+            _txt = "".join(r["text"] for r in parse_blob(_b)["runs"])
+        except Exception:
+            continue
+        if _txt not in 제목텍스트들:
+            continue
+        buf, _ = _ST.unwrap(_b64.b64decode(_b))
+        f_ = _ST._fields(buf, _ST._root0(buf))
+        for k in (12, 14, 15, 16, 20):
+            if k in f_:
+                _st2.pack_into("<f", buf, f_[k], 0.0)
+        _새 = _b64.b64encode(_ST.wrap(buf)).decode("ascii")
+        assert all(v == 0.0 for v in _제목그림자값(_새).values()), "제목 그림자 0 되쓰기 실패"
+        _해시 = str(uuid.uuid4())[:28] + f"{len(_ST.wrap(buf)) + 12:08x}"
+        _xml3 = _xml3.replace(_mm.group(0),
+                              _mm.group(0).split('BinaryHash="')[0] + f'BinaryHash="{_해시}">{_새}</StartKeyframeValue>', 1)
+        _끈 += 1
+    assert _끈 == len(제목텍스트들), f"제목 그림자 제거 {_끈}/{len(제목텍스트들)} — 제목 blob 을 못 찾았다"
+    save(out_path, _xml3)
+    print(f"  [OK] 제목 그림자 제거 — {_끈}줄 (꾸미기 그림자는 대사·나레만)")
+
     # ── ⑪c 진짜 아모르 팝 — 사장님 프리셋 «팝업자막_아모르» 의 벡터 모션 부품을 단다.
     #    (꾸미기의 텍스트 팝은 기준점이 달라 «이상하게 튄다» — 2026-09-02 사장님 반려.
     #     아모르입히기 = 신병4 납품 검증 도구. 팝 곡선은 아모르 사전설정 150→175/0.182s,
@@ -906,6 +951,13 @@ def main():
             제목오류.append(("텍스트", r0["text"], cue["text"]))
         if abs((r0["size"] or 0) - cue["size"]) > 0.01:
             제목오류.append(("크기", r0["size"], cue["size"]))
+        # 외곽선 — 2026-09-08 «글씨체 바뀜» 구멍: 게이트가 크기·색만 보고 외곽선을 안 봐서
+        # 도너 견본의 6.0 이 그대로 통과했다. 큐 값(0.0)과 정확히 맞아야 한다.
+        if "outline" in cue and abs((r0.get("outline") or 0) - cue["outline"]) > 0.01:
+            제목오류.append(("외곽선", r0.get("outline"), cue["outline"]))
+        _그림자 = _제목그림자값(param_blob(doc2.get(st[0]), doc2.xml))
+        if any(v != 0.0 for v in _그림자.values()):
+            제목오류.append(("그림자 잔존", _그림자))
         if r0["color"] != list(cue["color"]):
             제목오류.append(("색", r0["color"], cue["color"]))
         위치 = None

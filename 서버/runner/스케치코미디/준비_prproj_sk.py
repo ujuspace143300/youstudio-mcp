@@ -634,8 +634,10 @@ def main():
 
     cues = [{"lane": "title", "t0": 0.0, "t1": round(total, 3), "text": ln,
              "pos": _제목위치(ln, y_), "size": float(_t["line_h"]),
-             "font": _제목PS, "color": _제목RGB}
+             "font": _제목PS, "color": _제목RGB, "outline": 0.0}
             for ln, y_ in zip(list(proj["title"])[:2], (_t["line1_y"], _t["line2_y"]))]
+    # outline 0.0 — 껍데기 구이는 민짜 검정. 도너 견본 외곽선 6.0 을 안 끄면 검정 테두리가
+    # 얹혀 «글씨체가 바뀐» 것처럼 굵어 보인다 (2026-09-08 사장님 지적 실측)
     assert len(cues) == 2, "제목은 2줄이어야 한다 (규격 layout.title.lines)"
     cues.append({"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]})
     # 대사 큐 — 60fps 격자에서 끝 = min(시작+6초, 다음 시작) 로 겹침 0 을 보장한다.

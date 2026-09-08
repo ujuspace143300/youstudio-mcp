@@ -197,13 +197,15 @@ def parse_blob(b64: str) -> dict:
         for i in range(_u32(b, vec)):
             el = vec + 4 + 4 * i; rt = el + _u32(b, el); tf = _fpos(b, rt, 0)
             text = _rstr(b, tf + _u32(b, tf)) if tf else ""
-            size = None; color = None; stroke = None; stf = _fpos(b, rt, 1)
+            size = None; color = None; stroke = None; outline = None; stf = _fpos(b, rt, 1)
             if stf is not None:
                 st = stf + _u32(b, stf); szp = _fpos(b, st, 1)
                 if szp is not None: size = struct.unpack_from("<f", b, szp)[0]
                 color = _색읽기(b, st, 2)        # 채움색 — 2026-08-25 규명(진단일지 §26)
                 stroke = _색읽기(b, st, 4)       # 테두리색(도너는 전부 검정)
-            out["runs"].append({"text": text, "size": size, "color": color, "stroke": stroke})
+                olp = _fpos(b, st, 6)            # 외곽선 굵기 — 2026-09-08 제목 «글씨체 바뀜» 범인(도너 6.0)
+                if olp is not None: outline = struct.unpack_from("<f", b, olp)[0]
+            out["runs"].append({"text": text, "size": size, "color": color, "stroke": stroke, "outline": outline})
     fp = _fpos(b, main, 1)
     if fp is not None:
         vec = fp + _u32(b, fp)
@@ -362,6 +364,38 @@ def blob_set_sizes(b64: str, sizes: list) -> tuple[str, str, dict]:
         if sz is not None:
             assert abs(info["runs"][i]["size"] - float(sz)) < 0.01, \
                 f"재파싱 크기 불일치 런 {i}: {info['runs'][i]['size']} != {sz}"
+    return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
+
+
+def blob_set_outlines(b64: str, outlines: list) -> tuple[str, str, dict]:
+    """런 외곽선 굵기만 바꾼 새 블롭. outlines[i] = float 또는 None(그대로).
+    크기(blob_set_sizes)와 같은 StyleTable 인라인 float — 필드 6. 2026-09-08 도입:
+    도너 제목 견본의 외곽선 6.0 이 검정 제목에 얹혀 «글씨체가 바뀐» 것처럼 보였다(사장님 지적)."""
+    raw = bytearray(base64.b64decode(re.sub(r"\s+", "", b64)))
+    b = bytes(raw)
+    assert struct.unpack_from("<Q", b, 0)[0] == len(raw) - 12 and b[8:12] == MAGIC, "블롭 헤더/매직"
+    root = 12 + _u32(b, 12); p = _fpos(b, root, 0); main = p + _u32(b, p)
+    rp = _fpos(b, main, 0); assert rp is not None, "런 벡터 없음"
+    vec = rp + _u32(b, rp); n = _u32(b, vec)
+    assert len(outlines) == n, f"런 수 {n} != 외곽선 {len(outlines)}"
+    본자리 = []
+    for i, ol in enumerate(outlines):
+        if ol is None:
+            continue
+        el = vec + 4 + 4 * i; rt = el + _u32(b, el)
+        stf = _fpos(b, rt, 1); assert stf is not None, f"런 {i} StyleTable 없음"
+        st = stf + _u32(b, stf)
+        olp = _fpos(b, st, 6); assert olp is not None, f"런 {i} 외곽선 슬롯(f6) 없음"
+        assert olp not in 본자리, f"런 {i} 외곽선 슬롯 공유 — in-place 수정 불가"
+        본자리.append(olp)
+        struct.pack_into("<f", raw, olp, float(ol))
+    struct.pack_into("<Q", raw, 0, len(raw) - 12)
+    out = base64.b64encode(bytes(raw)).decode("ascii")
+    info = parse_blob(out)
+    for i, ol in enumerate(outlines):
+        if ol is not None:
+            assert abs(info["runs"][i]["outline"] - float(ol)) < 0.01, \
+                f"재파싱 외곽선 불일치 런 {i}: {info['runs'][i]['outline']} != {ol}"
     return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
 
 
