@@ -330,6 +330,41 @@ def blob_set_colors(b64: str, colors: list) -> tuple[str, str, dict]:
     return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
 
 
+def blob_set_sizes(b64: str, sizes: list) -> tuple[str, str, dict]:
+    """런 글자 크기만 바꾼 새 블롭. sizes[i] = float 또는 None(그대로).
+
+    크기는 StyleTable 필드 1 의 **인라인 float 4바이트**라 참조 재배치가 필요 없다 —
+    그 자리만 덮는다(문자열 in-place 금지 원칙은 «참조 오프셋과 패딩» 얘기라 스칼라엔 해당 없음).
+    ★단 StyleTable 이 같은 블롭 안 다른 런과 공유될 수 있으므로, 같은 szp 를 두 런이 가리키면
+    거부한다(제목·자막 블롭은 런 1개라 실전에서 안 걸린다). 2026-09-08 제목 V3 정식화(A안)로 도입."""
+    raw = bytearray(base64.b64decode(re.sub(r"\s+", "", b64)))
+    b = bytes(raw)
+    assert struct.unpack_from("<Q", b, 0)[0] == len(raw) - 12 and b[8:12] == MAGIC, "블롭 헤더/매직"
+    root = 12 + _u32(b, 12); p = _fpos(b, root, 0); main = p + _u32(b, p)
+    rp = _fpos(b, main, 0); assert rp is not None, "런 벡터 없음"
+    vec = rp + _u32(b, rp); n = _u32(b, vec)
+    assert len(sizes) == n, f"런 수 {n} != 크기 {len(sizes)}"
+    szps = []
+    for i, sz in enumerate(sizes):
+        if sz is None:
+            continue
+        el = vec + 4 + 4 * i; rt = el + _u32(b, el)
+        stf = _fpos(b, rt, 1); assert stf is not None, f"런 {i} StyleTable 없음"
+        st = stf + _u32(b, stf)
+        szp = _fpos(b, st, 1); assert szp is not None, f"런 {i} 크기 슬롯(f1) 없음"
+        assert szp not in szps, f"런 {i} 크기 슬롯 공유 — in-place 수정 불가"
+        szps.append(szp)
+        struct.pack_into("<f", raw, szp, float(sz))
+    struct.pack_into("<Q", raw, 0, len(raw) - 12)
+    out = base64.b64encode(bytes(raw)).decode("ascii")
+    info = parse_blob(out)
+    for i, sz in enumerate(sizes):
+        if sz is not None:
+            assert abs(info["runs"][i]["size"] - float(sz)) < 0.01, \
+                f"재파싱 크기 불일치 런 {i}: {info['runs'][i]['size']} != {sz}"
+    return out, str(uuid.uuid4())[:28] + f"{len(raw) + 12:08x}", info
+
+
 def split_runs_words(text: str, n: int) -> list[str]:
     """[B안] 텍스트를 런 n개로 나누되 **단어 경계에서만** 자른다(중간 끊김 방지).
     단어 수가 런 수보다 적으면 첫 런에 전부 넣고 나머지는 빈 런(맛보기에서 빈 런 정상 확인).

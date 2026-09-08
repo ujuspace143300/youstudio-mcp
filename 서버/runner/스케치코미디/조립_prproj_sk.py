@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, os.path.join(ROOT, "도너"))
 from prproj_lib import (Doc, load, save, esc, rewire, set_child, child, collect_lineage,
                         track_set_items, track_items, verify, parse_blob, blob_set_texts,
-                        blob_set_fonts, blob_set_colors, param_blob, param_set_blob,
+                        blob_set_fonts, blob_set_colors, blob_set_sizes, param_blob, param_set_blob,
                         is_source_text, GRAPHIC_IN, 빈블롭_RE, TPS)
 
 # ★자막 글꼴(2026-09-01 사장님: 페이퍼로지) — 도너 서체(강원교육모두체)를 이걸로 갈아 끼운다.
@@ -154,7 +154,7 @@ def lineage_stopped(doc, item):
 
 
 def clone_item(doc, item, alloc, new_blocks, span=None, inout=None, name=None,
-               params=None, texts=None, color=None):
+               params=None, texts=None, color=None, font=None, size=None):
     """아이템 전 계보 복제 (마스터클립은 공유). texts 를 주면 소스 텍스트 블롭도 바꾼다."""
     ids, uids, _stop = lineage_stopped(doc, item)
     ids = sorted(ids, key=int)
@@ -185,9 +185,11 @@ def clone_item(doc, item, alloc, new_blocks, span=None, inout=None, name=None,
                 채움 = param_blob(doc.get(k), doc.xml)
                 b = 빈블롭_RE.sub(lambda m: f'<StartKeyframeValue Encoding="base64" BinaryHash="{m.group(1)}">{채움}</StartKeyframeValue>', b, count=1)
             b64, binhash, info = blob_set_texts(param_blob(b), texts)
-            b64, binhash, info = blob_set_fonts(b64, 자막폰트)     # 페이퍼로지(2026-09-01)
-            if color:                                              # 화자별 색(2026-09-02)
+            b64, binhash, info = blob_set_fonts(b64, font or 자막폰트)   # 기본 페이퍼로지 · 제목은 규격 폰트(2026-09-08)
+            if color:                                              # 화자별 색(2026-09-02) · 제목 검정(2026-09-08)
                 b64, binhash, info = blob_set_colors(b64, [list(color)] * len(info["runs"]))
+            if size:                                               # 제목 크기 96(2026-09-08 A안 — 도너 견본은 112)
+                b64, binhash, info = blob_set_sizes(b64, [float(size)] * len(info["runs"]))
             b = param_set_blob(b, b64, binhash)
             blob_got = "".join(r["text"] for r in info["runs"])
         elif params:
@@ -367,17 +369,23 @@ def main():
     tpl_map = {"title": tpl_v3, "narr": tpl_v4, "dlg": tpl_v5}
     blob_bad = []
     dlg_colors = []                     # refs["dlg"] 와 나란히 — 층 분리(⑥b)에 쓴다
-    # 제목 클론은 화면 밖(y 1.8)으로 — 보이는 제목은 껍데기가 담당한다 (2026-09-01)
-    lane_params = {"title": {"위치": tl.get("title_pos", "0.5:1.8")}, "narr": None, "dlg": None}
+    # 제목 = **화면 안** 텍스트 그래픽 (2026-09-08 사장님 A안 — «프리미어에서 수정할 수 있어야 해»).
+    #   줄별 1장, 위치·크기·색·폰트는 준비가 큐에 실어 보낸다(규격 layout.title → 신병4 실측 환산).
+    #   화면 밖 y1.8 로 숨기고 껍데기에 굽던 2026-09-01 구조는 폐기 — 눈에 보이는 제목이 곧 수정 자리다.
     for cue in tl["cues"]:
         lane = cue["lane"]
         t0, t1 = frame_ticks(cue["t0"]), max(frame_ticks(cue["t1"]), frame_ticks(cue["t0"]) + FRAME)
         texts = [cue["text"]] + [""] * (runs[lane] - 1)
         gi = GRAPHIC_IN
+        if lane == "title":
+            assert cue.get("pos") and cue.get("size") and cue.get("font"), \
+                "제목 큐에 pos·size·font 가 없다 — 옛 timeline_sk.json 이다. 준비를 다시 돌려라 (2026-09-08 A안)"
         ref, got, _u = clone_item(doc, tpl_map[lane], alloc, new_blocks, span=(t0, t1),
                                   inout=(gi, gi + (t1 - t0)),
                                   name=cue["text"].replace("\r", " ")[:40], texts=texts,
-                                  params=lane_params[lane], color=cue.get("color"))
+                                  params={"위치": cue["pos"]} if lane == "title" else None,
+                                  color=cue.get("color"),
+                                  font=cue.get("font"), size=cue.get("size"))
         refs[lane].append(ref)
         if lane == "dlg":
             dlg_colors.append(tuple(cue["color"]) if cue.get("color") else None)
@@ -410,7 +418,8 @@ def main():
     track_set_items(doc, T["A1"], a_refs, transitions=[])
     track_set_items(doc, T["A2"], a2_refs, transitions=[])
     track_set_items(doc, T["A3"], a3_sfx, transitions=[])
-    track_set_items(doc, T["V3"], refs["title"], transitions=[])
+    # 제목 줄1만 V3 — 줄2는 아래 ⑥b 에서 새 트랙으로 (같은 트랙에 같은 시간이면 겹침, 2026-09-08 실측 [X])
+    track_set_items(doc, T["V3"], refs["title"][:1], transitions=[])
     track_set_items(doc, T["V4"], refs["narr"], transitions=[])
 
     # ── ⑥b 화자별 층 분리 (2026-09-02 사장님: 색깔별로 트랙을 나눠라) ─────────
@@ -425,31 +434,44 @@ def main():
     분리 = [(c, [r for r, c2 in zip(refs["dlg"], dlg_colors) if c2 == c]) for c in 색순서]
     if not v5_refs and 분리:            # 기본색 줄이 없으면 첫 그룹이 V5 를 지킨다(빈 트랙 방지)
         v5_refs = 분리.pop(0)[1]
-    새트랙 = []                          # (라벨, uid, refs, color)
-    if 분리:
+    새트랙 = []                          # (라벨, uid, refs, color) — 화자 색 트랙
+    제목트랙 = []                        # (라벨, uid, refs) — 제목 줄2+ (2026-09-08 A안: 1줄 = 1트랙)
+    # 추가 트랙 명세: (베이스 트랙 uid, 아이템들, 화자색 또는 None). 제목 줄2 는 V3 를 본뜬다.
+    추가명세 = [(T["V3"], [r], None) for r in refs["title"][1:]] \
+             + [(T["V5"], grp, color) for color, grp in 분리]
+    if 추가명세:
         tg_m = re.search(r'^\t<VideoTrackGroup ObjectID="(\d+)"', doc.xml, re.M)
         tg_id = int(tg_m.group(1))
         tg = doc.get(tg_id)
-        assert T["V5"] in tg, "비디오 트랙 그룹에 V5 가 없다"
-        base_blk = doc.get_uid(T["V5"])
+        assert T["V5"] in tg and T["V3"] in tg, "비디오 트랙 그룹에 V3/V5 가 없다"
         기존트랙 = re.findall(r'<Track Index="\d+" ObjectURef="([^"]+)"/>', tg)
         next_tid = int(child(tg, "NextTrackID"))
-        for k, (color, grp) in enumerate(분리):
+        새uid들 = []
+        색k = 0
+        for k, (base_uid, grp, color) in enumerate(추가명세):
             nu = str(uuid.uuid4())
-            nb = base_blk.replace(f'ObjectUID="{T["V5"]}"', f'ObjectUID="{nu}"', 1)
+            nb = doc.get_uid(base_uid).replace(f'ObjectUID="{base_uid}"', f'ObjectUID="{nu}"', 1)
             nb = re.sub(r"<ID>\d+</ID>", f"<ID>{next_tid + k}</ID>", nb, count=1)
             nb = re.sub(r"<Index>\d+</Index>", f"<Index>{len(기존트랙) + k}</Index>", nb)
             doc.append([nb])
             track_set_items(doc, nu, grp)
-            새트랙.append((f"V{6 + k}", nu, grp, color))
+            새uid들.append(nu)
+            if color is None:
+                제목트랙.append((f"V3+{len(제목트랙) + 1}", nu, grp))
+            else:
+                새트랙.append((f"V{6 + 색k}", nu, grp, color)); 색k += 1
         rows = "".join(f'\n\t\t\t\t<Track Index="{i}" ObjectURef="{u}"/>'
-                       for i, u in enumerate(기존트랙 + [t[1] for t in 새트랙]))
+                       for i, u in enumerate(기존트랙 + 새uid들))
         tg = re.sub(r'(<Tracks Version="1">).*?(</Tracks>)',
                     lambda m: m.group(1) + rows + "\n\t\t\t" + m.group(2), tg, count=1, flags=re.S)
-        tg = set_child(tg, "NextTrackID", str(next_tid + len(새트랙)))
+        tg = set_child(tg, "NextTrackID", str(next_tid + len(추가명세)))
         doc.replace(tg_id, tg)
-        print("화자별 층 분리 — V5(기본색) " + str(len(v5_refs)) + "장 · " +
-              " · ".join(f"{lb} {len(g)}장 RGB{tuple(c)}" for lb, _u, g, c in 새트랙), file=sys.stderr)
+        if 제목트랙:
+            print(f"제목 층 분리 — V3(줄1) 1장 · " +
+                  " · ".join(f"{lb} {len(g)}장" for lb, _u, g in 제목트랙), file=sys.stderr)
+        if 새트랙:
+            print("화자별 층 분리 — V5(기본색) " + str(len(v5_refs)) + "장 · " +
+                  " · ".join(f"{lb} {len(g)}장 RGB{tuple(c)}" for lb, _u, g, c in 새트랙), file=sys.stderr)
     track_set_items(doc, T["V5"], v5_refs)
 
     seq = doc.get_uid(seq_uid)
@@ -836,9 +858,11 @@ def main():
     print(f"  [OK] 팝 키프레임 보정 — 컨테이너 {shifted}개를 소재 구간으로 리베이스 + 스톱워치 켬")
 
     want = {"V1": (T["V1"], len(v_refs)), "A1": (T["A1"], len(a_refs)), "A2": (T["A2"], len(a2_refs)),
-            "A3": (T["A3"], len(a3_sfx)), "V2": (T["V2"], 1), "V3": (T["V3"], len(refs["title"])),
+            "A3": (T["A3"], len(a3_sfx)), "V2": (T["V2"], 1), "V3": (T["V3"], min(1, len(refs["title"]))),
             "V4": (T["V4"], len(refs["narr"])), "V5": (T["V5"], len(v5_refs))}
     for lb, nu, grp, _c in 새트랙:
+        want[lb] = (nu, len(grp))
+    for lb, nu, grp in 제목트랙:
         want[lb] = (nu, len(grp))
     res = verify(out_path, want)
     res["checks"].append({"check": "블롭 재파싱 = 넣은 텍스트", "pass": not blob_bad, "detail": f"불일치 {len(blob_bad)}"})
@@ -859,6 +883,44 @@ def main():
                 층색오류.append((lb, it, got))          # 기본색 트랙에 다른 화자 색이 섞임
     res["checks"].append({"check": "트랙별 자막 색 단일(층=색)", "pass": not 층색오류,
                           "detail": f"트랙 {1 + len(새트랙)}개 · 오류 {len(층색오류)} {층색오류[:3]}"})
+    # 되읽기 게이트(2026-09-08 사장님 A안) — 제목은 V3 «화면 안» 텍스트 그래픽이어야 한다.
+    #   껍데기에 굽고 화면 밖에 숨기던 판(«눈속임» 지적)이 재발하면 여기서 기계가 먼저 잡는다:
+    #   줄 수·텍스트·크기·색·폰트·위치(0<y<1) 전부 저장된 파일에서 되읽어 큐와 대조한다.
+    제목큐 = [c for c in tl["cues"] if c["lane"] == "title"]
+    제목오류 = []
+    v3잔 = list(track_items(doc2, T["V3"])[0])
+    for _lb, _nu, _g in 제목트랙:                       # 줄2+ 는 저마다의 트랙 (2026-09-08)
+        v3잔 += list(track_items(doc2, _nu)[0])
+    if len(v3잔) != len(제목큐):
+        제목오류.append(f"제목 트랙 아이템 {len(v3잔)}개 != 제목 큐 {len(제목큐)}개")
+    for it, cue in zip(v3잔, 제목큐):
+        ids_, _u, _s = lineage_stopped(doc2, it)
+        st = [i for i in ids_ if is_source_text(doc2.get(i))]
+        if not st:
+            제목오류.append((it, "소스텍스트 없음")); continue
+        _info = parse_blob(param_blob(doc2.get(st[0]), doc2.xml))
+        r0 = _info["runs"][0]
+        if any(f_ != cue["font"] for f_ in _info["fonts"]):
+            제목오류.append(("폰트", _info["fonts"], cue["font"]))
+        if r0["text"] != cue["text"]:
+            제목오류.append(("텍스트", r0["text"], cue["text"]))
+        if abs((r0["size"] or 0) - cue["size"]) > 0.01:
+            제목오류.append(("크기", r0["size"], cue["size"]))
+        if r0["color"] != list(cue["color"]):
+            제목오류.append(("색", r0["color"], cue["color"]))
+        위치 = None
+        for i in ids_:
+            b_ = doc2.get(i)
+            nm_ = re.search(r"<Name>([^<]*)</Name>", b_)
+            if nm_ and nm_.group(1) == "위치":
+                kf_ = re.search(r"<StartKeyframe>-?\d+,([^,]+:[^,]+)", b_)
+                위치 = kf_.group(1) if kf_ else None
+        if 위치 != cue["pos"]:
+            제목오류.append(("위치", 위치, cue["pos"]))
+        elif not (0.0 < float(위치.split(":")[1]) < 1.0):
+            제목오류.append(("위치가 화면 밖", 위치))
+    res["checks"].append({"check": "제목 V3 화면 안 · 규격 서식(텍스트/96/검정/폰트/위치)",
+                          "pass": not 제목오류, "detail": f"줄 {len(제목큐)} · 오류 {제목오류[:3]}"})
     # 게이트(2026-09-02 사장님 «템플릿 빠짐») — 템플릿 실물 길이가 시퀀스 총길이 이상이어야 한다
     import subprocess as _sp
     tpl_dur = float(_sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -866,7 +928,7 @@ def main():
     tpl_ok = tpl_dur + 1e-3 >= tl["total_s"]
     res["checks"].append({"check": "템플릿 길이 ≥ 시퀀스 총길이", "pass": tpl_ok,
                           "detail": f"템플릿 {tpl_dur:.2f}s vs 총 {tl['total_s']:.2f}s"})
-    ok = res["pass"] and not blob_bad and not 층색오류 and tpl_ok
+    ok = res["pass"] and not blob_bad and not 층색오류 and tpl_ok and not 제목오류
     for c in res["checks"]:
         print(("  [OK] " if c["pass"] else "  [X] ") + str(c["check"]) + "  " + str(c.get("detail", "")))
     print(f"저장 {out_path}: 컷 {len(v_refs)} · 나레 {len(a2_refs)} · 제목 {len(refs['title'])} · "

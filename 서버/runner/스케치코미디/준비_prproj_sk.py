@@ -311,9 +311,11 @@ def main():
                 pass
     dst_nar = _새nar
 
-    # ② 껍데기 — 제목 포함 frame → 알파 구멍 → mov
-    #   ★제목은 껍데기에 굽는다(2026-09-01 사장님 — 정위치·검은색 보장). 도너 텍스트 견본으로
-    #   넣으면 신병 헤드라인 서식(노랑·상단)이 따라온다. 수정 가능해야 하는 것은 대사다.
+    # ② 껍데기 — 제목 «없는» frame → 알파 구멍 → mov
+    #   ★제목은 껍데기에 굽지 않는다(2026-09-08 사장님 A안 — «프리미어에서 수정할 수 있어야 해»).
+    #   보이는 제목은 V3 텍스트 그래픽이 담당한다: 조립기가 도너 견본 서식(노랑 112·Paperlogy)을
+    #   규격(S-CoreDream-7ExtraBold·96·#111111·잉크 y305/422)으로 갈아 끼우고 위치를 화면 안에 박는다.
+    #   (2026-09-01 «정위치·검은색 보장» 굽기는 서식 교체를 못 풀어 증상만 가린 것이었다.)
     #   ★Deep 흐름(work/<슬러그>_로고.png 존재): 헤더는 사장님 지정 로고 이미지로 갈고
     #   (배치는 최하연님 작업 prproj 실측 — 위치 0.1993:0.0699 · 비율 16.45%),
     #   댓글 카드 PNG 를 선별해 슬롯 순환으로 굽는다(위치 0.5:0.8126 · 폭 1020 = 실측).
@@ -321,6 +323,7 @@ def main():
     import copy as _copy
     import re as _re
     p_draw = _copy.deepcopy(proj)
+    p_draw["title"] = []          # 제목은 V3 텍스트 그래픽이 그린다 — 껍데기에서 뺀다 (2026-09-08 A안)
     cr = p_draw.get("credit") or {}
     if cr.get("title"):
         import unicodedata as _ud
@@ -553,9 +556,11 @@ def main():
     narration = [{"t0": round(nar_t0, 3), "t1": round(nar_t0 + nar_dur, 3),
                   "wav": dst_nar, "text": nar_seg["narration"]}]
 
-    # 제목 텍스트 클론은 유지하되 **화면 밖**에 둔다 — 보이는 제목은 껍데기에 굽는다.
-    #   (구조를 열렸던 판과 동일하게 유지하기 위함. V3 를 비우거나 다른 견본을 넣은 판은
-    #    프리미어가 「손상」으로 거부했다 — 2026-09-01 실측 2회)
+    # 제목 = V3 텍스트 그래픽, 줄별 1장 · **화면 안 정위치** (2026-09-08 사장님 A안).
+    #   위치 환산 근거(신병4 도너 실측): 위치 파라미터 y×1920 = 잉크 세로 중심 − 5.6px
+    #   (도너 0.109063→앵커 209.4px vs 완성본_참고.mp4 잉크 중심 215px · Paperlogy 112 기준,
+    #    크기 비례로 96px 은 −4.8px). 크기 단위는 픽셀 1:1(도너 112.08 → 잉크 97~99px 실측).
+    #   견본 자체는 계속 clone 경로 — 견본을 갈거나 V3 를 비우면 「손상」(2026-09-01 실측 2회).
     # 효과음 (2026-09-02 사장님 승인 — 최소 원칙 3개): 훅=dun · 절정(P4)=dudun · 반전(P5)=gaze.
     #   아모르 팩 mp3 → 모노 48k wav(끝 0.4s 페이드·-6dB). 위치는 이야기 구조(phase 경계)에서 자동.
     sfx_dir = os.path.expanduser("~/Desktop/볼케이노 MCP/린박스_배포키트/자산/sfx_amor")
@@ -606,7 +611,32 @@ def main():
                         "text": f"효과음 {라벨} {이름}"})
         print(f"효과음 {len(sfx)}개: " + " · ".join(s_['text'] for s_ in sfx))
 
-    cues = [{"lane": "title", "t0": 0.0, "t1": round(total, 3), "text": proj["title"][0] + "\r" + proj["title"][1]}]
+    # 제목 큐 — 줄별 1장(도너와 같은 «1줄 = 1그래픽» — 줄간격을 프리미어 리딩에 안 맡긴다).
+    #   위치·크기·색·폰트는 규격 layout.title 에서 온다. 환산 근거는 위 주석(신병4 실측).
+    _t = CFG["layout"]["title"]
+    from fontTools.ttLib import TTFont as _TTF
+    _제목PS = _TTF(_t["font"])["name"].getDebugName(6)          # 예: S-CoreDream-7ExtraBold
+    _제목RGB = [int(_t["color"][i:i + 2], 16) for i in (0, 2, 4)]
+
+    def _제목위치(line, line_y):
+        """draw_frame 과 같은 조건(PIL·크기 line_h)으로 그 줄의 잉크 세로 중심을 재고,
+        프리미어 앵커 오프셋(신병4 실측 5.6px@112, 크기 비례)을 빼 위치 파라미터 값으로."""
+        from PIL import ImageFont as _IF, ImageDraw as _ID, Image as _Im
+        import numpy as _np
+        f_ = _IF.truetype(_t["font"], _t["line_h"])
+        im_ = _Im.new("L", (1600, _t["line_h"] * 3), 0)
+        _ID.Draw(im_).text((20, _t["line_h"]), line, font=f_, fill=255)
+        ys_ = _np.where(_np.array(im_).max(axis=1) > 40)[0]
+        assert len(ys_), f"제목 줄 잉크 없음: {line!r}"
+        중심 = (int(ys_.min()) + int(ys_.max())) / 2 - _t["line_h"] + line_y
+        앵커 = 중심 - 5.6 * _t["line_h"] / 112.0
+        return f"0.5:{앵커 / 1920:.6f}"
+
+    cues = [{"lane": "title", "t0": 0.0, "t1": round(total, 3), "text": ln,
+             "pos": _제목위치(ln, y_), "size": float(_t["line_h"]),
+             "font": _제목PS, "color": _제목RGB}
+            for ln, y_ in zip(list(proj["title"])[:2], (_t["line1_y"], _t["line2_y"]))]
+    assert len(cues) == 2, "제목은 2줄이어야 한다 (규격 layout.title.lines)"
     cues.append({"lane": "narr", "t0": narration[0]["t0"], "t1": narration[0]["t1"], "text": nar_seg["narration"]})
     # 대사 큐 — 60fps 격자에서 끝 = min(시작+6초, 다음 시작) 로 겹침 0 을 보장한다.
     # ★나레이션이 뜨는 동안 대사 자막은 감춘다 (규격 narration.hide_line_subs — 2026-09-01 사장님 재확인:
@@ -1041,7 +1071,7 @@ def main():
     out = os.path.join(out_root, "timeline_sk.json")
     json.dump(tl, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("생성:", out)
-    print(f"컷 {len(picture)} · 나레 {len(narration)} · 큐 {len(cues)} (나레1·대사 {len(lines)} — 제목은 껍데기에 굽는다) · 총 {total:.1f}s")
+    print(f"컷 {len(picture)} · 나레 {len(narration)} · 큐 {len(cues)} (제목2·나레1·대사 {len(lines)} — 제목은 V3 화면 안 텍스트) · 총 {total:.1f}s")
     print(f"상자: scale {scale}% · pos 0.5:{cy}")
 
 
