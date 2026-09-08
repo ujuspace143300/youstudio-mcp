@@ -446,8 +446,13 @@ def main():
                 {"inline_data": {"mime_type": "video/mp4", "data": vb}}, {"text": pr}]}],
                 "generationConfig": {"maxOutputTokens": 4000, "responseMimeType": "application/json"}}
             txt4, _r4, _m4 = _gem.ask(payload, models4, timeout=600)
-            고정 = {round(float(f["t"]), 1): str(f["text"]).strip()
-                    for f in json.loads(txt4).get("fixes", [])}
+            # ★시각은 숫자만 뽑아 읽는다 (2026-09-08 Deep33: 모델이 "20.9s" 처럼 단위를 붙여
+            #   float() 이 죽고, 바깥 try 가 중재 «전체»를 삼켰다). 항목 하나가 나빠도 나머지는 산다.
+            고정 = {}
+            for f in json.loads(txt4).get("fixes", []):
+                m_t = re.search(r"-?\d+(?:\.\d+)?", str(f.get("t", "")))
+                if m_t and str(f.get("text", "")).strip():
+                    고정[round(float(m_t.group()), 1)] = str(f["text"]).strip()
             정정 = 0
             for d, w in 분쟁:
                 새 = 고정.get(round(d["t"], 1))
