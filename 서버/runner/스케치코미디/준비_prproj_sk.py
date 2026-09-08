@@ -862,11 +862,16 @@ def main():
         return s_i, xf, yf
 
     def 안쪽경계(seg):
-        """프레임-인-프레임 아웃트로 감지(2026-09-07 Deep10 컷7 — 검은 테두리째 담겨
-        검은 띠가 박혔다). 굽기(build)의 감지와 같은 기준: 밝기>16 경계, 3프레임 일치."""
+        """검은 테두리 감지 — 분류를 돌려준다 (2026-09-08 Deep14 사장님 «수차례 반복» 캡쳐):
+        ('안쪽', bbox)  = 양축 «다» 작음(≤0.92) — 진짜 프레임-인-프레임. 자막은 테두리 밖.
+        ('레터박스', bbox) = 한 축만 작음 — 자막이 그림 «안»에 있다! 잔존 면제 금지,
+                             테두리만 걷고 일반 번인 배제를 태운다.
+        None = 테두리 없음. ★예전엔 «둘 다 클 때만 제외»(OR 구멍)라 레터박스가 프레임-인-
+        프레임으로 오분류돼 번인 자막·검은 바가 그대로 나갔다(굽기 쪽은 AND 조건이라 무사 —
+        경로마다 조건이 달랐던 것 자체가 사고). 표본 5장 «교집합»으로 가변 테두리 방어."""
         import numpy as np
         박들 = []
-        for f in (0.25, 0.5, 0.75):
+        for f in (0.15, 0.35, 0.5, 0.65, 0.85):
             try:
                 a = grab(seg["t0"] + (seg["t1"] - seg["t0"]) * f,
                          f"fb{seg['t0']:.0f}_{f}").astype(int).mean(axis=2)
@@ -875,25 +880,40 @@ def main():
             m = a > 16
             rows, cols = np.where(m.any(axis=1))[0], np.where(m.any(axis=0))[0]
             if not len(rows) or not len(cols):
-                continue        # 통암전 프레임(여운이 소재 밖까지 늘림) — 표본에서 뺀다.
-                                # ★return None 이었더니 여운 붙은 마지막 컷이 조용히 탈락
-                                # (2026-09-07 실측: 0.75 지점이 소재 밖 암전)
-            x, y = int(cols[0]), int(rows[0])
-            w, h = int(cols[-1] - cols[0] + 1), int(rows[-1] - rows[0] + 1)
-            if w > a.shape[1] * 0.92 and h > a.shape[0] * 0.92:
+                continue        # 통암전 프레임(여운 연장) — 표본에서 뺀다
+            bx = (int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1)
+            # ★테두리는 «균일한 순흑»이어야 한다 (2026-09-08 스캔 실측: 어두운 옷·밤 침실
+            #   가장자리를 테두리로 오인) — 바깥 여백의 최대 밝기까지 검어야 인정
+            여백 = []
+            if bx[1] > 4: 여백.append(a[:bx[1], :])
+            if bx[3] < a.shape[0] - 4: 여백.append(a[bx[3]:, :])
+            if bx[0] > 4: 여백.append(a[:, :bx[0]])
+            if bx[2] < a.shape[1] - 4: 여백.append(a[:, bx[2]:])
+            if 여백 and max(float(z.max()) for z in 여백) > 26:
+                continue                                    # 진짜 검은 띠가 아니다
+            박들.append(bx)
+        if len(박들) < 3:
+            return None
+        x0 = max(p[0] for p in 박들); y0 = max(p[1] for p in 박들)
+        x1 = min(p[2] for p in 박들); y1 = min(p[3] for p in 박들)
+        w, h = x1 - x0, y1 - y0
+        if w <= 0 or h <= 0:
+            return None
+        W2, H2 = 1920, 1080
+        가로작음, 세로작음 = w <= W2 * 0.92, h <= H2 * 0.92
+        if 가로작음 and 세로작음:
+            return ("안쪽", (x0, y0, w, h))
+        if 가로작음 or 세로작음:
+            if (W2 - w) + (H2 - h) < 60:                   # 테두리가 사실상 없음 — 잡음
                 return None
-            박들.append((x, y, w, h))
-        if len(박들) < 2:
-            return None
-        if max(abs(박들[0][k] - 박[k]) for 박 in 박들[1:] for k in range(4)) > 8:
-            return None
-        return 박들[0]
+            return ("레터박스", (x0, y0, w, h))
+        return None
 
     안쪽컷 = set()
     for i, (seg, pic) in enumerate(zip(segs, picture)):
-        안쪽 = 안쪽경계(seg)
-        if 안쪽:
-            x, y, w, h = 안쪽
+        분류 = 안쪽경계(seg)
+        if 분류 and 분류[0] == "안쪽":
+            x, y, w, h = 분류[1]
             s_f = max(1080.0 / w, box_h / h)
             cx, cy0 = x + w / 2.0, y + h / 2.0
             px = 540 - (cx - 960) * s_f
@@ -904,6 +924,25 @@ def main():
             안쪽컷.add(i)
             print(f"  컷{i+1:02d}: 프레임-인-프레임 감지({w}x{h}@{x},{y}) → 안쪽만 확대 {s_f*100:.0f}%"
                   f" · 잔존 면제(자막 밴드는 테두리에 있음)")
+            continue
+        if 분류 and 분류[0] == "레터박스":
+            # ★레터박스(2026-09-08 Deep14 캡쳐) — 자막은 그림 «안» 하단에 구워져 있다.
+            #   테두리를 걷어낸 안쪽을 화면으로 삼되, 자막 윗변(검출 실측)까지만 보인다.
+            #   잔존 검사는 그대로 태운다(면제 금지).
+            x, y, w, h = 분류[1]
+            자막탑 = min(v for v in (컷탑들[i], sub_top, int(1080 * 0.872)) if v)
+            limit = min(y + h, 자막탑) - 12
+            유효h = max(limit - y, 200)
+            s_f = min(1.6, max(box_h / 유효h, 1080.0 / w) * 1.02)
+            xf, yf = face_center(seg["t0"], seg["t1"], i)
+            중심y = (y + limit) / 2.0
+            cy_lo = b["y1"] - (limit - 540) * s_f
+            cy_hi = b["y0"] + (540 - y) * s_f
+            cyv = clamp((b["y0"] + b["y1"]) / 2.0 - (중심y - 540) * s_f, cy_lo, cy_hi)
+            px = clamp(540 - (xf - 960) * s_f, 1080 - 960 * s_f, 960 * s_f)
+            pic["box"] = {"scale": round(s_f * 100, 3), "pos": f"{px/1080:.6f}:{cyv/1920:.6f}"}
+            print(f"  컷{i+1:02d}: 레터박스 감지({w}x{h}@{x},{y}) → 테두리·자막밴드(윗변 {자막탑})"
+                  f" 제외 확대 {s_f*100:.0f}% · 잔존 검사 유지")
             continue
         if seg.get("원문화면"):
             # ★fit-width — 원본 가로 전체가 박스 폭에 들어간다 (굽기의 원문화면 화면꼴과 동일)
