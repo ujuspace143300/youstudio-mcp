@@ -39,15 +39,20 @@ def req(url, data=None, ctype=None, method=None):
         return json.loads(res.read().decode())
 
 
-def load_vocab(slug, proj=None):
+def load_vocab(slug, proj=None, channel=None):
     """낱말사전 — 린박스 전사.py 와 같은 사상(2026-09-04 사장님 «전사는 무조건 스피치매틱스»:
        고유명사 오인(«사보타지→서버 타지»)의 근본은 사전을 안 보낸 것이었다).
        work/<슬러그>_사전.json 과 proj «낱말사전» 을 합친다. 항목 = "낱말" 또는
        {"content": "낱말", "sounds_like": ["잘못 들리는 꼴", ...]}."""
     항목 = []
-    # ★작품 공통 사전 (2026-09-07 사장님 «이름은 절대 오타내면 안 돼» — Deep 주인공
-    #   김규남·윤태용·윤혁준. 편마다 새로 적지 않게 work/_공통사전.json 에 상주)
-    공통 = os.path.join(HERE, CFG["paths"]["work"], "_공통사전.json")
+    # ★공통 사전은 «채널별»이다 (2026-09-10 싱글364: Deep 사전의 «윤혁준» 이 싱글벙글 «홍준»을
+    #   «혁준»으로 오적용해 자막 오류가 났다). Deep 만 고정 배역(김규남·윤태용·윤혁준)이 있고,
+    #   싱글벙글 등은 편마다 배우가 달라 공통 사전이 없다. 채널을 모르면 옛 전역 파일로 폴백한다.
+    ch = channel or ((proj or {}).get("credit") or {}).get("channel") \
+         or ((proj or {}).get("info") or {}).get("channel")
+    work_dir = os.path.join(HERE, CFG["paths"]["work"])
+    공통 = os.path.join(work_dir, f"_공통사전_{ch}.json") if ch \
+           else os.path.join(work_dir, "_공통사전.json")
     if os.path.exists(공통):
         항목 += json.load(open(공통, encoding="utf-8"))
     p = os.path.join(HERE, CFG["paths"]["work"], f"{slug}_사전.json")
@@ -121,7 +126,9 @@ def to_lines(words, max_chars, gap=0.55):
 
     def emit(part):
         if part:
-            lines.append({"t": round(part[0]["t"], 2), "text": " ".join(x["w"] for x in part)})
+            # ★끝시각도 남긴다(2026-09-09 Deep60 — vtt 끝이 «시작+0.999» 가짜라 절단 게이트가 눈멀었다)
+            lines.append({"t": round(part[0]["t"], 2), "e": round(part[-1]["e"], 2),
+                          "text": " ".join(x["w"] for x in part)})
 
     for i, w in enumerate(words):
         if w["type"] == "punctuation":

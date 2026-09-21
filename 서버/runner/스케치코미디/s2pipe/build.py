@@ -90,6 +90,61 @@ def find_burned_subs(src, W, H, dur, n=10):
     return tops[len(tops) // 2]
 
 
+def 엔드카드시작(src, dur, 하한=0.0):
+    """소재 꼬리의 정적 아웃트로 카드(남색 «싱글벙글» 등)가 시작하는 **소재 시각**. 없으면 None.
+    ★t1 과 무관하게 카드의 «절대 시작점»을 준다 — 굽기(구간이 카드에 걸치면 트림)와 준비(여운이
+    카드 앞에서 멈추게)가 공유한다(2026-09-10 싱글370: t1 이 카드 직전이라 굽기는 안 걸렸는데
+    여운이 카드로 1.8s 늘어난 사건 — 검출을 한 곳으로 통일).
+
+    ★2026-09-10 싱글349 «두 장 카드» 클래스 수리 — 땜질 아님:
+      옛 검출은 소재 «마지막 한 프레임(fin)»에 앵커해 그와 «같은» 정적 꼬리만 걸었다.
+      싱글벙글 소재는 결말 뒤에 [남색 싱글벙글 콜라보 카드] → [스폰서 광고 카드(모바일현금카드 QR)]
+      **두 장이 다른 그림**으로 이어지는 경우가 있다. 그러면 fin=스폰서 카드라, 뒤에서 걷어오다가
+      스폰서≠남색 경계(≈250s)에서 멈춰 **스폰서 카드 시작(244.9s)**만 돌려줬다. 내 마지막 조각
+      t1=238.4 는 남색 카드(237.9s~) 안에 있는데 244.9>238.4 라 트림이 안 걸려 카드가 새어나갔다
+      (373~370 등은 우연히 카드가 한 장뿐이라 통과 — 검출 앵커의 구조적 구멍).
+      **수리**: 앵커를 버리고 «움직임(motion)»으로 판정한다. 카드는 완전정지(0.4s 뒤 프레임과 평균차
+      ≤0.001), 실내용은 정지샷도 ≥0.25 로 차이가 뚜렷하다. 꼬리에서 «정지 사슬»을 걷어오되, 카드
+      사이 전이(한두 프레임 튐)는 견디고 **0.6s 이상 지속되는 움직임(=실내용 재진입)**에서만 멈춘다.
+      → 두 장이 이어져도 실내용 직전(남색 카드 시작)에서 끊는다. 373·370·372·369·365 등 한 장 편은
+      옛 값과 ±2ms 로 동일(무회귀 확인). motion 판정이라 새 스타일 카드도 «검출 술래잡기» 없이 잡는다."""
+    import numpy as _np
+    def _g(t):
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", src,
+                            "-frames:v", "1", "-vf", "scale=64:36", "-f", "rawvideo",
+                            "-pix_fmt", "gray", "-"], capture_output=True)
+        a = _np.frombuffer(r.stdout, dtype=_np.uint8)
+        return a.astype(_np.int16) if len(a) == 2304 else None
+    def _정지(t):
+        # 카드=완전정지(0.4s 뒤와 평균차 ≤0.001), 실내용=미세한 손·노이즈로 ≥0.25 → 0.15 로 갈린다
+        a, b = _g(t), _g(t + 0.4)
+        if a is None or b is None:
+            return False
+        return float(_np.abs(a - b).mean()) <= 0.15
+    시작 = dur - 0.6              # 끝-0.1 은 마지막 키프레임 뒤라 프레임이 안 나온다(2026-09-09 실측)
+    if not _정지(시작):           # 꼬리가 정지 카드가 아니면(=실내용으로 끝남) 카드 없음
+        return None
+    ec, t, 움직임 = 시작, 시작 - 0.15, 0.0
+    while t >= 하한:
+        if _정지(t):
+            ec, 움직임 = t, 0.0
+        else:
+            움직임 += 0.15
+            if 움직임 >= 0.6:      # 0.6s 지속 움직임 = 실내용 재진입 (카드 간 전이 튐은 견딤)
+                break
+        t -= 0.15
+    if ec is None or 시작 - ec < 0.8:                        # 정적 꼬리 0.8s 미만이면 카드 아님
+        return None
+    lo, hi = ec - 0.15, ec                                   # lo=실내용, hi=카드 — 경계 좁히기
+    for _ in range(7):
+        mid = (lo + hi) / 2
+        if _정지(mid):
+            hi = mid
+        else:
+            lo = mid
+    return round(hi, 3)
+
+
 def cut_and_join(src, segs, dst, work, fps):
     """구간을 잘라 **여백 없이** 붙인다. crop 은 비트마다 조금씩 움직인다."""
     from . import framing
@@ -114,19 +169,64 @@ def cut_and_join(src, segs, dst, work, fps):
     #   출력하는 일은 없어야» — Deep07 아웃트로 암전 2초 실측). 끝에서 0.25s 씩 물러나며
     #   어두운 프레임(평균 밝기 < 12)을 걷어낸다.
     def _어두운가(t):
+        # ★죽은 검정만 «어둡다». 검은 배경 위에 글자가 얹힌 카드(블랙아웃 펀치라인 «2주 전이다»)는
+        #   평균은 <12 라도 글자 픽셀이 밝다(2026-09-09 Deep61 실측: 카드 평균 0.4·최대 76 —
+        #   옛 기준이 카드째 잘라 무한 루프 결말이 «9월 11일 월급날»에서 끊겼다). 밝은 픽셀이 조금이라도
+        #   있으면 글자·그림이 있는 것 → 자르지 않는다(mean<12 AND 밝은픽셀 거의 0).
         import numpy as _np
         r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", src,
                             "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
                            capture_output=True)
         a = _np.frombuffer(r.stdout, dtype=_np.uint8)
-        return len(a) > 0 and float(a.mean()) < 12
+        if len(a) == 0:
+            return False
+        bright = int((a > 60).sum())                 # 글자 획 픽셀 (배경 검정과 확실히 구분)
+        return float(a.mean()) < 12 and bright < len(a) * 0.0008
     막 = segs[-1]
+    # ★소재 아웃트로 카드 처리 (2026-09-09 사장님 «마지막에 싱글벙글 로고만 떠있고 … 로고 나오게
+    #   하지말고 종결지어줘»): 결말 뒤 정적 브랜드 카드(남색 «싱글벙글»)는 검정이 아니라 아래
+    #   _어두운가 가 못 잡는다. 카드의 «절대 시작점»을 찾아(엔드카드시작) 조각에 남긴다 — 구간이
+    #   카드에 걸치면 트림하고, 안 걸쳐도 그 값으로 준비의 여운이 카드 앞에서 멈춘다(2026-09-10
+    #   싱글370: t1 이 카드 직전이라 트림은 없었는데 여운이 카드로 늘던 사건).
+    try:
+        _srcdur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                        "-of", "csv=p=0", src], check=True,
+                                       capture_output=True).stdout.decode().strip())
+        _ec = 엔드카드시작(src, _srcdur, 막["t0"] + 2.0)
+        if _ec is not None:
+            막["_엔드카드시작"] = _ec
+            if _ec < 막["t1"]:
+                막["t1"] = _ec                                       # 카드 시작 = 배타적 끝(카드 0장)
+                print(f"    마지막 조각 아웃트로 카드 절단 → t1={막['t1']} (원본 카드 {_ec:.2f}s~)", flush=True)
+            else:
+                print(f"    원본 아웃트로 카드 {_ec:.2f}s~ 감지 — 조각은 그 앞({막['t1']})에서 끝나 트림 없음(여운만 제한)", flush=True)
+    except Exception as _e:
+        print(f"    (아웃트로 카드 감지 건너뜀: {_e})", flush=True)
     깎음 = 0.0
     while 막["t1"] - 막["t0"] > 2.0 and _어두운가(막["t1"] - 0.15):
         막["t1"] = round(막["t1"] - 0.25, 3)
         깎음 += 0.25
     if 깎음:
         print(f"    마지막 조각 검은 꼬리 -{깎음:.2f}s 절단 → t1={막['t1']}", flush=True)
+
+    # ★영구 게이트 (2026-09-10 싱글349 «남색 카드가 새어나간» 사건): 위 트림이 끝난 뒤
+    #   **확정된 마지막 소재 프레임이 정지 카드가 아님**을 기계로 못 박는다. 검출/트림에 또
+    #   구멍이 나도(새 스타일 카드·두 장 카드) 사람 눈보다 여기서 먼저 멈춘다. 소스 기준으로 잰다
+    #   — 결과물엔 비트 팬·줌이 얹혀 카드도 «움직여» 보여 결과 프레임으론 못 잡는다.
+    import numpy as _np
+    def _소스정지(t):
+        def _gg(u):
+            r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(u, 0):.2f}", "-i", src,
+                                "-frames:v", "1", "-vf", "scale=64:36", "-f", "rawvideo",
+                                "-pix_fmt", "gray", "-"], capture_output=True)
+            a = _np.frombuffer(r.stdout, dtype=_np.uint8)
+            return a.astype(_np.int16) if len(a) == 2304 else None
+        a, b = _gg(t - 0.4), _gg(t)
+        return a is not None and b is not None and float(_np.abs(a - b).mean()) <= 0.15
+    if 막["t1"] - 막["t0"] > 1.0 and _소스정지(막["t1"] - 0.05):
+        raise AssertionError(
+            f"마지막 조각 끝({막['t1']:.2f}s)이 정지 카드다 — 엔드카드 검출/트림이 카드를 놓쳤다. "
+            f"엔드카드시작({막['t0']+2.0:.1f}~) 반환값과 원본 카드 시작을 대조하라(싱글349 클래스).")
 
     parts, log = [], {"segments": [], "beats": []}
 
@@ -137,18 +237,28 @@ def cut_and_join(src, segs, dst, work, fps):
                    + ("" if j == len(plan) - 1 else f":end={bt1-a:.3f}"))
             legs.append(f"[0:v]{cut},setpts=PTS-STARTPTS,{vf},setsar=1[v{j}]")
             tags.append(f"[v{j}]")
-        fc = ";".join(legs) + f";{''.join(tags)}concat=n={len(plan)}:v=1:a=0[vo]"
+        # ★비트 영상을 소리와 «정확히 같은 프레임 수»로 못 박는다 (2026-09-09 립싱크 실측:
+        #   비트 concat 이 마지막 비트에서 1프레임 넘쳐 영상이 소리보다 1프레임 길었다.
+        #   조각마다 쌓여 8조각 편 끝에서 ~0.3s 소리가 입보다 앞섰다 — trim=end_frame 으로 자른다.
+        #   -t 는 소리에만 걸리고, 영상은 concat 이 -t 를 안 지켜(200프레임 vs 199) 어긋났었다.)
+        N = round((bnd - a) * fps)                       # 이 조각의 목표 프레임 수
+        fc = ";".join(legs) + f";{''.join(tags)}concat=n={len(plan)}:v=1:a=0,trim=end_frame={N},setpts=PTS-STARTPTS[vo]"
         p = os.path.join(work, f"seg{len(parts):03d}.mov")
         # ★PCM + 프레임 정확 길이(2026-09-03 «순간 배속» 사건) — AAC 꼬리 패딩이 조각마다
         #   +40~60ms 붙어 경계에서 말이 겹쳐 들렸다(46ms 실측). PCM 은 패딩이 없고
         #   -t 로 프레임 단위 길이를 못 박는다. AAC 인코딩은 최종 합칠 때 한 번만.
-        d_q = round((bnd - a) * fps) / fps
+        d_q = N / fps
         run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(a),
              "-to", str(bnd), "-i", src, "-filter_complex", fc,
              "-map", "[vo]", "-map", "0:a", "-t", f"{d_q:.5f}",
              "-c:v", "libx264", "-preset", "veryfast",
              "-crf", str(CFG["ffmpeg"]["crf"]), "-c:a", "pcm_s16le",
              "-avoid_negative_ts", "make_zero", "-y", p])
+        # ★게이트: 구운 조각의 영상 프레임 수 = 목표 N (소리와 프레임 일치). 어긋나면 립싱크가 밀린다.
+        _nf = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                              "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", p],
+                             capture_output=True, text=True).stdout.strip()
+        assert _nf and abs(int(_nf) - N) <= 0, f"비트 조각 프레임 {_nf} ≠ 목표 {N} — 영상·소리 프레임 어긋남(립싱크)"
         parts.append(p)
 
     def _안쪽경계(t):
@@ -168,6 +278,11 @@ def cut_and_join(src, segs, dst, work, fps):
             return None
         x, y = int(cols[0]), int(rows[0])
         w, h = int(cols[-1] - cols[0] + 1), int(rows[-1] - rows[0] + 1)
+        # ★검은 배경 위 작은 글자 카드(블랙아웃 펀치라인 «2주 전이다»)는 프레임-인-프레임이 아니다
+        #   — 밝은 영역이 화면의 15% 미만이면 타이틀 카드다. 확대하면 글자가 렌즈처럼 뭉개진다
+        #   (2026-09-09 Deep61 실측: 카드를 «전이» 조각으로 확대). 확대하지 않고 원본대로 둔다.
+        if w * h < W * H * 0.15:
+            return None
         return (x, y, w, h) if w <= W * 0.92 and h <= H * 0.92 else None
 
     prev = None
@@ -307,17 +422,30 @@ def draw_frame(proj, dst):
     ch = CFG["channel"]
     icon = os.path.join(HERE, ch.get("icon", "") or "")
     if ch.get("icon") and os.path.isfile(icon):
-        ic = Image.open(icon).convert("RGB").resize((h["icon_size"], h["icon_size"]))
-        im.paste(ic, (h["icon_x"], h["y0"] + 8))
+        # ★투명 코너를 살려 합성한다(2026-09-09 숨은기록 원형 로고 — RGB 로 붙이면 코너가 검게 나온다)
+        ic = Image.open(icon).convert("RGBA").resize((h["icon_size"], h["icon_size"]))
+        im.paste(ic, (h["icon_x"], h["y0"] + 8), ic)
     else:
         d.ellipse([h["icon_x"], h["y0"] + 8,
                    h["icon_x"] + h["icon_size"], h["y0"] + 8 + h["icon_size"]],
                   outline="#E23B3B", width=8)
     tx = h["icon_x"] + h["icon_size"] + 26
-    d.text((tx, h["y0"] + 10), ch.get("handle", ""),
-           font=_font("", h["handle_size"]), fill="#111111")
+    hf = _font(h.get("font", ""), h["handle_size"])
+    hy = h["y0"] + 10
+    d.text((tx, hy), ch.get("handle", ""), font=hf, fill="#111111")
+    # ★인증배지 — 핸들 오른쪽에 파란 체크(2026-09-09 숨은기록 템플릿). config channel.badge 있을 때만
+    badge = os.path.join(HERE, ch.get("badge", "") or "")
+    if ch.get("badge") and os.path.isfile(badge):
+        try:
+            hw = int(d.textlength(ch.get("handle", ""), font=hf))
+        except Exception:
+            hw = hf.getbbox(ch.get("handle", ""))[2]
+        bs = h.get("badge_size", 44)
+        bg_ = Image.open(badge).convert("RGBA").resize((bs, bs))
+        by = hy + (h["handle_size"] - bs) // 2 + 4
+        im.paste(bg_, (tx + hw + h.get("badge_gap", 14), by), bg_)
     d.text((tx, h["y0"] + 10 + h["handle_size"] + 12), ch.get("name", ""),
-           font=_font("", h["name_size"]), fill="#333333")
+           font=_font(h.get("font", ""), h["name_size"]), fill="#111111")
 
     # 제목 — ★항상 2줄, 가운데 정렬
     t = L["title"]
@@ -342,11 +470,11 @@ def draw_frame(proj, dst):
         nx = cm["text_x"]
         d.rounded_rectangle([nx, cm["nick_y"], nx + cm["nick_w"],
                              cm["nick_y"] + cm["nick_h"]], radius=11, fill="#D6D9DE")
-        df = _font("", cm["date_size"])
+        df = _font(cm.get("font", ""), cm["date_size"])
         d.text((nx + cm["nick_w"] + 16, cm["nick_y"] - 2), cm.get("date", ""),
                font=df, fill="#" + cm.get("date_color", "8A8F98"))
         # 좋아요 엄지와 답글 — 실제 댓글처럼 보이게 하는 것이 목적이다
-        mf = _font("", cm["meta_size"])
+        mf = _font(cm.get("font", ""), cm["meta_size"])
         my = cm["meta_y"]
         d.rectangle([nx, my + 10, nx + 12, my + 26], fill="#8A8F98")
         d.rectangle([nx + 12, my + 4, nx + 26, my + 26], fill="#8A8F98")

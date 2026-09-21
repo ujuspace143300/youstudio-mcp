@@ -33,6 +33,7 @@ def main():
     ap.add_argument("folder")
     ap.add_argument("--slug", required=True)
     ap.add_argument("--로고", default=None)
+    ap.add_argument("--채널", default="띱 Deep", help="하단 크레딧 채널명(예: 싱글벙글). 기본 띱 Deep")
     a = ap.parse_args()
     d = a.folder
     assert os.path.isdir(d), "소재 폴더 없음: " + d
@@ -73,7 +74,7 @@ def main():
     base = os.path.splitext(os.path.basename(src))[0]
     base = unicodedata.normalize("NFC", base)     # ★NFD 원제는 폰트가 못 그린다(출처 줄 실측)
     원제 = base.split("_", 1)[1] if "_" in base else base
-    info = {"channel": "띱 Deep", "title": 원제, "comments": []}
+    info = {"channel": a.채널, "title": 원제, "comments": []}
     json.dump(info, open(os.path.join(work, f"{vid}.info.json"), "w", encoding="utf-8"), ensure_ascii=False)
 
     # ③ 전사 (Speechmatics ko — ★유료. 부르기 전에 승인받았어야 한다)
@@ -87,7 +88,7 @@ def main():
         #   고유명사를 미리 일러 준다. 편 중간에 확정된 이름은 work/<슬러그>_사전.json 에.
         for _사 in glob.glob(os.path.join(d, "*사전*.json")):
             shutil.copy2(_사, os.path.join(work, f"{vid}_사전.json"))
-        vocab = asr.load_vocab(vid)
+        vocab = asr.load_vocab(vid, channel=a.채널)
         if vocab:
             print(f"  낱말사전 {len(vocab)}개: {', '.join(e['content'] for e in vocab[:8])}")
         job = asr.submit(aud, lang="ko", vocab=vocab)
@@ -99,8 +100,11 @@ def main():
             for ln in lines:
                 t = ln["t"]
                 # ★초 단위 절삭 금지(2026-09-03) — 복원 자막의 시각 정밀도가 vtt 를 따른다
+                # ★끝시각은 마지막 단어의 실제 끝(2026-09-09 Deep60 «이래서 소개팅 주» — 옛 «시작+0.999»
+                #   가짜 끝 때문에 make 의 발화 끝 절단 게이트가 1초 뒤 절단을 못 봤다)
+                e = max(ln.get("e", t + 0.999), t + 0.2)
                 f.write(f"{int(t//3600):02d}:{int(t%3600//60):02d}:{t%60:06.3f} --> "
-                        f"{int(t//3600):02d}:{int(t%3600//60):02d}:{min(t%60+0.999, 59.999):06.3f}\n{ln['text']}\n\n")
+                        f"{int(e//3600):02d}:{int(e%3600//60):02d}:{e%60:06.3f}\n{ln['text']}\n\n")
         os.remove(aud)
         print(f"전사 {len(lines)}줄 → {os.path.basename(vtt)}")
 

@@ -348,7 +348,10 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
         if globals().get("_SMOOTH_OFF"):         # 견주기용 — 평소에는 켜져 있다
             cxs, cys, fhs = xs, ys, hs
         else:
-            cxs, cys, fhs = smooth(xs), smooth(ys), smooth(hs)
+            # ★스무딩 창을 config 로 (2026-09-10 사장님 «튀는 구간 없게»): 창이 넓을수록
+            #   얼굴 검출 흔들림이 더 눌려 카메라가 안정된다. 기본 3, 숨은기록은 5.
+            _sw = box.get("smooth_win", 3)
+            cxs, cys, fhs = smooth(xs, _sw), smooth(ys, _sw), smooth(hs, _sw)
 
     out, cur = [], prev
     for k in range(len(bs) - 1):

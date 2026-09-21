@@ -552,8 +552,12 @@ def main():
         doc.xml = doc.xml.replace(_옛tpl, _새tpl)
         print(f"  옛 템플릿 이름 잔재 {n}건 → {_새tpl} 로 전량 치환", file=sys.stderr)
 
-    # 되읽기 게이트 ① — 파일 전체에 도너 원본 경로·물성 잔재가 없어야 한다
-    잔재 = [tok for tok in (DONOR["미디어키"]["원본"], "8475667200", "0,0,1920,960") if tok in doc.xml]
+    # 되읽기 게이트 ① — 파일 전체에 도너 원본 경로·물성 잔재가 없어야 한다.
+    #   ★숫자 물성값(도너 29.97fps FrameRate·크롭)은 «태그 경계»로 찾는다 — 옛 코드는 맨 문자열
+    #   «8475667200» 을 부분 매치해, 내 컷 경계 타임라인 위치 <End>8475667200000</End>(33.4s)
+    #   안에서 오탐이 났다(2026-09-10 싱글372: 373 은 우연히 그 자리에 경계가 없어 통과했을 뿐).
+    잔재 = [DONOR["미디어키"]["원본"]] if DONOR["미디어키"]["원본"] in doc.xml else []
+    잔재 += [tok for tok in ("8475667200", "0,0,1920,960") if f">{tok}<" in doc.xml]
     print(("  [OK] " if not 잔재 else "  [X] ") + f"도너 원본 잔재 0  남음 {잔재}")
     for tok in 잔재:
         for m in list(re.finditer(re.escape(tok), doc.xml))[:3]:

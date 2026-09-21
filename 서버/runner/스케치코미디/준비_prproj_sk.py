@@ -258,8 +258,24 @@ def main():
     #   여운만큼 짧아 끝 0.8초에 껍데기가 통째로 비었다(2026-09-02 사장님 실측 «템플릿 빠짐»).
     #   ★편별 조절: proj["여운"] — 원본이 결말 직후 엔딩 카드로 넘어가는 소재(Deep04 실측:
     #   301.2s 부터 «This is Fiction» 카드가 깜빡이며 시작)는 0 으로 꺼서 카드 침범을 막는다.
-    여운 = float(proj.get("여운", 1.8))
-    ext = max(0.0, min(여운, proj["source"]["dur"] - 0.3 - segs[-1]["t1"]))
+    # ★여운 상한 — 원본 아웃트로 카드 앞에서 멈춘다(2026-09-09 사장님 «마지막에 싱글벙글 로고만
+    #   떠있고 … 로고 나오게 하지말고 종결지어줘»). 굽기(build.cut_and_join)가 소재 꼬리의 정적
+    #   브랜드 카드(남색 «싱글벙글»)를 감지해 마지막 조각 t1 을 그 앞에서 끊고 «_엔드카드시작» 을
+    #   조각에 남긴다(계획 JSON 에 저장 → 준비가 읽는다). 카드가 있으면 여운을 0 으로 — 여운은
+    #   원본을 앞으로 더 재생하는데 그 앞이 곧 카드라 늘리면 카드가 다시 뜬다.
+    _막 = segs[-1]
+    # 여운이 원본을 앞으로 더 재생하는데 그 앞에 아웃트로 카드가 있으면 카드가 다시 뜬다. 카드의
+    #   절대 시작점을 직접 구해 여운을 그 앞에서 멈춘다(굽기가 트림 안 한 경우도 안전 — 2026-09-10).
+    try:
+        _카드 = build.엔드카드시작(src_orig, proj["source"]["dur"], _막["t0"] + 2.0)
+    except Exception:
+        _카드 = _막.get("_엔드카드시작")
+    여운_상한 = _카드 if _카드 else (proj["source"]["dur"] - 0.3)
+    # ★결말확인 편(스토리가 원본 끝보다 앞에서 완결 — 뒤는 무관한 다른 스킷)은 여운을 끈다:
+    #   여운은 원본을 앞으로 더 재생하는데 그 뒤가 다른 스킷이면 엉뚱한 장면이 붙는다
+    #   (2026-09-10 싱글369: 합의금 결말 160.7s 뒤 바로 택시 꼰대 스킷 162s).
+    여운 = 0.0 if proj.get("결말확인") else float(proj.get("여운", 1.8))
+    ext = max(0.0, min(여운, 여운_상한 - _막["t1"]))
     if ext:
         segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext, _여운전t1=segs[-1]["t1"])
         total = round(total + ext, 4)
@@ -339,7 +355,13 @@ def main():
     logo_p = os.path.join(wdir, os.pardir, f"{slug}_로고.png")
     logo_p = os.path.normpath(logo_p)
     deep = os.path.exists(logo_p)
-    if deep:
+    # ★헤더 전체(로고+핸들+파란 배지+채널명)를 config 로 그리는 채널(숨은기록: channel.handle +
+    #   header.font 있음)은 draw_frame 헤더가 정본이다 — MP4 와 같은 소스. 아래 «로고만» 교체는
+    #   옛 Deep(최하연 스캐치독: 헤더가 로고 이미지 하나뿐)용이라, 숨은기록에 돌리면 hidden_story·
+    #   배지·숨은기록 글씨를 배경색으로 덮어 지운다(2026-09-09 사장님 «로고 옆 문구·로고인증 반영
+    #   안 됨» — MP4 엔 있는데 prproj 엔 없던 진짜 원인: 헤더 소스가 MP4·prproj 로 갈렸다).
+    헤더전체 = bool(CFG["channel"].get("handle") and L["header"].get("font"))
+    if deep and not 헤더전체:
         hd = L["header"]
         im.paste(Image.new("RGBA", (1080, hd["y1"] - hd["y0"] + 40), bg), (0, hd["y0"] - 20))
         logo = 배경맞춤(Image.open(logo_p), bg)
@@ -348,6 +370,10 @@ def main():
         logo = logo.resize((w_, h_))
         cx, cy_ = 0.19928400218486786 * 1080, 0.069892480969429016 * 1920
         im.alpha_composite(logo, (int(cx - w_ / 2), int(cy_ - h_ / 2)))
+    if deep:
+        # ★댓글 영역을 배경색으로 비운다 — draw_frame 이 그린 가짜 댓글 UI(아이콘·닉·날짜)를 지우고
+        #   진짜 댓글 카드 PNG 를 그 자리에 얹기 위해. 헤더 방식과 무관하게 댓글 카드가 있으면 돈다
+        #   (2026-09-09 헤더/댓글 분리 — 숨은기록도 카드를 쓴다).
         cm = L["comment"]
         im.paste(Image.new("RGBA", (1080, cm["y1"] - cm["y0"] + 40), bg), (0, cm["y0"] - 20))
     hole = Image.new("RGBA", (b["w"], b["y1"] - b["y0"]), (0, 0, 0, 0))
@@ -537,7 +563,10 @@ def main():
             r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
                                 "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
                                capture_output=True)
-            어둠 = len(r.stdout) > 0 and (sum(r.stdout) / len(r.stdout)) < 12
+            # ★검은 배경 위 글자 카드(블랙아웃 펀치라인)는 «통암전» 이 아니다 — 밝은 글자 픽셀이 있다
+            #   (2026-09-09 Deep61 «2주 전이다» 카드 평균 0.4·밝은픽셀 3180). build.py 검은꼬리와 같은 기준.
+            _밝은 = sum(1 for _x in r.stdout if _x > 60)
+            어둠 = len(r.stdout) > 0 and (sum(r.stdout) / len(r.stdout)) < 12 and _밝은 < len(r.stdout) * 0.0008
             연속 = 연속 + 1 if 어둠 else 0
             if 연속 >= 2:
                 암전컷.append((k + 1, round(t - 1.0, 1)))
@@ -932,6 +961,10 @@ def main():
         if w <= 0 or h <= 0:
             return None
         W2, H2 = 1920, 1080
+        # ★작은 글자 카드(블랙아웃 펀치라인)는 프레임-인-프레임이 아니다 — 확대하면 뭉개진다
+        #   (2026-09-09 Deep61 «2주 전이다» 카드). build.py 와 같은 기준. 원본대로 둔다.
+        if w * h < W2 * H2 * 0.15:
+            return None
         가로작음, 세로작음 = w <= W2 * 0.92, h <= H2 * 0.92
         if 가로작음 and 세로작음:
             return ("안쪽", (x0, y0, w, h))

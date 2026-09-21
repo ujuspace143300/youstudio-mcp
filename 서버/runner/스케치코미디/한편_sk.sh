@@ -13,8 +13,14 @@ LOG="/tmp/한편_${SLUG}.log"
 DONOR="/Users/yustudio1/Desktop/볼케이노 MCP/23. 신병4/1편_공유_신병이대답할때마다누군가엎드린다/신병이대답할때마다누군가엎드린다.prproj"
 BON="/Users/yustudio1/Desktop/유스튜디오-규격서/스크립트/린박스/키트/스타일/아모르_부품.prproj"
 
+# ★FROM=<n> 이면 그 번호 앞 단계는 건너뛴다(2026-09-09 — 핀만 반영할 때 ③ 유료 재전사를 다시 사지 않게.
+#   ④ 작표는 subs_asr·subs_before_sync 에서 다시 돌려도 같은 결과라(sync.py 머리) FROM=4 가 정본 경로다)
+FROM="${FROM:-1}"
+STEP=0
 단계() {  # 단계 <이름> <요약 grep 패턴> <명령...>
   local NAME="$1" PAT="$2"; shift 2
+  STEP=$((STEP + 1))
+  if [ "$STEP" -lt "$FROM" ]; then echo "── $NAME (건너뜀 FROM=$FROM)"; return 0; fi
   echo "── $NAME"
   if ! "$@" > "$LOG" 2>&1; then
     echo "★실패 — $NAME. 로그 끝:"; tail -8 "$LOG"; exit 1

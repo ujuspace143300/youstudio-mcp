@@ -685,6 +685,13 @@ def main():
     assert not 구멍, "커버리지 구멍 — 위 목록"
 
     proj.setdefault("subs_before_sync", [dict(x) for x in src])
+    # ★최종 관문 — 어느 경로로 들어왔든 자막에 금지 구두점이 남지 않게 한 자리에서 건다
+    #   (2026-09-09 Deep61 «74,000원» 실측: 원본 대조·중재 경로가 strip 을 우회해 ⑤ 재검사에서 반려.
+    #    규칙은 최종 관문 하나에 통일 — 경로마다 걸면 새 경로가 우회한다). ?! 는 남긴다.
+    for x in dlg + narr:
+        정 = 정돈(x.get("text", ""))
+        if 정:
+            x["text"] = 정
     proj["subs"] = sorted(dlg + narr, key=lambda x: x["t"])
     json.dump(proj, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     print(f"\n저장: {pj}\n★대본이 바뀌었으니 다시 검사해야 제작할 수 있다.")

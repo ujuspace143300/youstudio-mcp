@@ -34,6 +34,47 @@ def _g(path, default):
     return cur
 
 
+
+def 말끝_실측(src, c0, cap):
+    """큐 시작 c0 부터 말대역(800~3500Hz) 에너지가 꺼지는 «실측» 끝시각 → (끝, 창시작, 에너지열, 문턱).
+    글자 수 추정(0.17s/자)은 스케치 말속도(8~10음절/초)에서 두 배로 부풀어 납품분 전부를 반려했다 —
+    추정 말고 소리를 잰다(2026-09-09 Deep60). 바닥(BGM)은 큐 앞뒤 3초를 더한 넓은 창의 20% 백분위 —
+    말로 꽉 찬 짧은 창에서 백분위를 재면 문턱이 말 위로 올라가 끝이 시작으로 튄다(Deep62 «애쓰지 않아도» 실측).
+    쉼 0.6초(줄 나눔 gap 0.55 와 맞춤)면 말이 끝난 것으로 본다. cap(다음 큐 시작)을 넘지 않는다."""
+    import subprocess as _sp
+    try:
+        import numpy as _np
+    except ImportError:
+        return min(cap, c0 + 0.3), None, None, None
+    b = max(c0 - 3.0, 0.0)
+    d = min(cap + 2.0, c0 + 11.0) - b
+    if d <= 0.4 or not os.path.exists(src):
+        return min(cap, c0 + 0.3), None, None, None
+    r = _sp.run(["ffmpeg", "-v", "error", "-ss", f"{b:.2f}", "-t", f"{d:.2f}", "-i", src,
+                 "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True)
+    a = _np.frombuffer(r.stdout, dtype=_np.int16).astype(_np.float32) / 32768
+    win = 1600                                     # 0.1초
+    if len(a) < win * 4:
+        return min(cap, c0 + 0.3), None, None, None
+    f = _np.fft.rfftfreq(win, 1 / 16000)
+    sel = (f > 800) & (f < 3500)
+    h = _np.hanning(win)
+    e = _np.array([20 * _np.log10(_np.abs(_np.fft.rfft(a[i:i + win] * h))[sel].sum() + 1e-6)
+                   for i in range(0, len(a) - win, win)])
+    th = float(_np.percentile(e, 20)) + 8.0            # 바닥(BGM) 대비 +8dB 가 말
+    spk = e > th
+    i0 = int((c0 - b) / 0.1)
+    i_cap = min(len(spk), int((cap - b) / 0.1) + 1)
+    last, gap = i0, 0
+    for i in range(i0, i_cap):
+        if spk[i]:
+            last, gap = i, 0
+        else:
+            gap += 1
+            if gap >= 6 and i > i0 + 3:                  # 0.6초 쉬면 말이 끝난 것
+                break
+    return min(cap, round(b + (last + 1) * 0.1, 2)), b, e, th
+
 def check(proj, path):
     """반려 사유와 주의를 낸다. rc 0 이면 통과."""
     e, n, tb = CFG["edit"], CFG["narration"], CFG["layout"]["title"]
@@ -95,9 +136,24 @@ def check(proj, path):
     # ★결말 점프(2026-09-01 A안) — 마지막 P5 조각이 규격 결말점프_최대_s 이하면
     #   밀도 계산에서 통째로 뺀다(길이·범위 모두). 서버 check.ts 와 같은 규칙.
     jump_max = e.get("결말점프_최대_s", 0)
-    tail = segs[-1]
-    span_segs = segs[:-1] if (len(segs) > 1 and tail.get("phase") == 5
-                              and tail["t1"] - tail["t0"] <= jump_max) else segs
+    # ★결말 장면이 여러 컷일 수 있다(2026-09-09 Deep61: 달력 5.6s + 블랙아웃 카드 «2주 전이다» 1.1s).
+    #   본체에서 큰 간격(>60s) 뒤로 떨어진 «끝 블록»을 통째로 뺀다 — 마지막 한 조각만 빼면
+    #   달력이 span 에 남아 밀도가 20%로 무너졌다. 블록 총길이가 jump_max 이하이고 P5 로 끝날 때만.
+    #   (2026-09-09 재수정 — 큰 간격이 없을 때 제외를 아예 안 해 Deep55 단일 끝조각이 밀도를 깨뜨렸다:
+    #   여러 컷 끝장면은 큰 간격(>15s) 앞까지 통째로, 큰 간격이 없으면 마지막 한 조각만 뺀다.)
+    cut_i = len(segs)
+    if len(segs) > 1 and segs[-1].get("phase") == 5:
+        acc = 0.0
+        for i in range(len(segs) - 1, 0, -1):
+            acc += segs[i]["t1"] - segs[i]["t0"]
+            if acc > jump_max:
+                break
+            if segs[i]["t0"] - segs[i - 1]["t1"] > 15:   # 큰 간격 = 끝 장면으로 점프한 자리
+                cut_i = i
+                break
+        if cut_i == len(segs) and segs[-1]["t1"] - segs[-1]["t0"] <= jump_max:
+            cut_i = len(segs) - 1                         # 큰 간격 없음 — 마지막 한 조각만(원래 동작)
+    span_segs = segs[:cut_i]
     span = max(s["t1"] for s in span_segs) - min(s["t0"] for s in span_segs)
     c_total = sum(s["t1"] - s["t0"] for s in span_segs)
     dens = c_total / span if span > 0 else 1.0
@@ -167,7 +223,13 @@ def check(proj, path):
             r = _sp.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", _src,
                          "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
                         capture_output=True)
-            return len(r.stdout) > 0 and (sum(r.stdout) / len(r.stdout)) < 12
+            # ★build.py 와 같은 기준 (2026-09-09 Deep61 블랙아웃 펀치라인 카드) — 밝은 글자 픽셀이
+            #   있으면 «어둡다» 아님. 안 그러면 «암전 위 소리는 결이 아니다» 규칙이 카드 결말을 버린다
+            d = r.stdout
+            if not d:
+                return False
+            bright = sum(1 for x in d if x > 60)
+            return (sum(d) / len(d)) < 12 and bright < len(d) * 0.0008
 
         끝발화 = None
         후보들 = []
@@ -189,21 +251,82 @@ def check(proj, path):
         # ★결말 발화 «끝» 절단 게이트 (2026-09-07 Deep18 «100만원 영원»·Deep20 «고백 직관
         #   진짜» 실측 ×2 — 마지막 조각 t1 이 결말 발화 꼬리를 잘라 문구가 토막났다.
         #   vtt 끝시각은 실제 말끝보다 이르게 찍히므로 +0.7s 여유를 요구한다(0.4 로는 Deep27 «커플이 있다» 꼬리를 또 놓쳤다).)
-        # 결말확인 명시 편은 발화 끝 게이트도 사람 판단을 따른다(엔딩 카드 위 보이스오버가
-        # 컷 경계에 걸리는 소재 — 2026-09-08 Deep23 «내가 줄게» 꼬리가 카드에 걸침)
-        if os.path.exists(_vtt) and not proj.get("결말확인"):
+        # ★큐 끝시각 신뢰 (2026-09-09 Deep60 «이래서 소개팅 주» 실측 — 편시작이 쓰던 vtt 끝시각이
+        #   전부 «시작+0.999» 가짜였다. 그래서 이 게이트는 큐 시작 1.7초 안쪽만 봤고, 9글자 대사가
+        #   1.0초 뒤 잘려도 통과했다. 같은 판 조각 8 «태용 씨가 확실히 보는 눈이» 도 1.0초 뒤 절단.
+        #   두 구멍: ① 가짜 끝 ② 마지막 조각만 봄 ③ «결말확인» 이 이 게이트까지 통째로 껐음.
+        #   수리: 편시작은 단어 끝시각을 쓴다 / 옛 vtt(전 큐 0.999s)는 글자 수로 끝을 추정한다 /
+        #   모든 조각의 t1 을 본다 / 결말확인은 «결론 미포함» 게이트만 넘기고, 발화 절단 예외는
+        #   proj["결말절단허용"]: [큐 시작초, …] 로 큐 하나씩 명시한다(Deep23 카드 위 보이스오버형).
+        큐들 = []
+        if os.path.exists(_vtt):
             for m in _re.finditer(r"(\d+):(\d+):(\d+\.\d+) --> (\d+):(\d+):(\d+\.\d+)\n(.*)",
                                   open(_vtt, encoding="utf-8").read()):
                 g2 = m.groups()
-                c0 = int(g2[0]) * 3600 + int(g2[1]) * 60 + float(g2[2])
-                c1 = int(g2[3]) * 3600 + int(g2[4]) * 60 + float(g2[5])
-                글2 = _re.sub(r"[^가-힣]", "", g2[6])
-                if len(글2) >= 3 and segs[-1]["t0"] <= c0 < segs[-1]["t1"] \
-                        and c1 + 0.7 > segs[-1]["t1"] and c1 < segs[-1]["t1"] + 3.0:
-                    bad.append(f"★결말 발화 끝 절단 — 마지막 조각이 {segs[-1]['t1']:.1f}초에"
-                               f" 끝나는데 발화 「{g2[6][:16]}」 큐가 {c1:.1f}초까지다."
-                               f" t1 을 {c1 + 0.7:.1f}초 이상으로(암전 전까지) 늘려라")
-                    break
+                큐들.append([int(g2[0]) * 3600 + int(g2[1]) * 60 + float(g2[2]),
+                            int(g2[3]) * 3600 + int(g2[4]) * 60 + float(g2[5]),
+                            g2[6], _re.sub(r"[^가-힣]", "", g2[6])])
+        가짜끝 = bool(큐들) and sum(1 for c in 큐들 if 0.99 <= c[1] - c[0] <= 1.0) >= 0.9 * len(큐들)
+
+        _활성표 = []
+
+        def _말끝(c0, cap):
+            end, b, e, th = 말끝_실측(_src, c0, cap)
+            if e is not None:
+                _활성표.append((b, e, th))
+            return end
+
+        def _말하는중(t):
+            """t 직전 0.3초가 또렷한 말소리인가(바닥+11dB 평균) — 실측한 창 안에서만 답한다. 모르면 None."""
+            for b, e, th in _활성표:
+                i = int((t - b) / 0.1)
+                if 3 <= i <= len(e):
+                    return bool(float(e[i - 3:i].mean()) > th + 3.0)   # ★numpy bool 은 `is False` 에 안 걸린다
+            return None
+
+        if 가짜끝:
+            # 옛 vtt — 조각 경계(t0·t1) 앞 5초 안에서 시작하는 큐만 실측한다(나머지는 게이트가 안 본다)
+            경계 = [s["t0"] for s in segs] + [s["t1"] for s in segs]
+            for i, c in enumerate(큐들):
+                cap = 큐들[i + 1][0] - 0.05 if i + 1 < len(큐들) else c[0] + 8.0
+                if any(x - 5.0 <= c[0] < x for x in 경계):
+                    c[1] = max(c[0] + 0.3, _말끝(c[0], cap))
+                else:
+                    c[1] = max(c[0] + 0.3, min(cap, c[0] + 0.12 * len(c[3]) + 0.3))
+        허용 = proj.get("결말절단허용") or []
+        for si, s in enumerate(segs):
+            for c0, c1, tx, 글2 in 큐들:
+                if len(글2) < 3 or not (s["t0"] <= c0 < s["t1"]) or c1 >= s["t1"] + 3.0:
+                    continue
+                끝추정 = "(실측)" if 가짜끝 else ""
+                if si == len(segs) - 1:
+                    if c1 + 0.7 > s["t1"] + 0.02:          # 0.02 = 부동소수 여유(304.2+0.7 > 304.9 오판)
+                        if any(abs(c0 - h) < 0.3 for h in 허용):
+                            warn.append(f"결말 발화 「{tx[:16]}」 {c0:.1f}~{c1:.1f}{끝추정} 가 t1={s['t1']:.1f} 에"
+                                        f" 걸리지만 «결말절단허용» 명시로 통과")
+                        else:
+                            bad.append(f"★결말 발화 끝 절단 — 마지막 조각이 {s['t1']:.1f}초에"
+                                       f" 끝나는데 발화 「{tx[:16]}」 큐가 {c1:.1f}초{끝추정}까지다."
+                                       f" t1 을 {c1 + 0.7:.1f}초 이상으로(암전 전까지) 늘려라"
+                                       f" (카드 위 보이스오버 등 사람이 확인한 예외만 결말절단허용: [{c0:.1f}])")
+                            break
+                else:
+                    if c0 + 0.25 <= s["t1"] < c1 - 0.25:
+                        # 실측 vtt(가짜끝)는 «말소리가 컷까지 이어지는가»로 반려/주의를 가른다 —
+                        # 문장 안 긴 쉼(«태용 씨가 … 확실히») 은 에너지로 못 가르니 사람이 큐 글을 읽고 판단한다.
+                        if 가짜끝 and _말하는중(s["t1"]) is False:
+                            warn.append(f"조각 {si} 큐 안 쉼에서 절단 — t1={s['t1']:.1f}, 「{tx[:16]}」"
+                                        f" {c0:.1f}~{c1:.1f}{끝추정}. 문장 중간이면 t1 을 {c1 + 0.5:.1f} 이상으로")
+                        else:
+                            bad.append(f"★조각 {si} 발화 중간 절단 — t1={s['t1']:.1f} 인데 「{tx[:16]}」 큐가"
+                                       f" {c0:.1f}~{c1:.1f}{끝추정}다. t1 을 {c1 + 0.5:.1f} 이상으로 늘리거나"
+                                       f" {c0 - 0.1:.1f} 이전으로 당겨라")
+                            break
+                    elif c1 - 0.25 <= s["t1"] < c1 + 0.3:
+                        warn.append(f"조각 {si} 꼬리 빠듯 — t1={s['t1']:.1f}, 「{tx[:12]}」 끝 {c1:.1f}{끝추정}")
+            for c0, c1, tx, 글2 in 큐들:
+                if len(글2) >= 3 and c0 < s["t0"] - 0.4 and c1 > s["t0"] + 0.3:
+                    warn.append(f"조각 {si} 발화 중간 시작 — t0={s['t0']:.1f}, 「{tx[:12]}」 {c0:.1f}~{c1:.1f}{끝추정}")
         if 끝발화 and segs[-1]["t1"] < 끝발화 - 1.0:
             if proj.get("결말확인"):
                 warn.append(f"원본 발화가 {끝발화:.0f}초까지 이어지지만 «결말확인» 명시로 통과"
