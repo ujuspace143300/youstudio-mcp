@@ -357,6 +357,17 @@ def cut_and_join(src, segs, dst, work, fps):
                                  "at_cut": bool(info["at_cut"])})
         zs = [x[3]["zoom"] for x in plan]
         nf = sum(1 for x in plan if x[3]["face"])
+        # ★영구 게이트 (2026-09-21 Deep87 «입이 잘리는 과확대») — 얼굴을 찾은 비트는 그 얼굴이
+        #   crop 안에 있어야 한다. 기존 검사는 «얼굴이 검출되는가» 만 봤다. framing.담기 가
+        #   보장하지만, 누가 그 관문을 우회하는 경로를 새로 만들면 여기서 걸린다.
+        #   face_in=None 은 얼굴이 쓸 수 있는 자리보다 큰 불가피 비트(원본 초근접) — 찍기만 한다.
+        밖 = [(round(x[0], 2), x[3]["crop"]) for x in plan if x[3]["face"] and x[3].get("face_in") is False]
+        assert not 밖, f"조각 {i}: 얼굴이 crop 밖으로 나간 비트 {밖[:3]} — framing.담기 를 우회했다"
+        불가피 = sum(1 for x in plan if x[3]["face"] and x[3].get("face_in") is None)
+        띠 = sum(1 for x in plan if tuple(x[3].get("bounds", (0, 0, W, H))) != (0, 0, W, H))
+        if 불가피 or 띠:
+            print(f"      (레터박스 비트 {띠}개 — crop 을 띠 안쪽으로 · 초근접 얼굴 비트 {불가피}개 — 최대로 넓힘)",
+                  flush=True)
         # ★얼굴 수를 반드시 찍는다. **조용히 실패하는 코드를 만들지 마라** — 모델
         #   (assets/models/yunet.onnx)이 없으면 얼굴을 하나도 못 찾고 확대가 기본값
         #   1.24 로 굳는데, 안 찍으면 그냥 그렇게 구워진다(실제로 한 번 그렇게 나왔다).

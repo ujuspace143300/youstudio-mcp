@@ -189,6 +189,85 @@ def smooth(vals, win=3):
     return out
 
 
+def 그림경계(rgb, W, H):
+    """프레임에서 «실제 그림» 의 경계 (x0, y0, x1, y1) — 레터박스·필러박스의 순흑 띠를 뺀 자리.
+
+    ★2026-09-21 띱 7차(Deep76·79·90·91) — 굽기에는 레터박스 경로가 없었다. 조각 «전체»가
+      프레임-인-프레임일 때만 build 가 잘라냈고(세 점 일치), 샷마다 띠가 있다 없다 하는 소재
+      (재연 장면만 시네마스코프)는 얼굴 추적 crop 이 검은 띠 안까지 들어가 완성본 위쪽에
+      최대 116px 검은 띠가 박혔다. 준비(prproj) 쪽은 09-08 Deep14 때 고쳤는데 굽기 쪽이 남은 구멍.
+      → 조각 단위가 아니라 **비트(샷)마다** 경계를 재고, crop 은 그 안에서만 움직인다.
+    띠로 인정하는 조건: 줄 최대 밝기 ≤ 26 의 «균일한 순흑»(준비와 같은 기준) · 두께 12px 이상 ·
+    한 변의 25% 이하(그보다 두꺼우면 프레임-인-프레임이거나 어두운 장면이다 — 여기서 다루지 않는다).
+    검은 배경 위 글자 카드(밝은 영역 < 15%)는 띠가 아니라 내용이다 — 전체를 돌려준다."""
+    full = (0, 0, W, H)
+    if rgb is None:
+        return full
+    g = rgb.max(axis=2) if rgb.ndim == 3 else rgb
+    if g.shape[0] != H or g.shape[1] != W:
+        return full
+    밝 = g > 26
+    rows, cols = np.where(밝.any(axis=1))[0], np.where(밝.any(axis=0))[0]
+    if not len(rows) or not len(cols):
+        return full
+    x0, x1, y0, y1 = int(cols[0]), int(cols[-1]) + 1, int(rows[0]), int(rows[-1]) + 1
+    if (x1 - x0) * (y1 - y0) < W * H * 0.15:
+        return full
+
+    def _띠(두께, 변):
+        return 두께 if 12 <= 두께 <= 변 * 0.25 else 0
+    return (_띠(x0, W), _띠(y0, H), W - _띠(W - x1, W), H - _띠(H - y1, H))
+
+
+def 담기(bw, bh, tx, ty, face, 경계, usable_h, ratio):
+    """★구도의 «최종 관문» — 어느 경로(plan_beats·plan_frame)로 정했든 crop 은 여기를 지난다.
+
+    ① crop 은 그림경계(레터박스 뺀 자리) 안에 있다.
+    ② 검출된 얼굴(또는 무리 상자)은 crop 안에 있다 — **부드러움 제한보다 얼굴 담기가 먼저다.**
+       (2026-09-21 Deep87: 중간 샷에서 확대 1.79 로 시작한 뒤 원본이 타이트 클로즈업으로
+        바뀌었는데 «한 비트 4.5%» 제한에 묶여 확대가 1.5~1.7 에 머물렀고, 말하는 사람이
+        눈·이마만 잡혀 입이 잘렸다. 기존 검사는 «얼굴이 검출되는가» 만 봤다.)
+       원본 컷에서 크기가 바뀌는 것은 튐이 아니다 — 원본이 이미 앵글을 바꿨다.
+    돌려주는 값: (bw, bh, tx, ty, 얼굴담김) — 얼굴이 쓸 수 있는 자리보다 크면 최대로 넓히고
+    얼굴담김=None(불가피) 을 준다."""
+    vx0, vy0, vx1, vy1 = 경계
+    vy1 = min(vy1, usable_h)
+    vw, vh = max(vx1 - vx0, 2), max(vy1 - vy0, 2)
+    담김 = True
+    if face:
+        fx, fy, fw, fh = face[:4]
+        need_h = fh * 1.22                       # 이마 위 8% · 턱 아래 14% (입이 자막·밑변에 안 걸리게)
+        need_w = fw * 1.10
+        need_h = max(need_h, need_w / ratio)
+        if bh < need_h:
+            bh = need_h
+    if bh > vh:
+        bh = vh
+    bw = bh * ratio
+    if bw > vw:
+        bw, bh = vw, vw / ratio
+    bw, bh = int(bw), int(bh)
+    if face:
+        if fh * 1.22 > bh + 1 or fw * 1.10 > bw + 1:
+            담김 = None                          # 얼굴이 쓸 수 있는 자리보다 크다 — 불가피
+            ty = fy + fh / 2 - bh * 0.5          # 가운데에 놓아 위아래를 고르게 내준다
+            tx = fx + fw / 2 - bw / 2
+        else:
+            ty = min(ty, fy - fh * 0.08)         # 이마가 윗변 아래
+            ty = max(ty, fy + fh * 1.14 - bh)    # 턱이 밑변 위 (입이 먼저다 — 나중에 걸어 이긴다)
+            tx = min(tx, fx - fw * 0.05)
+            tx = max(tx, fx + fw * 1.05 - bw)
+    원tx, 원ty = tx, ty
+    tx = max(vx0, min(tx, vx1 - bw))
+    ty = max(vy0, min(ty, vy1 - bh))
+    if face and 담김:
+        담김 = bool(ty <= fy + fh * 0.15 and ty + bh >= fy + fh * 0.98
+                    and tx <= fx + fw * 0.1 and tx + bw >= fx + fw * 0.9)
+        if not 담김 and (abs(tx - 원tx) > 1 or abs(ty - 원ty) > 1):
+            담김 = None      # 얼굴이 원본 프레임 가장자리·자막 띠에 걸쳐 있다 — 그림경계가 이긴다(불가피)
+    return bw, bh, int(tx), int(ty), 담김
+
+
 def plan_pan(src, seg, idx, W, H, usable_h, box, work):
     """조각 하나를 **통으로 쓰되 카메라가 얼굴을 따라가게** 한다.
 
@@ -271,15 +350,50 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
             bs.append(m); at_cut.append(m is not t1 and m in marks)
     bs[-1] = t1
 
+    # ★비트가 «놓친 원본 컷»에 걸치면 그 자리에서 쪼갠다 (2026-09-21 Deep87 실측: 어두운 술집
+    #   장면의 298.9s 컷을 scene_cuts 가 놓쳐 비트 298.30~299.15 가 두 샷에 걸쳤고, 구도는 비트
+    #   한가운데(앞 샷) 프레임으로 정해져 뒤 0.2초가 앞 샷 구도로 나갔다 — 이마만 보임).
+    #   비트의 머리·꼬리 프레임이 다른 장면이면 이분법으로 컷을 찾아 경계로 삼는다.
+    #   컷이 비트 머리·꼬리 0.2초 안이면 새 비트를 만들지 않고 이웃 경계를 그 자리로 옮긴다.
+    _thr = box.get("same_scene_thr", 0.93)
+
+    def _같은(u, v):
+        return same_scene(frame_at(src, u, work, f"{idx:02d}c{int(round(u * 100))}"),
+                          frame_at(src, v, work, f"{idx:02d}c{int(round(v * 100))}"), _thr)
+
+    nb, nc = [bs[0]], [at_cut[0]]
+    for k in range(len(bs) - 1):
+        a, e = nb[-1], bs[k + 1]
+        끝, 끝컷 = e, at_cut[k + 1]
+        if e - a >= 0.45 and not _같은(a + 0.04, e - 0.04):
+            lo, hi = a + 0.04, e - 0.04
+            for _ in range(4):
+                mid = (lo + hi) / 2
+                if _같은(lo, mid):
+                    lo = mid
+                else:
+                    hi = mid
+            c = round(hi, 2)
+            if c - a >= 0.2 and e - c >= 0.2:
+                nb.append(c); nc.append(True)
+            elif c - a < 0.2 and len(nb) > 1:
+                nb[-1], nc[-1] = c, True             # 컷이 머리에 붙었다 — 앞 비트를 컷까지 늘린다
+            elif e - c < 0.2 and k + 1 < len(bs) - 1:
+                끝, 끝컷 = c, True                   # 컷이 꼬리에 붙었다 — 다음 비트가 컷에서 시작한다
+        nb.append(끝); nc.append(끝컷)
+    nb[-1] = t1
+    bs, at_cut = nb, nc
+
     # ★★**1패스 — 비트마다 얼굴을 먼저 다 찾아 둔다.**
     #   예전에는 찾자마자 바로 구도를 정했는데, 얼굴 검출은 프레임마다 몇 픽셀씩
     #   흔들린다. 그 흔들림이 그대로 카메라에 실려 **화면이 떠는 것처럼 보였다.**
     #   먼저 모아서 궤적을 다듬은 뒤(smooth) 구도를 정한다 — `plan_pan` 은 이미
     #   그렇게 하고 있었는데 여기만 안 하고 있었다.
-    raw = []
+    raw, 경계들 = [], []
     for k in range(len(bs) - 1):
         a, e = bs[k], bs[k + 1]
         rgb = frame_at(src, (a + e) / 2, work, f"{idx:02d}b{k:02d}")
+        경계들.append(그림경계(rgb, W, H))          # ★비트(샷)마다 — 레터박스는 샷 단위로 나타난다
         f, many = None, False
         if rgb is not None and HAS_YN:
             fs = [q for q in _faces_yunet(rgb, box.get("face_score", 0.45))
@@ -366,6 +480,12 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
         else:
             z = 1.0 + (zmax - 1.0) * 0.4
         z = max(zmin, min(zmax, z))
+        # ★목표 확대는 «이 비트의 얼굴이 들어오는 값»을 넘지 않는다(2026-09-21 Deep87).
+        #   안 그러면 목표(zmin 1.10)로 슬금슬금 다가갔다가 담기 관문에 걸려 1.00 으로 되튀는
+        #   톱니가 생긴다(실측 1.00→1.13→1.00). zmin 아래로 내려가도 된다 — 원본이 초근접이면
+        #   우리가 더 확대할 이유가 없다.
+        if f:
+            z = min(z, max(1.0, usable_h / max(f[3] * 1.22, 1)))
 
         lz = dz_max * (relief if at_cut[k] else 1)
         if cur:                                     # 한 비트에 허용한 만큼만 움직인다
@@ -421,10 +541,47 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
                 tx = max(0, min(cur[2] + (tx - cur[2]) * f, W - bw))
                 ty = max(0, min(cur[3] + (ty - cur[3]) * f, usable_h - bh))
 
+        # ★최종 관문 — 그림경계 안 · 얼굴 담기 (변화 제한·예산보다 뒤에 걸어 이것이 이긴다)
+        vx0, vy0, vx1, vy1 = 경계들[k]
+        # ★얼굴 담기가 변화 제한을 이기는 것은 «따라갈 값어치가 있는 얼굴»일 때만이다.
+        #   여러 명이 나오는 장면은 비트마다 다른 얼굴이 «가장 큰 얼굴»로 잡힌다 — 그때마다
+        #   담으면 카메라가 좌우로 휘둘린다(2026-09-21 Deep91 조각4 실측: x 163→605→943→377).
+        #   ① 첫 비트 ② 원본 컷 ③ 앞 비트와 같은 얼굴(중심이 얼굴 한 개 폭 안) ④ 크기가 아예
+        #   안 맞는 초근접 — 이 넷일 때만 담는다. 그 밖(같은 샷 안에서 얼굴이 바뀜)은 예전처럼
+        #   제한된 걸음으로 다가간다 — 경계 안에 두는 것은 언제나 한다.
+        fk = raw[k][0]
+        담을얼굴 = None
+        if fk:
+            앞 = raw[k - 1][0] if k else None
+            같은 = bool(앞) and abs((fk[0] + fk[2] / 2) - (앞[0] + 앞[2] / 2)) <= max(fk[2], 앞[2]) \
+                and abs((fk[1] + fk[3] / 2) - (앞[1] + 앞[3] / 2)) <= max(fk[3], 앞[3])
+            if cur is None or at_cut[k] or 같은 or fk[3] * 1.22 > bh:
+                담을얼굴 = fk
+        bw, bh, tx, ty, 담김 = 담기(bw, bh, tx, ty, 담을얼굴, 경계들[k], usable_h,
+                                   box["w"] / box["h"])
+        if fk and 담을얼굴 is None:
+            담김 = None                          # 따라가지 않기로 한 얼굴 — 게이트 대상이 아니다
+        elif 담을얼굴 and cur and not at_cut[k] and not (fk[3] * 1.22 > cur[1]):
+            # 같은 샷 안에서 같은 얼굴을 따라잡는 중 — 한 번에 뛰지 않고 컷 완화폭(relief)만큼만 간다
+            mx, my = dp_max * relief * W, dp_max * relief * usable_h
+            tx2 = int(max(cur[2] - mx, min(cur[2] + mx, tx)))
+            ty2 = int(max(cur[3] - my, min(cur[3] + my, ty)))
+            tx2 = max(vx0, min(tx2, vx1 - bw)); ty2 = max(vy0, min(ty2, min(vy1, usable_h) - bh))
+            if (tx2, ty2) != (tx, ty):
+                tx, ty, 담김 = tx2, ty2, None    # 아직 따라가는 중 — 다음 비트에 마저 간다
+        assert vx0 <= tx and tx + bw <= vx1 and vy0 <= ty and ty + bh <= min(vy1, usable_h), \
+            f"crop 이 그림경계 밖이다 — 비트 {k} crop {bw}x{bh}@{tx},{ty} 경계 {경계들[k]} (검은 띠가 박힌다)"
+
         # 비트 안에서는 앞 구도 중심에서 이 목표로 흘러간다 — 계단이 아니라 움직임이 되게
         if cur:
-            sx = max(0, min(cur[2] + (cur[0] - bw) / 2, W - bw))
-            sy = max(0, min(cur[3] + (cur[1] - bh) / 2, usable_h - bh))
+            sx = max(vx0, min(cur[2] + (cur[0] - bw) / 2, vx1 - bw))
+            sy = max(vy0, min(cur[3] + (cur[1] - bh) / 2, min(vy1, usable_h) - bh))
+            if 담을얼굴 and 담김:
+                # 시작 위치도 얼굴을 담는다 — 원본 컷에서 크기가 바뀐 비트는 흘러오지 않고 제자리에서 연다
+                fx, fy, fw, fh = 담을얼굴[:4]
+                if not (sy <= fy + fh * 0.15 and sy + bh >= fy + fh * 0.98
+                        and sx <= fx + fw * 0.1 and sx + bw >= fx + fw * 0.9):
+                    sx, sy = tx, ty
         else:
             sx, sy = tx, ty
         dur = max(e - a, 0.05)
@@ -444,8 +601,9 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
         if box.get("mirror"):
             vf += ",hflip"
 
-        out.append((a, e, vf, {"zoom": round(z, 2), "at_cut": at_cut[k],
-                               "face": bool(raw[k][0]),
+        out.append((a, e, vf, {"zoom": round(usable_h / max(bh, 1), 2), "at_cut": at_cut[k],
+                               "face": bool(raw[k][0]), "face_in": 담김,
+                               "bounds": 경계들[k],
                                "crop": (bw, bh, int(tx), int(ty))}))
         cur = (bw, bh, int(tx), int(ty))
     return out
@@ -462,12 +620,16 @@ def plan_frame(src, seg, idx, W, H, usable_h, box, work, prev=None):
     face_y = box.get("face_y", 0.40)             # 얼굴 중심을 화면 세로 어디에 둘지
 
     how, face, group = "중앙", None, None
+    경계 = (0, 0, W, H)
     if box.get("follow_face"):
         frames = frames_of(src, seg, work, f"{idx:02d}")
+        if frames:
+            경계 = 그림경계(frames[len(frames) // 2], W, H)
         if HAS_YN:
             for a in frames:
                 fs = [f for f in _faces_yunet(a) if f[1] + f[3] // 2 < usable_h]
                 if fs:
+                    경계 = 그림경계(a, W, H)
                     face = max(fs, key=lambda f: f[2] * f[3])
                     # ★여러 명이면 **다 담아야 한다.** 하나만 골라 61% 로 맞추면
                     #   나머지가 프레임 밖으로 나간다 — 세 사람 장면이 전부 1.8배가 됐다.
@@ -483,6 +645,7 @@ def plan_frame(src, seg, idx, W, H, usable_h, box, work, prev=None):
             #   엉뚱한 데를 짚어 튄다 — 못 찾은 것이 화면을 옮길 이유가 되지는 않는다.
             if prev:
                 pw, ph, px, py = prev[:4]
+                pw, ph, px, py, _ = 담기(pw, ph, px, py, None, 경계, usable_h, box["w"] / box["h"])
                 vf = (f"crop={pw}:{ph}:{px}:{py},"
                       f"scale={box['w']}:{box['h']}:flags=lanczos")
                 if box.get("mirror"):
@@ -571,10 +734,15 @@ def plan_frame(src, seg, idx, W, H, usable_h, box, work, prev=None):
             new_hold = hold + (seg["t1"] - seg["t0"])
             how += f" · {'같은 장면' if cont else '앞 구도'} 유지({new_hold:.1f}초)"
 
+    # ★최종 관문 — 그림경계 안 · 얼굴 담기 («잔무늬» 자리표는 얼굴이 아니라서 담기 대상이 아니다)
+    base_w, base_h, x, y, 담김 = 담기(base_w, base_h, x, y,
+                                     face if how.startswith("얼굴") else None,
+                                     경계, usable_h, box["w"] / box["h"])
     vf = (f"crop={base_w}:{base_h}:{x}:{y},"
           f"scale={box['w']}:{box['h']}:flags=lanczos")
     if box.get("mirror"):
         vf += ",hflip"
     return vf, {"zoom": round(z, 2), "how": how, "crop": (base_w, base_h, x, y),
+                "face_in": 담김, "bounds": 경계,
                 "run": held,
                 "hold": (hold + (seg["t1"] - seg["t0"])) if held else 0.0}

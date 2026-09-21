@@ -396,6 +396,38 @@ def comment_block(cands):
 """
 
 
+def _vtt_큐(path):
+    """전사 vtt → [(시작초, 글)] — 시각 검증용(계획 시각이 전사와 맞는지 세는 데 쓴다)."""
+    if not os.path.exists(path):
+        return []
+    T = re.compile(r"^(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?) --> ")
+    out, cur = [], None
+    for ln in open(path, encoding="utf-8"):
+        m = T.match(ln)
+        if m:
+            cur = int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3])
+        elif cur is not None and ln.strip() and not ln.startswith("WEBVTT"):
+            out.append((cur, re.sub(r"<[^>]+>", "", ln).strip()))
+    return out
+
+
+def _훅맞춤(hooks, 큐, scale, 창=8.0):
+    """훅(대사 글+시각)에 scale 을 곱했을 때, 그 언저리(±창) 전사에 글이 실제로 있는 훅의 수.
+    글은 공백·부호를 뗀 2글자 조각(bigram)의 절반 이상이 전사 창 안에 있으면 «맞음»."""
+    뗀 = lambda s: re.sub(r"[^0-9A-Za-z가-힣]", "", s or "")
+    n = 0
+    for h in hooks:
+        글 = 뗀(h.get("text"))
+        if len(글) < 4:
+            continue
+        t = h.get("t0", 0) * scale
+        창글 = 뗀("".join(x for c, x in 큐 if t - 창 <= c <= t + 창))
+        조각 = [글[i:i + 2] for i in range(len(글) - 1)]
+        if 조각 and sum(1 for g in 조각 if g in 창글) >= len(조각) * 0.5:
+            n += 1
+    return n
+
+
 def vtt_text(path):
     if not os.path.exists(path):
         return "(자막 없음)"
@@ -508,8 +540,20 @@ def main():
     #   274→412(1.50배) · 416→656(1.58배). 그냥 버리면 뒤쪽 좋은 대목이 통째로
     #   날아가므로 먼저 비율을 되돌리고, 그래도 밖이면 그때 버린다.
     over = max((s["t1"] for s in plan["segments"]), default=0)
-    if over > dur * 1.06:
-        ratio = dur / over
+    ratio = dur / over if over > dur * 1.06 else 1.0
+    if ratio < 1.0:
+        # ★«늘어났다» 판정은 전사(vtt)로 확인한 뒤에만 한다 (2026-09-21 띱 7차 — Deep73·79·80·89):
+        #   이상값 조각 하나(원본 길이 밖 t1)가 «전체가 1.35배 늘어났다» 로 오판돼 **맞던 시각까지**
+        #   0.739 를 곱해 버렸다(족발 등장 477s → 352s). 훅은 대사 글과 시각을 같이 갖고 있으니,
+        #   «그대로» 와 «되돌린» 두 가설 중 어느 쪽이 전사와 더 맞는지 세어 고른다.
+        #   되돌린 쪽이 더 맞을 때만 되돌린다 — 아니면 밖으로 나간 조각만 아래에서 버린다.
+        큐 = _vtt_큐(vtt)
+        그대로, 되돌림 = _훅맞춤(plan.get("hooks", []), 큐, 1.0), _훅맞춤(plan.get("hooks", []), 큐, ratio)
+        if 큐 and 되돌림 <= 그대로:
+            print(f"★원본 길이 밖 조각이 있지만 시각은 늘어나지 않았다 — 훅·전사 대조: 그대로 {그대로}개 · "
+                  f"되돌리면 {되돌림}개 맞음. 되돌리지 않고 밖 조각만 버린다", flush=True)
+            ratio = 1.0
+    if ratio < 1.0:
         print(f"★타임코드가 {1/ratio:.2f}배 늘어났다 — {ratio:.3f} 로 되돌린다", flush=True)
         for s in plan["segments"]:
             s["t0"] = round(s["t0"] * ratio, 1)
