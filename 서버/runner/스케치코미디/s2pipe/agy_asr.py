@@ -21,8 +21,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import agy_gemini  # noqa: E402  서버/runner/agy_gemini.py
 
-MODEL = "gemini-3.8-flash-low"  # ★2026-09-26 Deep91 실측: high 는 12분 41초·시작 오차 중앙 0.59초,
-                                #   low 는 약 3분 반·0.47초 — 품질이 같고 3.5배 빠르다(볼트 규칙 «긴 소재는 flash-low»)
+MODEL = "gemini-3.8-flash-high"  # ★2026-09-26 사장님 지정 «agy flash-high 로». (실측: 8분 원본 12분 41초 · low 는 약 3분 반)
 CHUNK_S = 60.0          # 조각 목표 길이
 SEARCH_S = 12.0         # 목표 지점 앞뒤로 무음을 찾는 폭
 MAX_CHARS = 28          # Speechmatics to_lines 와 같은 줄 상한

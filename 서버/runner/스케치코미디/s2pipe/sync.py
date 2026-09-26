@@ -360,12 +360,8 @@ def main():
                     h, m2, s2 = ls[0].split(" --> ")[0].split(":")
                     원줄.append((int(h) * 3600 + int(m2) * 60 + float(s2), ls[1]))
             복원 = []
-            # ★agy 원본 전사(2026-09-26 사장님 결정 B)면 줄 시각이 모델 추정이다 — 되살린 줄은
-            #   완성본(cut.mp4) 소리로 실제 말 구간을 재서 시작·끝을 맞춘다. 못 재면 되살리지 않는다
-            #   (말 없는 자리에 자막을 띄우느니 빠지는 쪽 — 커버리지 게이트가 따로 잡는다).
-            from s2pipe.agy_asr import 원본전사_출처, 말소리_구간
+            from s2pipe.agy_asr import 원본전사_출처
             원agy = 원본전사_출처(vtt경로) == "agy"
-            cut3 = os.path.join(HERE, _C3["paths"]["work"], proj["slug"], "cut.mp4")
             for t원, 글 in 원줄:
                 tc = 컷시각(t원)
                 깨끗 = 정돈(글)
@@ -377,22 +373,15 @@ def main():
                 if not 덮임:
                     복원.append({"t": round(tc, 2), "text": 깨끗})
             if 원agy:
-                맞춘 = []
+                # ★자막 재료는 Speechmatics 만 (2026-09-26 사장님 «전사는 agy, 자막은 스피치매틱스») —
+                #   agy 원본 전사 글자는 자막으로 되살리지 않는다. 놓친 말이 있다는 것만 알린다.
                 for r in 복원:
-                    구간 = 말소리_구간(cut3, r["t"]) if os.path.exists(cut3) else None
-                    if 구간 is None:
-                        print(f"     (agy 원본 전사 줄 「{r['text'][:16]}」 {r['t']:.1f}s — 완성본에 말소리가 안 잡혀 되살리지 않음)")
-                        continue
-                    if any(d["t"] - 0.8 <= 구간[0] <= d.get("t1", d["t"] + 6) + 0.3 for d in dlg):
-                        continue                          # 맞춰 보니 이미 덮인 말
-                    r["t"], r["_소리끝"] = 구간[0], 구간[1]
-                    맞춘.append(r)
-                복원 = 맞춘
+                    print(f"  주의  완성본 전사가 놓친 말일 수 있음 {r['t']:.1f}s 「{r['text'][:20]}」"
+                          f" (agy 원본 전사 — 자막으로 쓰지 않음. 들어 보고 필요하면 문구교정 핀으로)")
+                복원 = []
             for k, r in enumerate(복원):
                 다음 = min([d["t"] for d in dlg if d["t"] > r["t"]] + [r["t"] + 2.0])
                 r["t1"] = round(min(r["t"] + 2.0, max(다음 - 0.05, r["t"] + 0.6)), 2)
-                if "_소리끝" in r:                        # agy 줄은 실측 말끝까지만(다음 줄은 넘지 않는다)
-                    r["t1"] = round(min(max(r.pop("_소리끝"), r["t"] + 0.6), 다음 - 0.05), 2)
             if 복원:
                 print(f"  ★컷 전사가 놓친 대사 {len(복원)}줄 — 원본 전사로 복원 (문구는 원본 전사 그대로):")
                 for r in 복원:
@@ -423,7 +412,7 @@ def main():
                 #   문구로 오인). 원본(고음질) 전사와 글자가 거의 안 겹치면 오인식 — 뺀다.
                 창글 = 정돈(" ".join(g for _t, g in 이웃))
                 내글 = CLEAN.sub("", d["text"])
-                if len(내글) >= 4:
+                if len(내글) >= 4 and not 원agy:          # agy 원본 글자는 자막 후보로 올리지 않는다(자막 재료 = Speechmatics)
                     # 포함 비율 — 줄 글자가 원본 창 안에서 얼마나 이어지는가 (짧은 줄 vs 긴 창
                     # 에서도 공정. quick_ratio 는 길이차에 눌려 정상 줄까지 지웠다 — 실측 14줄)
                     sm = difflib.SequenceMatcher(None, 내글, CLEAN.sub("", 창글), autojunk=False)
