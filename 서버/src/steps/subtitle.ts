@@ -3,7 +3,8 @@
  *
  * 두 번 부른다:
  *   ① payload.translations 가 없으면 → 타임라인을 짜고, 자막이 필요한 원어 대사 줄을 모아 need_input(번역) 으로 멈춘다.
- *      줄 수가 규격 「자막.대사_줄수_대화안_상한」을 넘으면 need_input 대신 jobs_kind:"judge"(EvoLink) 로 번역을 내보낸다.
+ *      줄 수가 규격 「자막.대사_줄수_대화안_상한」을 넘으면 need_input 대신 jobs_kind:"judge" 로 번역을 내보낸다
+ *      (judge_run.py — agy 먼저, 글만이라 막히면 EvoLink 비상 길 · lib/judge.ts, 2026-09-26 사장님 결정 ②).
  *   ② payload.translations 가 있으면 → 큐를 만들고 게이트(G-자막·G-죽은시간)를 재서 timeline.json + srt 3종을 write_files 로 쓴다.
  *
  * 타임라인 규칙(규격 「조립」): 화면 레인 = 구간 순서. 나레는 항상 그림 위.
@@ -15,6 +16,7 @@ import answer from "../../../스타일/영화롱폼/정답지.json";
 import { base, reject } from "../response.js";
 import { 규칙분할, 줄검사, 확정, 의심, 좋은자리 } from "../lib/줄바꿈.js";
 import { 줄에단어배정, 창안의단어, 유사도, type 실측단어 } from "../lib/단어정렬.js";
+import { viaJudgeRun, judgeRunInstructions, judgeRoute } from "../lib/judge.js";
 import type { StepHandler } from "./types.js";
 import type { JudgeJob } from "../schema.js";
 
@@ -372,16 +374,16 @@ export const subtitle: StepHandler = {
         "## 대사",
         ...dlgLines.map((d) => `${d.id}\t${d.en}`),
       ].join("\n");
-      const job: JudgeJob = {
+      const job: JudgeJob = viaJudgeRun({
         name: "translate_dialogue", provider: JT.backend as "evolink" | "google", model: JT.모델,
         request: { method: "POST", url, headers: { "Content-Type": "application/json" }, body: { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: JT.온도, thinkingConfig: { thinkingBudget: JT.thinkingBudget }, maxOutputTokens: JT.maxOutputTokens, responseMimeType: JT.responseMimeType, responseSchema: { type: "OBJECT", properties: { translations: { type: "ARRAY", items: { type: "OBJECT", properties: { id: { type: "STRING" }, ko: { type: "STRING" } }, required: ["id", "ko"] } } }, required: ["translations"] } } } },
         inputs: [], auth: { env: JT.키_환경변수, header: `Authorization: Bearer <${JT.키_환경변수} 값>`, note: "서버는 키를 보관하지 않는다." },
-        out: join(subDir, "translate_raw.json"), note: `대사 ${dlgLines.length}줄 번역 (상한 ${SUB.대사_줄수_대화안_상한} 초과라 judge)`,
-      };
+        out: join(subDir, "translate_raw.json"), note: `대사 ${dlgLines.length}줄 번역 (상한 ${SUB.대사_줄수_대화안_상한} 초과라 judge — judge_run.py 가 agy 먼저, 막히면 이 request 로 EvoLink 비상 길)`,
+      });
       return base("subtitle", preset, {
         status: "execute", next_step: "subtitle",
-        message: `대사 ${dlgLines.length}줄 — 상한 ${SUB.대사_줄수_대화안_상한} 초과라 judge(${JT.backend})로 번역한다. 결과를 payload.translations 에 실어 subtitle 을 다시 부르라.`,
-        instructions: ["① jobs 의 judge 를 그대로 보낸다 (키는 auth 대로 환경변수에서).", "② measure 대로 응답 JSON 의 translations 배열을 payload.translations 에 넣고 carry 값과 함께 다시 부른다."],
+        message: `대사 ${dlgLines.length}줄 — 상한 ${SUB.대사_줄수_대화안_상한} 초과라 judge(${judgeRoute(false, JT.backend, JT.모델)})로 번역한다. 결과를 payload.translations 에 실어 subtitle 을 다시 부르라.`,
+        instructions: [...judgeRunInstructions(1), "⑤ measure 대로 out 응답 JSON 의 translations 배열을 payload.translations 에 넣고 carry 값과 함께 다시 부른다."],
         then_call_with: ["step: 'subtitle'", "payload: { …carry, translations: <응답.translations> }"],
         jobs_kind: "judge", jobs: [job], measure: [{ as: "translations_raw", from: "job:translate_dialogue", unit: "gemini_json_text" }],
         carry: ["source", "workdir", "probe_summary", "transcript_path", "brief_path", "selection_path", "script_path", "voice_path", "selection", "voice", "transcript_utterances", "transcript_silences", "visual"],

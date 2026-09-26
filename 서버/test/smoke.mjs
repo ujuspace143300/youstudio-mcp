@@ -16,9 +16,9 @@ let TR = [];   // subtitle① 응답의 대사줄(시각 기반 id + 영어)로 
  *      오디오 없는 JSON 이면 hard_fail(status error) + 수리 지침 · payload 없으면 반려
  *   6) tools/call transcript — ① 지시: do[](ffmpeg 추출·크기) + transcribe job(Groq, auth 는 env 이름만)
  *      ② 결과: 발화 정리 → write_files transcript.json · metrics · next_step=brief · 발화 0건 hard_fail
- *   7) tools/call brief — ① 지시: judge job(EvoLink, inputs 파일 치환, auth env 만) ② 결과: 사건 검사·정렬·
- *      write_files brief.json · metrics(사건 수·평균·커버리지) · 0건 hard_fail · 범위 밖 반려
- *   8) tools/call select — ① 지시: do[](프레임·클립) + judge 3콜(Google, @inline_file/@file_uri, auth env 만)
+ *   7) tools/call brief — ① 지시: judge job(judge_run.py 로 — agy 먼저, 비상 길 재료 EvoLink request·inputs 파일 치환·auth env 만)
+ *      ② 결과: 사건 검사·정렬·write_files brief.json · metrics(사건 수·평균·커버리지) · 0건 hard_fail · 범위 밖 반려
+ *   8) tools/call select — ① 지시: do[](프레임·클립) + judge 3콜(judge_run.py — 영상·그림이라 agy 가 막히면 멈춤, @inline_file, auth env 만)
  *      ② 결과: 우선순위 채움 → 시간순·비겹침·크레딧 이전 · 역할 · metrics(최대 미선택 스트레치) · 게이트 · write_files 2개
  */
 import { readFileSync } from "node:fs";
@@ -286,7 +286,11 @@ const CARRY_T = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/y
   const sc = res.structuredContent;
   ok(sc?.status === "execute" && sc?.next_step === "brief", "brief① → execute, next_step=brief(다시 부름)", `${sc?.status}/${sc?.next_step}`);
   const j = sc?.jobs?.[0];
-  ok(sc?.jobs_kind === "judge" && j?.provider === "evolink" && j?.model === "gemini-3.5-flash" && j?.request?.url === "https://api.evolink.ai/v1beta/models/gemini-3.5-flash:generateContent", "brief① → judge job(EvoLink gemini-3.5-flash, v1beta URL)", j?.request?.url);
+  ok(sc?.jobs_kind === "judge" && j?.provider === "evolink" && j?.model === "gemini-3.5-flash" && j?.request?.url === "https://api.evolink.ai/v1beta/models/gemini-3.5-flash:generateContent", "brief① → judge job(비상 길 재료 EvoLink gemini-3.5-flash, v1beta URL)", j?.request?.url);
+  // 2026-09-26 사장님 결정 ②④ — 받는 쪽은 request 를 직접 보내지 않고 judge_run.py 를 실행한다(lib/judge.ts 한 곳)
+  const insB = (sc?.instructions ?? []).join("\n");
+  ok(j?.run?.[1] === "서버/runner/judge_run.py" && j?.run?.includes("--job") && j?.run?.at(-1) === j?.out && j?.job_file === "C:/youstudio_work/sample/brief/brief_judge.job.json" && j?.run?.includes(j?.job_file), "brief① → 일감에 run(judge_run.py --job <job_file> --out <out>)·job_file", JSON.stringify(j?.run));
+  ok(/judge_run\.py/.test(insB) && /agy/.test(insB) && /git pull/.test(insB) && /종료코드/.test(insB) && !/그대로 보낸다/.test(insB) && /judge_run/.test(sc?.message ?? ""), "brief① → 지시: judge_run 실행 · agy 먼저 · 종료코드 뜻 · 없으면 git pull (옛 «그대로 보낸다» 없음)", insB.slice(0, 120));
   const gc = j?.request?.body?.generationConfig;
   ok(gc?.responseMimeType === "application/json" && gc?.thinkingConfig?.thinkingBudget === 0 && gc?.maxOutputTokens === 8192, "brief① → 바디 generationConfig(JSON 강제·thinkingBudget 0·maxOutputTokens)", JSON.stringify({ ...gc, responseSchema: "…" }));
   ok(gc?.responseSchema?.properties?.events?.items?.required?.includes("summary"), "brief① → responseSchema 로 키 고정(summary·start·end·importance)", JSON.stringify(gc?.responseSchema?.properties?.events?.items?.required));
@@ -330,7 +334,7 @@ const BRIEF_OK = {
   const badBrief = { logline: "x", events: [{ n: 1, start: 0, end: 50, summary: "a", importance: 3 }, { n: 2, start: 900, end: 1200, summary: "b", importance: 9 }] };
   const res = await rpc("tools/call", { name: "youstudio_video", arguments: { step: "brief", preset: "영화롱폼", payload: { ...CARRY_T, brief: badBrief } } });
   const sc = res.structuredContent;
-  ok(res.isError === true && sc?.status === "error" && /end 1200 > 원본 길이/.test(sc?.message ?? "") && /importance 9/.test(sc?.message ?? "") && /한 번 더 보내라/.test(sc?.message ?? ""), "brief②(범위 밖) → 반려 + 수리 지침(어느 사건이 왜)", (sc?.message ?? "").slice(0, 120));
+  ok(res.isError === true && sc?.status === "error" && /end 1200 > 원본 길이/.test(sc?.message ?? "") && /importance 9/.test(sc?.message ?? "") && /judge_run\.py\)을 한 번 더 실행하라/.test(sc?.message ?? ""), "brief②(범위 밖) → 반려 + 수리 지침(어느 사건이 왜 · judge_run 으로 다시)", (sc?.message ?? "").slice(0, 120));
 }
 
 // 18) tools/call brief (carry 누락 → 반려)
@@ -364,11 +368,13 @@ const CARRY_S = { ...CARRY, probe_summary: PROBE_SUMMARY, transcript_path: "C:/y
   const fr = sc?.do?.find((d) => d.name === "frames_silent_0");
   ok(fr?.argv?.[0] === "ffmpeg" && fr.argv.includes("fps=1/5,scale=640:-2") && sc?.do?.filter((d) => d.name.startsWith("clip_ending_")).length === 5, "select① → do[] 무음 구간 프레임(5s 간격) + 결말 클립 5개(15s)", `${fr?.argv?.join(" ").slice(0, 80)} … clips=${sc?.do?.filter((d) => d.name.startsWith("clip_ending_")).length}`);
   const js = sc?.jobs?.find((j) => j.name === "judge_silent_0"), je = sc?.jobs?.find((j) => j.name === "judge_ending");
-  ok(sc?.jobs_kind === "judge" && sc?.jobs?.length === 3 && js?.provider === "evolink" && /api\.evolink\.ai\/v1beta\/models\/gemini-3\.5-flash:generateContent/.test(js?.request?.url ?? "") && sc?.plan?.backend === "evolink", "select① → judge job 3개(무음 2 + 결말 1), 기본 evolink gemini-3.5-flash (google 은 규격 스위치)", js?.request?.url);
+  ok(sc?.jobs_kind === "judge" && sc?.jobs?.length === 3 && js?.provider === "evolink" && /api\.evolink\.ai\/v1beta\/models\/gemini-3\.5-flash:generateContent/.test(js?.request?.url ?? "") && sc?.plan?.backend === "evolink", "select① → judge job 3개(무음 2 + 결말 1), 기본 evolink gemini-3.5-flash (google 은 judge_run 이 거절)", js?.request?.url);
+  const insS = (sc?.instructions ?? []).join("\n");
+  ok(sc?.jobs?.every((j) => j.run?.[1] === "서버/runner/judge_run.py" && j.run.includes(j.job_file) && j.run.at(-1) === j.out) && /멈춤/.test(sc?.message ?? "") && /judge_run\.py/.test(insS) && /git pull/.test(insS) && !/Files API\(/.test(insS) && !/그대로 보낸다/.test(insS), "select① → judge 3개 모두 run=judge_run.py · 영상·그림 판정은 agy 막히면 멈춤 · Files API 업로드 지시 없음", JSON.stringify(sc?.jobs?.map((j) => j.job_file)));
   ok(js?.auth?.env === "EVOLINK_API_KEY" && /Authorization: Bearer/.test(js?.auth?.header ?? "") && !/AQ\.|sk-L|gsk_i/.test(JSON.stringify(sc)), "select① → auth EVOLINK_API_KEY(Bearer), 응답에 키 값 없음", JSON.stringify(js?.auth?.env));
   const parts0 = js?.request?.body?.contents?.[0]?.parts ?? [], partsE = je?.request?.body?.contents?.[0]?.parts ?? [];
   const nInline = parts0.filter((p) => p["@inline_file"]).length, nClipInline = partsE.filter((p) => p["@inline_file"]).length, nUri = partsE.filter((p) => p["@file_uri"]).length;
-  ok(nInline === 12 && js?.media?.count === 12 && /\[t=316\.4s\]/.test(JSON.stringify(parts0)) && nClipInline === 5 && nUri === 0 && je?.media?.kind === "@inline_file", "select① → 프레임 12장 @inline_file(+시각 표시) / 클립 5개도 @inline_file(기본 inline, Files API 는 스위치)", `inline=${nInline} clipInline=${nClipInline} uri=${nUri}`);
+  ok(nInline === 12 && js?.media?.count === 12 && /\[t=316\.4s\]/.test(JSON.stringify(parts0)) && nClipInline === 5 && nUri === 0 && je?.media?.kind === "@inline_file", "select① → 프레임 12장 @inline_file(+시각 표시) / 클립 5개도 @inline_file(기본 inline — judge_run 이 agy 에 로컬 파일로)", `inline=${nInline} clipInline=${nClipInline} uri=${nUri}`);
   ok(js?.request?.body?.generationConfig?.responseSchema?.properties?.scenes && je?.request?.body?.generationConfig?.responseSchema?.properties?.beats, "select① → responseSchema(scenes / beats)", "");
   ok(sc?.measure?.some((m) => m.as === "visual.silent.0" && m.unit === "gemini_json_text") && sc?.measure?.some((m) => m.as === "visual.ending") && sc?.carry?.includes("facts") && sc?.carry?.includes("brief"), "select① → measure visual.* / carry facts·brief", JSON.stringify(sc?.measure?.map((m) => m.as)));
   ok(sc?.plan?.target_s === 510 && sc?.plan?.budget_s === 586.5 && sc?.plan?.usable_end_s === 854.3, "select① → 목표 510s · 예산 586.5s · 크레딧 이후 제외", JSON.stringify(sc?.plan));

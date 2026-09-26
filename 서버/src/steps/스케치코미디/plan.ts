@@ -1,7 +1,7 @@
 /**
  * steps/스케치코미디/plan.ts — sk_plan: 원본 다운로드(yt-dlp) + 5-Phase 계획.
  *
- * 러너 s2pipe.plan 이 원본을 받고, 모델(EvoLink 우선·무료 한도)이 조각·나레이션·
+ * 러너 s2pipe.plan 이 원본을 받고, 모델(agy 구독 먼저 — 영상 판정이라 agy 가 막히면 멈춤, s2pipe/gem.py)이 조각·나레이션·
  * 제목 후보 5개·후킹 대사 3개·댓글 선택까지 만들어 projects/<슬러그>.json 으로 저장한다.
  * ★한 소재에서 두 편 — B 편은 start 부터 slug=<id>_B · focus_sec 으로 다시 온다.
  */
@@ -29,10 +29,10 @@ export const skPlan: StepHandler = {
     return base("sk_plan", preset, {
       status: "execute",
       next_step: "sk_check",
-      message: "계획을 만들라 — 다운로드는 공짜, 모델 판정은 EvoLink 무료 한도다. 결과 편.json 은 사람이 검토한다.",
+      message: "계획을 만들라 — 다운로드는 공짜, 모델 판정은 agy(구독)다. 결과 편.json 은 사람이 검토한다.",
       instructions: [
         `① ${RUNNER_NOTE}`,
-        "② jobs 의 plan 을 그대로 실행한다. yt-dlp 다운로드(공짜) + 모델 판정(EvoLink 무료 한도, 18MB 초과 미디어만 순정 Gemini). ★yt-dlp 가 낡으면 미디어만 403 이 난다 — 메타데이터는 멀쩡해서 헷갈린다. 그러면 yt-dlp --update-to nightly.",
+        "② jobs 의 plan 을 그대로 실행한다. yt-dlp 다운로드(공짜) + 모델 판정(agy 구독 먼저. 영상 판정이라 agy 가 막히면 EvoLink 로 안 넘기고 종료코드 3 으로 멈춘다 — 표준오류 문구를 사람에게 보이고 여쭙는다. 순정 구글 키 길은 막혔다 — 2026-09-26 사장님 결정 ②④). ★yt-dlp 가 낡으면 미디어만 403 이 난다 — 메타데이터는 멀쩡해서 헷갈린다. 그러면 yt-dlp --update-to nightly.",
         "③ 출력 끝에 저장된 projects/<슬러그>.json 경로가 찍힌다. 그 파일을 **한 글자도 고치지 말고** JSON 그대로 payload.project 에 싣고, 경로를 payload.project_path 에 넣어 sk_check 를 부른다.",
         "④ 편.json 은 사람이 훑는다 — 특히 조각의 what(무슨 대목인지)이 실제 영상과 맞는지. 판정은 sk_check(서버)가 한다.",
       ],

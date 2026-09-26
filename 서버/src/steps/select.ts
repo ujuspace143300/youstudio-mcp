@@ -3,8 +3,9 @@
  *
  * 두 번 부른다:
  *   ① payload.visual 가 없으면 → 지시. do[] 로 무음 구간 프레임(5s 간격)·결말 클립(15s)을 ffmpeg 로 뽑고,
- *      jobs_kind:"judge"(Google 순정 Gemini, auth env GEMINI_API_KEY) 로 무음 구간마다 프레임 판정 1콜 + 결말 클립 판정 1콜.
- *      프레임은 {"@inline_file"} 표식, 클립은 {"@file_uri"} 표식(Files API) 파트로 넣는다 — runner 가 실제 미디어로 바꾼다.
+ *      jobs_kind:"judge" 로 무음 구간마다 프레임 판정 1콜 + 결말 클립 판정 1콜. 받는 쪽은 judge_run.py 로 돌린다
+ *      (lib/judge.ts — agy 먼저. 영상·그림 판정이라 agy 가 막히면 **멈춤**, EvoLink·순정 Files API 로 안 감 — 2026-09-26 사장님 결정 ②④).
+ *      프레임·클립은 {"@inline_file"}(또는 규격 files_api 면 {"@file_uri"}) 표식 파트 — judge_run 이 agy 에 로컬 파일로 보인다.
  *   ② payload.visual 가 있으면 → 검사·계산. 후보(brief 사건 + 시각 장면) → 우선순위 채움 → 창·병합 → 역할 → 게이트 → selection.json
  *
  * 설정값은 규격.json 「구간선택」「판정.영상」, 게이트 대역은 정답지.json 「구간선택」에서 온다.
@@ -13,6 +14,7 @@
 import spec from "../../../스타일/영화롱폼/규격.json";
 import answer from "../../../스타일/영화롱폼/정답지.json";
 import { base, reject } from "../response.js";
+import { viaJudgeRun, judgeRunInstructions, judgeRoute } from "../lib/judge.js";
 import type { StepHandler } from "./types.js";
 import type { JudgeJob, ArgvJob } from "../schema.js";
 
@@ -43,7 +45,7 @@ interface SelectAnswer {
 }
 const S = (spec as unknown as { 구간선택: SelectSpec })["구간선택"];
 const V = (spec as unknown as { 판정: { 영상: VideoJudgeSpec } })["판정"]["영상"];
-/** 규격 판정.영상.backend 가 가리키는 제공자 설정 (evolink 기본, google 스위치) */
+/** 규격 판정.영상.backend 가 가리키는 제공자 설정 (evolink 기본. google 은 judge_run 이 거절 — 2026-09-26 사장님 결정 ④) */
 const P: ProviderSpec = V.제공자[V.backend];
 const A = (answer as unknown as { 구간선택: SelectAnswer })["구간선택"];
 
@@ -155,9 +157,9 @@ export const select: StepHandler = {
       const jobs: JudgeJob[] = [];
       const useFilesApi = V.클립전달 === "files_api";
       if (useFilesApi && !P.파일업로드) {
-        return reject("select", preset, `규격 판정.영상.클립전달=files_api 인데 backend=${V.backend} 에는 Files API 가 없다`, "규격.json 판정.영상.backend 를 google 로 바꾸거나 클립전달 을 inline 으로 바꿔라 (인라인 상한 안이면 inline 이 기본).");
+        return reject("select", preset, `규격 판정.영상.클립전달=files_api 인데 backend=${V.backend} 에는 Files API 가 없다`, "규격.json 판정.영상.클립전달 을 inline 으로 바꿔라 — 판정은 agy 가 로컬 파일로 보므로 크기 상한이 없다. 순정 구글 Files API 길(backend google)은 막혔다(2026-09-26 사장님 결정 ④ — judge_run 이 거절).");
       }
-      const auth = { env: P.키_환경변수, header: P.인증헤더.replace("<키>", `<${P.키_환경변수} 값>`), note: `${V.backend}. 서버는 키를 보관하지 않는다 — runner 가 로컬 환경변수에서 읽어 헤더에 붙인다.${useFilesApi ? " Files API 업로드도 같은 키." : ""}` };
+      const auth = { env: P.키_환경변수, header: P.인증헤더.replace("<키>", `<${P.키_환경변수} 값>`), note: `${V.backend}. 서버는 키를 보관하지 않는다. 영상·그림 판정이라 judge_run 은 이 키로 보내지 않는다(agy 가 막히면 멈춤).` };
       const measure: { as: string; from: string; unit: "gemini_json_text" }[] = [];
 
       // (a) 무음 구간 프레임 판정 — 구간마다 1콜
@@ -178,17 +180,17 @@ export const select: StepHandler = {
           parts.push({ text: `[t=${t}s]` });
           parts.push({ "@inline_file": { path: join(dir, `f_${String(i + 1).padStart(3, "0")}.jpg`), mime: "image/jpeg" } });
         }
-        jobs.push({
+        jobs.push(viaJudgeRun({
           name: `judge_silent_${k}`, provider: V.backend, model: V.모델,
           request: { method: "POST", url, headers: { "Content-Type": "application/json" }, body: { contents: [{ role: "user", parts }], generationConfig: genConfig(SCENE_SCHEMA) } },
-          inputs: [], media: { kind: "@inline_file", count: n, note: "프레임 jpg 를 base64 inline_data 로" },
+          inputs: [], media: { kind: "@inline_file", count: n, note: "프레임 jpg — judge_run 이 agy 에 로컬 파일로 보인다" },
           auth, out: join(clipsDir, "judge", `silent_${k}.json`),
           note: `무음 구간 ${a}~${b}s 프레임 ${n}장 → 장면 목록 (경계용)`,
-        });
+        }));
         measure.push({ as: `visual.silent.${k}`, from: `job:judge_silent_${k}`, unit: "gemini_json_text" });
       });
 
-      // (b) 결말 클립 판정 — 1콜 (Files API)
+      // (b) 결말 클립 판정 — 1콜 (클립은 로컬 파일 표식 — judge_run 이 agy 에 보인다)
       if (ending) {
         const a = r1(ending.start_s), b = r1(Math.min(ending.end_s, usableEnd));
         const L = S.시각판정.정서결말용_클립길이_s;
@@ -208,28 +210,26 @@ export const select: StepHandler = {
           parts.push({ text: `클립 ${c.start}~${c.end}s:` });
           parts.push(useFilesApi ? { "@file_uri": { path: c.path, mime: "video/mp4" } } : { "@inline_file": { path: c.path, mime: "video/mp4" } });
         }
-        jobs.push({
+        jobs.push(viaJudgeRun({
           name: "judge_ending", provider: V.backend, model: V.모델,
           request: { method: "POST", url, headers: { "Content-Type": "application/json" }, body: { contents: [{ role: "user", parts }], generationConfig: genConfig(BEAT_SCHEMA) } },
           inputs: [],
-          media: useFilesApi
-            ? { kind: "@file_uri", count: clips.length, note: `Files API(${P.파일업로드}) 업로드 → state ACTIVE 대기 → file_data` }
-            : { kind: "@inline_file", count: clips.length, note: `클립 mp4 를 base64 inline_data 로 (요청 합계 ≤ ${V.인라인_상한_mb}MB — 넘으면 규격 판정.영상 을 google + files_api 로)` },
+          media: { kind: useFilesApi ? "@file_uri" : "@inline_file", count: clips.length, note: "클립 mp4(영상+소리) — judge_run 이 agy 에 로컬 파일로 보인다(소리는 따로 뽑아 같이). 순정 Files API 업로드 길은 막혔다(2026-09-26 결정 ④)" },
           auth, out: join(clipsDir, "judge", "ending.json"),
           note: `결말 ${a}~${b}s 클립 ${clips.length}개(각 ≤${L}s, 영상+소리) → 감정 비트 (정서·결말용)`,
-        });
+        }));
         measure.push({ as: "visual.ending", from: "job:judge_ending", unit: "gemini_json_text" });
       }
 
       return base("select", preset, {
         status: "execute",
         next_step: "select",
-        message: `시각 판정 지시: 무음 구간 ${stretches.length}개 프레임 판정 + 결말 클립 판정 ${ending ? 1 : 0}콜 (${V.backend}/${V.모델}, 클립 ${V.클립전달}). 결과를 payload.visual 에 실어 select 를 다시 부르라. 목표 ${target}s · 예산 ${budget}s · 크레딧 ${creditsStart ?? "미상"}s 이후 제외.`,
+        message: `시각 판정 지시: 무음 구간 ${stretches.length}개 프레임 판정 + 결말 클립 판정 ${ending ? 1 : 0}콜 (${judgeRoute(true, V.backend, V.모델)}, 클립 ${V.클립전달}). 결과를 payload.visual 에 실어 select 를 다시 부르라. 목표 ${target}s · 예산 ${budget}s · 크레딧 ${creditsStart ?? "미상"}s 이후 제외.`,
         instructions: [
           "① do[] 의 ffmpeg 를 순서대로 그대로 실행한다 (프레임 폴더·클립 파일이 생긴다).",
-          `② jobs 의 judge 를 그대로 보낸다. 파트 안의 {"@inline_file"} 은 파일을 base64 로 읽어 inline_data 로 바꾼다${useFilesApi ? `, {"@file_uri"} 는 Files API(${P.파일업로드})에 올려 state 가 ACTIVE 가 된 뒤 file_data 로 바꾼다` : ""}. 키는 auth 대로 환경변수 ${P.키_환경변수} 에서 읽어 헤더(${P.인증헤더.split(":")[0]})에 붙인다. 키 값을 화면·파일·payload 에 쓰지 않는다. 응답 JSON 은 out 경로에 저장한다.`,
-          "③ measure 대로 각 응답의 candidates[0].content.parts[].text 를 JSON 으로 파싱해 payload.visual.silent[k] / payload.visual.ending 에 넣는다. finishReason 이 STOP 이 아니면 멈추고 보고한다.",
-          "④ carry 값(source·workdir·probe_summary·transcript_path·brief_path·brief·facts·utterance_spans)과 함께 select 를 다시 부른다.",
+          ...judgeRunInstructions(2),
+          "⑥ measure 대로 각 out 의 candidates[0].content.parts[].text 를 JSON 으로 파싱해 payload.visual.silent[k] / payload.visual.ending 에 넣는다. finishReason 이 STOP 이 아니면 멈추고 보고한다.",
+          "⑦ carry 값(source·workdir·probe_summary·transcript_path·brief_path·brief·facts·utterance_spans)과 함께 select 를 다시 부른다.",
         ],
         then_call_with: ["step: 'select'", "payload: { …carry, visual: { silent: [<장면 JSON>…], ending: <비트 JSON> | null } }"],
         do: doJobs,
@@ -253,11 +253,11 @@ export const select: StepHandler = {
       return reject(
         "select", preset,
         `hard_fail: 무음 구간 판정 결과가 부족하다 (${silentResults.length}/${stretches.length})`,
-        "무음 구간은 반드시 시각 판정 대상이다 (단계상세.md select). ① 의 judge_silent_* 를 전부 보내고 payload.visual.silent[k] 를 채워 다시 부르라. 판정 파일이 없으면 진행하지 않는다.",
+        "무음 구간은 반드시 시각 판정 대상이다 (단계상세.md select). ① 의 judge_silent_* 를 전부 judge_run 으로 돌리고 payload.visual.silent[k] 를 채워 다시 부르라. 판정 파일이 없으면 진행하지 않는다.",
       );
     }
     if (ending && (!visual.ending || !Array.isArray(visual.ending.beats))) {
-      return reject("select", preset, "hard_fail: 결말 클립 판정 결과(visual.ending.beats)가 없다", "① 의 judge_ending 을 보내고 payload.visual.ending 을 채워 다시 부르라. 결말은 후보 우선 대상이라 없이는 진행하지 않는다.");
+      return reject("select", preset, "hard_fail: 결말 클립 판정 결과(visual.ending.beats)가 없다", "① 의 judge_ending 을 judge_run 으로 돌리고 payload.visual.ending 을 채워 다시 부르라. 결말은 후보 우선 대상이라 없이는 진행하지 않는다.");
     }
 
     // 후보 만들기
@@ -276,7 +276,7 @@ export const select: StepHandler = {
         .map((sc) => ({ ...sc, start: r1(clamp(sc.start, st.start_s, usableEnd)), end: r1(clamp(sc.end, st.start_s, usableEnd)), importance: Number.isInteger(sc.importance) ? clamp(sc.importance, 1, 5) : 2 }))
         .filter((sc) => sc.end > sc.start);
       if (scenes.length === 0) {
-        warnings.push(`무음 구간 ${k}(${st.start_s}~${st.end_s}s) 판정이 장면 0건이다 — 구간 전체를 시각몽타주 후보(중요도 2)로 둔다. 판정을 다시 보내 보라.`);
+        warnings.push(`무음 구간 ${k}(${st.start_s}~${st.end_s}s) 판정이 장면 0건이다 — 구간 전체를 시각몽타주 후보(중요도 2)로 둔다. judge_run 으로 판정을 다시 돌려 보라.`);
         scenes = [{ start: st.start_s, end: Math.min(st.end_s, usableEnd), what: st.note ?? "(판정 없음) 무음 구간", importance: 2 }];
       }
       visualDoc.silent.push({ stretch: st, scenes });

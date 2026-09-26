@@ -83,12 +83,17 @@ export interface TranscribeJob {
   note?: string;
 }
 
-/** 외부 모델 판정 한 건 (jobs_kind:"judge"). 프롬프트·바디는 서버가 조립하고, 큰 입력(전사 등)은 inputs 로 파일 치환만 지시한다 */
+/**
+ * 외부 모델 판정 한 건 (jobs_kind:"judge"). 프롬프트·바디는 서버가 조립하고, 큰 입력(전사 등)은 inputs 로 파일 치환만 지시한다.
+ * ★2026-09-26 사장님 결정 ②④ — 받는 쪽은 request 를 직접 보내지 않고 run(= 서버/runner/judge_run.py)을 실행한다.
+ *   judge_run 이 agy(구독) 먼저 → 막히면 글만 EvoLink 비상 길 · 영상·소리·그림은 멈춤 · 순정 구글 길은 거절 (lib/judge.ts)
+ */
 export interface JudgeJob {
   name: string;
+  /** 비상 길(EvoLink)의 제공자. google(순정)은 judge_run 이 거절한다 */
   provider: "evolink" | "google";
   model: string;
-  /** HTTP 요청 명세. runner 는 inputs 치환 뒤 이대로 보낸다 */
+  /** HTTP 요청 명세 — judge_run 의 EvoLink 비상 길 재료(글만일 때). 받는 쪽이 직접 보내지 않는다 */
   request: {
     method: "POST";
     url: string;
@@ -99,16 +104,20 @@ export interface JudgeJob {
   /** 파일 내용을 바디의 placeholder 자리에 문자열로 넣는다 (payload 에 본문을 싣지 않기 위함) */
   inputs: { placeholder: string; path: string; note?: string }[];
   /**
-   * 미디어 표식 파트 — body.contents[].parts[] 안에 아래 모양이 있으면 runner 가 실제 파트로 바꾼다.
-   *   {"@inline_file": {path, mime}} → {inline_data: {mime_type, data: <base64>}}          (프레임 jpg 등 작은 파일)
-   *   {"@file_uri":    {path, mime}} → Files API 업로드 → {file_data: {mime_type, file_uri}} (영상 클립. Google 순정 전용, state ACTIVE 까지 대기)
+   * 미디어 표식 파트 — body.contents[].parts[] 안의 {"@inline_file": {path, mime}} · {"@file_uri": {path, mime}}.
+   *   judge_run 이 agy 에 로컬 파일(절대경로)로 보인다 — 업로드·base64 가 필요 없다.
+   *   이런 파트가 있는 판정은 agy 가 막히면 멈춘다(EvoLink 로 안 감). 순정 Files API 업로드 길은 막혔다(2026-09-26 결정 ④).
    * 이 칸은 안내용 — 어떤 표식을 몇 개 썼는지. 판단은 파트 자체가 한다.
    */
   media?: { kind: "@inline_file" | "@file_uri"; count: number; note?: string };
-  /** 키 위치. env 이름만 — 서버는 키를 보관하지 않는다 */
+  /** 키 위치(비상 길용). env 이름만 — 서버는 키를 보관하지 않는다. judge_run 이 읽는다 */
   auth: { env: string; header: string; note: string };
-  /** 응답 본문(JSON)을 이 파일에 그대로 저장 */
+  /** 응답(generateContent 모양)을 이 파일에 쓴다 — judge_run 의 --out */
   out: string;
+  /** 받는 쪽이 이 일감 객체를 통째로(JSON) 저장할 자리 — judge_run 의 --job */
+  job_file: string;
+  /** 저장소 루트에서 그대로 실행할 argv — python 서버/runner/judge_run.py --job <job_file> --out <out> (맥은 python3) */
+  run: string[];
   note?: string;
 }
 

@@ -6,8 +6,9 @@
 
 | 파일 | 단계 | 외부 호출 |
 | :-- | :-- | :-- |
-| `run_brief.mjs` | brief | EvoLink(judge) |
-| `run_select.mjs` | select | EvoLink·Gemini(영상 판정) |
+| `judge_run.py` (+ `judge_run.mjs`) | judge 일감 전부 | agy(구독) 먼저 → 글만 EvoLink 비상 길 한 번 · 영상·소리·그림은 멈춤(종료 3) · «글만» 은 허용 목록으로 잰다(아는 본문 칸·text 하나짜리 조각·주소 `:generateContent` — 모르는 모양은 agy 에도 안 보이고 멈춤) · 순정 구글 거절(종료 2) — 2026-09-26 사장님 결정 ②④. 기록 `~/.volcano/logs/gemini_route.jsonl` (fallback 한 줄 = EvoLink 로 보낸 한 건) |
+| `run_brief.mjs` | brief | judge_run.py (agy · 비상 EvoLink) |
+| `run_select.mjs` | select | judge_run.py (agy — 영상·그림 판정이라 막히면 멈춤) |
 | `run_script.mjs` | script | — (need_input 대본) |
 | `run_voice.mjs` | voice | ElevenLabs(합성) · Groq(ASR 문구 대조) |
 | `run_transcript_sm.mjs` | transcript | Speechmatics(batch v2 제출·폴링) |

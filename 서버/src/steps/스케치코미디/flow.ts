@@ -37,7 +37,7 @@ export const skSubs = argvStep({
   name: "sk_subs",
   jobName: "subs",
   argv: (project, config) => ["python", "-m", "s2pipe.subs", project, "--config", config],
-  jobNote: "잘라 붙인 cut.mp4 를 다시 보고 자막을 촘촘하게 다시 뽑는다 (실측 19줄 → 31줄). EvoLink 무료 한도.",
+  jobNote: "잘라 붙인 cut.mp4 를 다시 보고 자막을 촘촘하게 다시 뽑는다 (실측 19줄 → 31줄). 모델은 agy(구독) 먼저 — 영상 판정이라 막히면 종료코드 3 으로 멈춘다(EvoLink 로 안 감, 2026-09-26 사장님 결정 ②).",
   message: () => "굽고 나서 자막을 반드시 다시 뽑는다 — 계획 단계 자막은 원본 전체 기준이라 성기고 싱크가 어긋난다.",
   instructions: () => [
     "jobs 의 subs 를 그대로 실행한다 — 편.json 의 subs 가 파일에서 갱신된다.",

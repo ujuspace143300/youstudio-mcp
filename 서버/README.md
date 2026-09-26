@@ -11,8 +11,8 @@ Cloudflare Workers 에 올릴 MCP 서버. 도구는 `youstudio_video` 하나다.
 | `start` | 구현 | `source`(영화 파일)와 `payload.workdir` 검사 → ffprobe 명령줄을 서버가 조립해 `jobs_kind:"argv"` 로 지시 → `next_step: probe` |
 | `probe` | 구현 | `payload.probe`(ffprobe JSON) 검증 · **오디오 트랙 없으면 hard_fail(status error)+수리 지침** · `metrics` 로 길이·해상도·fps·오디오 유무 · `carry` 에 source·workdir·probe_summary → `next_step: transcript` (지시문에 "ASR 제공자 결정 대기") |
 | `transcript` | 구현 | 두 번 부른다. ① `do[]` 로 오디오 추출(ffmpeg 16kHz 모노 mp3) + `jobs_kind:"transcribe"` 로 Groq whisper-large-v3-turbo 호출 지시 — 키는 `auth:{env:"GROQ_API_KEY"}` 위치만(서버 무보관) ② `payload.asr` 검사 → 발화 0건 hard_fail · `write_files` 로 transcript.json · `metrics`(발화 수·발화 길이·무음 비율) → `next_step: brief` |
-| `brief` | 구현 | 두 번 부른다. ① `jobs_kind:"judge"` — EvoLink gemini-3.5-flash 에 보낼 프롬프트·바디(JSON 강제·responseSchema·thinkingBudget 0·maxOutputTokens)를 서버가 조립, 전사는 `inputs` 파일 치환(본문은 payload 에 안 실림), `auth:{env:"EVOLINK_API_KEY"}` ② `payload.brief` 검사 → 0건 hard_fail · 타임코드 범위 밖 반려 · `write_files` brief.json · `metrics`(사건 수·평균 길이·커버리지) → `next_step: select` |
-| `select` | 구현 | 두 번 부른다. ① `do[]` 로 무음 구간 프레임(5s)·결말 클립(15s) 추출 + `jobs_kind:"judge"`(규격 판정.영상 backend, `@inline_file`/`@file_uri` 표식 파트) 무음 구간마다 1콜 + 결말 1콜 ② 후보(brief 사건+시각 장면) → 우선순위 채움(결말 최우선→중요도) → 창 20~120s·병합 → 역할 → 게이트(G-반복 hard, 나머지 soft) → `metrics`(구간 수·총 길이·평균·비율·분당 블록 대용치·**최대 미선택 스트레치**) → `write_files` clips/visual.json + clips/selection.json → `next_step: script` |
+| `brief` | 구현 | 두 번 부른다. ① `jobs_kind:"judge"` — 프롬프트·바디(JSON 강제·responseSchema·thinkingBudget 0·maxOutputTokens)를 서버가 조립, 전사는 `inputs` 파일 치환(본문은 payload 에 안 실림). 받는 쪽은 일감의 `run`(= `서버/runner/judge_run.py`)만 실행한다 — agy(구독) 먼저, 막히면 글만 EvoLink gemini-3.5-flash 비상 길(`request`·`auth:{env:"EVOLINK_API_KEY"}` 는 그 재료) · 영상·그림 판정은 멈춤 · 순정 구글 거절 (2026-09-26 사장님 결정 ②④, `src/lib/judge.ts`) ② `payload.brief` 검사 → 0건 hard_fail · 타임코드 범위 밖 반려 · `write_files` brief.json · `metrics`(사건 수·평균 길이·커버리지) → `next_step: select` |
+| `select` | 구현 | 두 번 부른다. ① `do[]` 로 무음 구간 프레임(5s)·결말 클립(15s) 추출 + `jobs_kind:"judge"`(`@inline_file` 표식 파트 — judge_run.py 가 agy 에 로컬 파일로 보인다. 영상·그림 판정이라 agy 가 막히면 멈춤) 무음 구간마다 1콜 + 결말 1콜 ② 후보(brief 사건+시각 장면) → 우선순위 채움(결말 최우선→중요도) → 창 20~120s·병합 → 역할 → 게이트(G-반복 hard, 나머지 soft) → `metrics`(구간 수·총 길이·평균·비율·분당 블록 대용치·**최대 미선택 스트레치**) → `write_files` clips/visual.json + clips/selection.json → `next_step: script` |
 | `script` | 구현 | `need_input` 패턴. ① 서버가 멈추고 **나레이션.md 전문**(텍스트 import) + 규격 「나레이션」 + 정답지 「대본」 + 재료(구간·브리지·시각 사실·장면·결말·사건)를 내려보냄 → 클로드가 블록(위치·본문·의도) 집필 ② 기계 검사(금지 표현·평서체·레지스터·`..`/마침표/쉼표/`..?`·`..!` 위치당 1·문장 상한·**나레 시간점유 G27 hard(자수 추정)**, 나머지 soft) → 불통이면 어느 블록이 왜 + 수리 지침 → 통과 시 script/script.json + metrics → `next_step: voice` |
 | `voice` | 구현 | 두 번 부른다. ① `jobs_kind:"synthesize"` — 블록마다 ElevenLabs eleven_v3 호출(pcm_44100), `auth:{env:"ELEVENLABS_API_KEY"}`, `post[]` pcm→wav, measure `bytes` (보이스 미정이면 반려) ② 길이=바이트÷(44100×2) → 실패 hard_fail · voice.json · metrics(총 길이·블록별·실측 자당초 vs 추정·시간점유 실측·여유) · `record_to_ours`(우리실측.json tts) → `next_step: subtitle` |
 | `subtitle` | 구현 | 두 번 부른다. ① 컷 타임라인(구간 순서 · over 틈/균등 · before/after 겹침·연장 · 브리지 컷 앵커) → 대사 줄을 모아 `need_input`(번역, 상한 초과 시 judge) ② 큐(나레는 글자별 시각으로, 대사는 꼬리 포함) · 무음 자동 컷 · 게이트(G-자막 자수·겹침, G-죽은시간 홀드 제외) → timeline.json + srt 3종 → `next_step: export`. 불통이면 diagnostics(죽은 구간·컷 대응) |
@@ -129,7 +129,7 @@ message        화면에 찍을 한 줄
 │       ├── start.ts    소재 접수 + ffprobe argv 조립
 │       ├── probe.ts    원본 확인 — 오디오 없음 hard_fail · metrics · carry
 │       ├── transcript.ts 오디오 추출 + Groq 전사 지시 → 결과 검사·transcript.json (규격.json 「전사」)
-│       ├── brief.ts    EvoLink judge 지시(프롬프트·responseSchema) → 사건 목록 검사·brief.json (규격.json 「판정」)
+│       ├── brief.ts    judge 지시(프롬프트·responseSchema → judge_run.py, agy 먼저) → 사건 목록 검사·brief.json (규격.json 「판정」)
 │       ├── select.ts   시각 판정 지시(프레임·클립) → 우선순위 채움·역할·게이트 → selection.json (규격 「구간선택」·정답지 「구간선택」)
 │       ├── script.ts   need_input(나레이션.md 전문+재료) → 블록 기계 검사·시간점유 게이트 → script.json (규격 「나레이션」·정답지 「대본」)
 │       ├── voice.ts    ElevenLabs with-timestamps 합성 지시(pcm) → 실측 길이·글자별 시각·자당초 → voice.json (규격 「음성」)
@@ -148,7 +148,7 @@ message        화면에 찍을 한 줄
 
 서버는 키를 **보관하지 않는다.** 응답의 `auth` 가 "어느 환경변수에서 읽어라"만 말한다.
 - ElevenLabs(TTS): 로컬 사용자 환경변수 `ELEVENLABS_API_KEY`.
-- EvoLink(텍스트·영상 판정): 로컬 사용자 환경변수 `EVOLINK_API_KEY`.
+- 제미나이 판정(judge): agy(구독)가 먼저라 키가 필요 없다. EvoLink 는 **글만 보내는 판정**의 비상 길 — `judge_run.py` 가 환경변수 `EVOLINK_API_KEY` → `~/.volcano/keys/evolink` 에서 읽는다. 영상·그림 판정은 agy 가 막히면 멈추고, 순정 구글 키(`GEMINI_API_KEY`) 길은 막혔다(2026-09-26 사장님 결정 ②④).
 - Groq: 로컬 사용자 환경변수 `GROQ_API_KEY`. (윈도우: `[Environment]::SetEnvironmentVariable('GROQ_API_KEY','<키>','User')` — 새 터미널부터 보인다)
 - 키를 파일에 쓰게 되면 `.gitignore` 에 걸린 위치(`.env`, `.dev.vars`, `*_key`)만 쓴다. 저장소에 절대 넣지 않는다.
 

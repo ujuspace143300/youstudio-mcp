@@ -7,34 +7,28 @@
   `분석/지무비/NN/gemini.json` 으로 저장한 뒤 `분석_판독검사.py` 로 곧바로 검사한다.
 
   실측 근거(2026-08-18 탐침, `서버/runner/분석_탐침.mjs`)
-    · EvoLink `v1beta/…:generateContent` 는 `file_data.file_uri` 에 유튜브 URL 을 받는다.
-      단 **`mime_type` 이 비면 400** — `video/mp4` 를 붙인다.
-    · 15분짜리 한 편 = 프롬프트 토큰 **약 211K**(VIDEO 153K + AUDIO 58K). 비용은 여기서 나온다.
-    · 구글 순정 키는 **429(선불 크레딧 소진)** — 폴백으로만 남긴다.
+    · `file_data.file_uri` 에 유튜브 URL 을 받는다. 단 **`mime_type` 이 비면 400** — `video/mp4` 를 붙인다.
+    · 15분짜리 한 편 = 프롬프트 토큰 **약 211K**(VIDEO 153K + AUDIO 58K). EvoLink 로 보내면 비용은 여기서 나왔다.
+
+  ★2026-09-26 사장님 결정 ②④ — 판독은 **agy(구독)만**. 유튜브 영상 판독이라 agy 가 막히면 EvoLink 로 넘기지 않고
+    **멈춘다**(종료코드 3 — judge_run.판정멈춤). 순정 구글 키 길(`--백엔드 google`)은 막혔다. 규칙은 judge_run.py 한 곳.
+    확인: python ~/.claude/agy_call.py --usage
 
   프롬프트는 지침서에서 **읽어 쓴다**(한 벌만 둔다 — 사람이 수동으로 할 때와 같은 글이어야 비교가 된다).
-  키는 환경변수에서만 읽는다(서버 무보관).
 
 사용:
   python 서버/runner/분석_판독.py --n 1              # 1편만 (먼저 품질 확인)
   python 서버/runner/분석_판독.py --전체              # 남은 편 전부
   python 서버/runner/분석_판독.py --n 3 --덮어쓰기    # 이미 있는 것도 다시
 """
-import argparse, json, os, re, subprocess, sys, time, urllib.error, urllib.request
-import agy_gemini  # 서버/runner/agy_gemini.py — agy 먼저, EvoLink 는 비상용 (2026-09-26)
+import argparse, json, os, re, subprocess, sys, time
+import judge_run  # 서버/runner/judge_run.py — agy 먼저 · 영상 판정은 막히면 멈춤 (2026-09-26 사장님 결정 ②④)
+import agy_gemini  # noqa: E402  judge_run 이 PATH 빈틈을 막은 뒤 import 한 같은 모듈
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 링크_기본 = os.path.join(ROOT, "분석/지무비/링크.json")
 지침서 = os.path.join(ROOT, "분석/지무비/제미나이_지침서.md")
 검사기 = os.path.join(ROOT, "서버/runner/분석_판독검사.py")
-
-
-def 키(env):
-    v = os.environ.get(env)
-    if v: return v.strip()
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", f"[Environment]::GetEnvironmentVariable('{env}','User')"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return (r.stdout or "").strip()
 
 
 def 프롬프트_읽기(path=지침서):
@@ -46,8 +40,9 @@ def 프롬프트_읽기(path=지침서):
     return m.group(1).strip()
 
 
-def 호출(url_video, prompt, model, 최대토큰, 백엔드):
-    """generateContent 한 번. 돌려주는 것: (status, 답 텍스트, usage, finishReason, 원문, 걸린초)"""
+def 호출(url_video, prompt, model, 최대토큰, 백엔드="agy"):
+    """generateContent 한 번 — agy(구독)만. 돌려주는 것: (status, 답 텍스트, usage, finishReason, 원문, 걸린초).
+    agy 가 막히면 judge_run.판정멈춤(종료코드 3)으로 멈춘다 — 유튜브 영상 판독이라 EvoLink 로 안 넘긴다(머리 주석)."""
     body = {
         "contents": [{"role": "user", "parts": [
             {"file_data": {"mime_type": "video/mp4", "file_uri": url_video}},
@@ -56,39 +51,12 @@ def 호출(url_video, prompt, model, 최대토큰, 백엔드):
         "generationConfig": {"temperature": 0, "maxOutputTokens": 최대토큰,
                              "responseMimeType": "application/json", "thinkingConfig": {"thinkingBudget": 0}},
     }
-    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저. 막히면 아래 EvoLink/순정 길.
     t0 = time.time()
-    resp = agy_gemini.generate(body, caller="분석_판독", limit_min=15)
-    if resp is not None:
-        return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], "STOP", json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
-    # UA 실측(2026-08-18): 기본 Python-urllib 로 부르면 **403 code 1010**(Cloudflare 차단) — 보통 UA 를 붙인다
-    UA = "youstudio-mcp/0.8 (analysis runner)"
-    if 백엔드 == "evolink":
-        url = f"https://api.evolink.ai/v1beta/models/{model}:generateContent"
-        headers = {"content-type": "application/json", "user-agent": UA, "accept": "application/json", "authorization": f"Bearer {키('EVOLINK_API_KEY')}"}
-    else:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        headers = {"content-type": "application/json", "user-agent": UA, "accept": "application/json", "x-goog-api-key": 키("GEMINI_API_KEY")}
-    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
-    t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=900) as r:
-            raw, status = r.read().decode("utf-8", "replace"), r.status
-    except urllib.error.HTTPError as e:
-        raw, status = e.read().decode("utf-8", "replace"), e.code
-    except Exception as e:
-        raw, status = json.dumps({"error": {"message": str(e)}}), 0
-    초 = round(time.time() - t0, 1)
-    답, usage, finish = "", None, None
-    try:
-        j = json.loads(raw)
-        cand = (j.get("candidates") or [{}])[0]
-        답 = "".join(p.get("text", "") for p in (cand.get("content", {}).get("parts") or []))
-        finish = cand.get("finishReason")
-        usage = j.get("usageMetadata")
-    except Exception:
-        pass
-    return status, 답.strip(), usage, finish, raw, 초
+    resp, 까닭 = judge_run.agy_먼저(body, "분석_판독", limit_min=15)
+    if resp is None:
+        judge_run.비상길_검사(body, "분석_판독", 까닭, sec=time.time() - t0, model=model)   # 영상이라 여기서 멈춘다
+        raise judge_run.판정멈춤("분석_판독: 영상 판독인데 비상 길 검사를 지났다 — judge_run 규칙 오류, 멈춘다")
+    return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], "STOP", json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
 
 
 # 제미나이가 **한 항목만 영어 키**로 쓰는 일이 있다(실측 07: "meaning_type": "반전어").
@@ -178,11 +146,17 @@ def main():
     ap.add_argument("--덮어쓰기", action="store_true")
     ap.add_argument("--링크", default=링크_기본)
     ap.add_argument("--모델", default="gemini-3.5-flash")
-    ap.add_argument("--백엔드", default="evolink", choices=["evolink", "google"])
+    ap.add_argument("--백엔드", default="agy", choices=["agy", "evolink", "google"],
+                    help="agy 만 된다 — evolink·google 은 막혔다(2026-09-26 사장님 결정 ②④). 옛 명령줄이 넘겨도 멈추게 칸은 남긴다")
     ap.add_argument("--최대토큰", type=int, default=32768)
     ap.add_argument("--쉼_s", type=float, default=3.0, help="편 사이 쉬는 시간")
     ap.add_argument("--다시검사", action="store_true", help="API 를 부르지 않고, 이미 받은 판독을 정규화한 뒤 다시 검사만 한다")
     a = ap.parse_args()
+    if a.백엔드 == "google":
+        ap.error("--백엔드 google(순정 구글 키) 길은 막혔다 — 사장님 결정 ④ 2026-09-26. 판독은 agy 만.")
+    if a.백엔드 == "evolink":
+        ap.error("--백엔드 evolink 는 막혔다 — 유튜브 영상 판독은 agy 가 막히면 멈춘다(사장님 결정 ② 2026-09-26). "
+                 "EvoLink 로 재 보려면 사람이 분석_탐침.mjs --backend evolink 로 따로.")
     링크 = json.load(open(a.링크, encoding="utf-8"))
     표본 = [r for r in 링크["표본"] if (a.n is None or r["n"] == a.n)]
     if not a.전체 and a.n is None and not a.다시검사:

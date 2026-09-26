@@ -9,20 +9,22 @@
       「이 조각에 있는 강조를 **빠짐없이**」 찾게 한다 → **분당 강조 건수(밀도)** 가 나온다.
 
   구간: 중간(영상 50% 지점) · 끝(마지막 90초). 앞부분은 기존 1차 판독을 쓴다.
-  키는 환경변수에서만 읽는다(서버 무보관).
+  ★2026-09-26 사장님 결정 ②④ — 판독은 **agy(구독)만**. 영상 클립 판독이라 agy 가 막히면 EvoLink 로 넘기지 않고
+    **멈춘다**(종료코드 3 — judge_run.판정멈춤). 순정 구글 키 길도 없다. 규칙은 judge_run.py 한 곳.
+    확인: python ~/.claude/agy_call.py --usage
 
 사용:
   python 서버/runner/분석_강조판독.py --n 9 --구간 중간
   python 서버/runner/분석_강조판독.py --전체 [--초 90] [--덮어쓰기]
 """
-import argparse, base64, json, os, subprocess, sys, time, urllib.error, urllib.request
-import agy_gemini  # 서버/runner/agy_gemini.py — agy 먼저, EvoLink 는 비상용 (2026-09-26)
+import argparse, base64, json, os, subprocess, sys, time
+import judge_run  # 서버/runner/judge_run.py — agy 먼저 · 영상 판정은 막히면 멈춤 (2026-09-26 사장님 결정 ②④)
+import agy_gemini  # noqa: E402  judge_run 이 PATH 빈틈을 막은 뒤 import 한 같은 모듈
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 목록_기본 = os.path.join(ROOT, "분석/지무비/목록.json")
 원본_기본 = "C:/Users/user/Desktop/youstudio_work/분석/지무비/원본"
 임시 = "C:/Users/user/Desktop/youstudio_work/분석/_강조클립"
-UA = "youstudio-mcp/0.8 (analysis runner)"
 
 프롬프트 = """이 영상 조각은 한국어 리캡 영상의 일부다. **자막 강조**만 판독해라.
 
@@ -50,14 +52,6 @@ UA = "youstudio-mcp/0.8 (analysis runner)"
   ],
   "판독_불가": ["<한 줄>"]
 }"""
-
-
-def 키(env):
-    v = os.environ.get(env)
-    if v: return v.strip()
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", f"[Environment]::GetEnvironmentVariable('{env}','User')"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return (r.stdout or "").strip()
 
 
 def 클립(video, 구간, 초, 길이_s, out):
@@ -92,32 +86,13 @@ def 호출(clip, model, 최대토큰=16384):
     body = {"contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "video/mp4", "data": b64}}, {"text": 프롬프트}]}],
             "generationConfig": {"temperature": 0, "maxOutputTokens": 최대토큰, "responseMimeType": "application/json",
                                  "thinkingConfig": {"thinkingBudget": 0}}}
-    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저. 막히면 아래 EvoLink 길.
+    # ★2026-09-26 사장님 결정 ②④ — agy(구독)만. 영상 판독이라 agy 가 막히면 멈춘다(EvoLink 로 안 감, 머리 주석).
     t0 = time.time()
-    resp = agy_gemini.generate(body, caller="분석_강조판독", limit_min=15)
-    if resp is not None:
-        return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
-    req = urllib.request.Request(f"https://api.evolink.ai/v1beta/models/{model}:generateContent",
-                                 data=json.dumps(body).encode("utf-8"),
-                                 headers={"content-type": "application/json", "user-agent": UA,
-                                          "authorization": f"Bearer {키('EVOLINK_API_KEY')}"}, method="POST")
-    t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=900) as r:
-            raw, status = r.read().decode("utf-8", "replace"), r.status
-    except urllib.error.HTTPError as e:
-        raw, status = e.read().decode("utf-8", "replace"), e.code
-    except Exception as e:
-        raw, status = json.dumps({"error": {"message": str(e)}}), 0
-    초 = round(time.time() - t0, 1)
-    답, usage = "", None
-    try:
-        j = json.loads(raw)
-        답 = "".join(p.get("text", "") for p in (j.get("candidates") or [{}])[0].get("content", {}).get("parts", []))
-        usage = j.get("usageMetadata")
-    except Exception:
-        pass
-    return status, 답.strip(), usage, raw, 초
+    resp, 까닭 = judge_run.agy_먼저(body, "분석_강조판독", limit_min=15)
+    if resp is None:
+        judge_run.비상길_검사(body, "분석_강조판독", 까닭, sec=time.time() - t0, model=model)   # 영상이라 여기서 멈춘다
+        raise judge_run.판정멈춤("분석_강조판독: 영상 판독인데 비상 길 검사를 지났다 — judge_run 규칙 오류, 멈춘다")
+    return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
 
 
 def main():
