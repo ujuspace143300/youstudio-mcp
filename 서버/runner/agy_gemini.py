@@ -28,7 +28,7 @@
       ★view_file 은 mp4 의 그림만 넘긴다 — 소리는 mp3 로 따로 뽑아 같이 준다(_audio_of).
 
   끄는 법: 환경변수 YOUSTUDIO_GEMINI_ROUTE=evolink  → agy 를 건너뛰고 예전처럼 EvoLink 만.
-  모델:    환경변수 YOUSTUDIO_AGY_MODEL (기본 gemini-3.8-flash-low — DEFAULT_MODEL 주석의 실측)
+  모델:    환경변수 YOUSTUDIO_AGY_MODEL (기본 gemini-3.8-flash-high — 사장님 결정, 실측은 DEFAULT_MODEL 주석)
   기록:    ~/.volcano/logs/gemini_route.jsonl 에 호출마다 한 줄 (route agy / fallback)
            → fallback 줄 수 = EvoLink 로 넘어간 횟수 = 돈이 나간 횟수.
 """
@@ -43,10 +43,10 @@ import tempfile
 import time
 from pathlib import Path
 
-# ★파이프라인 기본은 flash-low — 60초 대사 받아쓰기 실측(2026-09-26): high 167초·중앙 0.27초·최대 0.97초 /
+# 모델별 실측 — 60초 대사 받아쓰기 실측(2026-09-26): high 167초·중앙 0.27초·최대 0.97초 /
 #   medium 111초·0.38·6.85 / low 14초·0.31·1.88. 생각 시간이 속도를 가른다(EvoLink 호출도 대부분 thinkingBudget 0).
-#   대화용 ~/.claude/agy_call.py 의 기본(high)과는 따로다. 바꾸려면 YOUSTUDIO_AGY_MODEL.
-DEFAULT_MODEL = "gemini-3.8-flash-low"
+#   ★사장님 결정(2026-09-26): 기본은 high — 볼트 규칙 기본값과 같게. 바꾸려면 YOUSTUDIO_AGY_MODEL.
+DEFAULT_MODEL = "gemini-3.8-flash-high"
 RETRIES = 3            # 구글 503(UNAVAILABLE)만 다시 한다 — 2026-09-24 실측 60~73초 실패 뒤 재시도 7초 성공
 DEFAULT_LIMIT_MIN = 10
 ARGV_MAX = 24000       # 윈도우 명령줄 한도 32767자 — 넘으면 질문을 파일로 넘긴다
