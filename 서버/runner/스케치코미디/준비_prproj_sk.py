@@ -594,7 +594,13 @@ def main():
     w = wave.open(dst_nar)
     nar_dur = w.getnframes() / w.getframerate()
     w.close()
-    nar_t0 = nar_sub["t"] if nar_sub else picture[segs.index(nar_seg)]["t0"] + 0.3
+    # ★나레 시작은 «나레가 붙은 조각의 머리» 하나로 정한다 — 굽기(s2pipe/build.py tts)가 나레 wav 를 그 자리에 놓으니
+    #   프리미어도 같은 자리여야 완성본 mp4 와 같다. (2026-09-27 100편 배치 — 조각을 다시 짜면 초안 자막의 kind=narr
+    #   줄 시각이 낡아 프리미어 나레가 완성본과 최대 14초 어긋났다: 싱글266 32.5 vs 18.11. 초안이 없으면 +0.3 을 더해
+    #   0.3초 늦었다: 싱글262.) 초안 줄 시각은 이제 쓰지 않고, 다르면 알리기만 한다.
+    nar_t0 = picture[segs.index(nar_seg)]["t0"]
+    if nar_sub and abs(nar_sub["t"] - nar_t0) > 0.05:
+        print(f"  주의  초안 나레 줄 시각 {nar_sub['t']:.2f} ≠ 조각 머리 {nar_t0:.2f} — 조각 머리(완성본과 같은 자리)를 쓴다")
     narration = [{"t0": round(nar_t0, 3), "t1": round(nar_t0 + nar_dur, 3),
                   "wav": dst_nar, "text": nar_seg["narration"]}]
 
