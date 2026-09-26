@@ -404,6 +404,18 @@ def check(proj, path):
         for ln in title:
             if len(ln) > tb["max_chars"]:
                 bad.append(f"제목 한 줄이 {len(ln)}자 — 상한 {tb['max_chars']}자다: {ln}")
+        # ★상단 제목 ≠ 하단 원제 (2026-09-26 사장님 «원본제목이랑 상단 제목이 동일하네 이게 맞아?» — 싱글286·285).
+        #   추천제목 후보 파일의 «대표 제목» 은 mp4 파일명 = 하단 출처 원제다. 그걸 상단에 고르면 위아래가
+        #   같은 글이 된다. 길이만 보던 검사가 못 잡았다 — 글자를 비교해 같거나 거의 같으면 반려한다.
+        import difflib as _dl
+        _원제 = ((proj.get("credit") or {}).get("title") or "").strip()
+        if _원제:
+            _n = lambda s: re.sub(r"[^0-9A-Za-z가-힣]", "", s)
+            _상, _하 = _n("".join(title)), _n(_원제)
+            _닮음 = _dl.SequenceMatcher(None, _상, _하).ratio()
+            if _상 and (_상 in _하 or _하 in _상 or _닮음 >= 0.75):
+                bad.append(f"★상단 제목이 하단 원제와 같다(닮음 {_닮음:.2f}) — 상단 «{' / '.join(title)}»"
+                           f" · 하단 «{_원제}». 상단은 내용에 맞춘 다른 제목으로(후보 4개 이상 → 사장님이 고름)")
         end = CFG["title_formula"]["end_mark"]
         if title and not title[-1].endswith(tuple(end)):
             bad.append(f"★제목 끝이 ? ! ... 이 아니다 — 호기심이 안 남는다:"
