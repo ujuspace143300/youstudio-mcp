@@ -34,7 +34,19 @@ P = argparse.ArgumentParser()
 P.add_argument('대상')
 P.add_argument('--도너', default=os.path.expanduser('~/Desktop/볼케이노 린박스/신병/완성/EP1/신병4_EP1.prproj'))
 P.add_argument('--확인만', action='store_true')
+P.add_argument('--도너체인', default=None,
+               help='도너에서 마스터 대신 이 AudioComponentChain ObjectID 의 효과를 베낀다 '
+                    '(2026-09-11 가우스전자 — 사장님이 마스터가 아니라 클립 하나에 거신 효과를 마스터로 옮길 때)')
+P.add_argument('--다시', action='store_true',
+               help='마스터에 이미 걸린 멀티밴드·선택적 제한을 빼고(객체·파라미터까지 지움) 도너 것으로 새로 심는다 '
+                    '(2026-09-14 — 클립 체인(44.1kHz) 도너로 심은 것이 트랙 믹서에 안 보였다)')
 A = P.parse_args()
+
+# 도너 기본값: 맥 견본이 없으면 키트 본보기의 48kHz 마스터 도너(포핸즈 3화 12분48초 · 사장님이 확인한 편)
+if not os.path.exists(A.도너):
+    _키트도너 = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '본보기', '마스터효과_도너_48k_포핸즈3화_20260904.prproj')
+    if os.path.exists(_키트도너):
+        A.도너 = os.path.abspath(_키트도너)
 
 # 효과 이름표 — 프리미어는 이름을 안 적고 GUID(FilterMatchName)만 적는다 (2026-08-28 실측)
 이름표 = {
@@ -66,8 +78,9 @@ def 체인컴포넌트(s, 체인id):
     return [(int(i), r) for i, r in re.findall(r'<Component Index="(\d+)" ObjectRef="(\d+)"/>', ch)]
 
 
-def 효과목록(s):
-    _, 체인 = 마스터체인(s)
+def 효과목록(s, 체인=None):
+    if 체인 is None:
+        _, 체인 = 마스터체인(s)
     out = []
     for _, r in 체인컴포넌트(s, 체인):
         b = 객체(s, r)
@@ -80,9 +93,9 @@ def 효과목록(s):
     return out
 
 
-def 보이기(제목, s):
+def 보이기(제목, s, 체인=None):
     print('■ %s' % 제목)
-    lst = 효과목록(s)
+    lst = 효과목록(s, 체인)
     if not lst:
         print('  (마스터에 효과 없음)')
     for r, fm, pr, n in lst:
@@ -90,16 +103,64 @@ def 보이기(제목, s):
     return lst
 
 
+def 표본율(s, 체인id):
+    """체인 안 컴포넌트들의 <FrameRate> — (페이더·미터 것, 효과 것들). 마스터는 48kHz=5292000.
+    2026-09-14 실측: 가우스전자 클립 체인(44.1kHz=5760000)을 도너로 심은 효과는 파일엔 남지만
+    프리미어 오디오 트랙 믹서에 안 보였다 (사장님 지적). 효과 표본율은 페이더와 같아야 한다."""
+    기준, 효과 = None, []
+    for _, r in 체인컴포넌트(s, 체인id):
+        b = 객체(s, r)
+        fr = re.search(r'<FrameRate>(\d+)</FrameRate>', b)
+        if b.startswith('<AudioFader') and fr:
+            기준 = fr.group(1)
+        elif b.startswith('<AudioFilterComponent') and fr:
+            효과.append(fr.group(1))
+    return 기준, 효과
+
+
+def 표본율탈(s):
+    _, 체인id = 마스터체인(s)
+    기준, 효과 = 표본율(s, 체인id)
+    return [f for f in 효과 if 기준 and f != 기준]
+
+
 대상 = 읽기(A.대상)
 있는 = 보이기('대상 마스터 · %s' % os.path.basename(A.대상), 대상)
 있는GUID = {fm for _, fm, _, _ in 있는}
+_탈 = 표본율탈(대상)
+if _탈:
+    print('  ★효과 표본율 %s ≠ 마스터 페이더 표본율 — 트랙 믹서에 안 보이는 판 (--다시 로 새로 심어라)' % sorted(set(_탈)))
 if A.확인만:
-    sys.exit(0 if 있는GUID >= set(이름표) else 1)
+    sys.exit(0 if (있는GUID >= set(이름표) and not _탈) else 1)
+
+# ── --다시: 이미 걸린 효과를 체인에서 빼고 객체·파라미터를 지운다 ────────────────
+if A.다시 and 있는:
+    _, 체인id = 마스터체인(대상)
+    체인 = 객체(대상, 체인id)
+    지울 = [r for r, fm, _, _ in 있는 if fm in 이름표]
+    남는 = [r for _, r in 체인컴포넌트(대상, 체인id) if r not in 지울]
+    줄 = ['<Component Index="%d" ObjectRef="%s"/>' % (i, r) for i, r in enumerate(남는)]
+    체인2 = re.sub(r'<Components Version="1">.*?</Components>',
+                  '<Components Version="1">\n\t\t\t\t' + '\n\t\t\t\t'.join(줄) + '\n\t\t\t</Components>',
+                  체인, count=1, flags=re.S)
+    대상 = 대상.replace(체인, 체인2, 1)
+    지운객체 = 0
+    for r in 지울:
+        comp = 객체(대상, r)
+        for p in re.findall(r'<Param Index="\d+" ObjectRef="(\d+)"/>', comp):
+            대상 = 대상.replace(객체(대상, p), '', 1); 지운객체 += 1
+        대상 = 대상.replace(comp, '', 1); 지운객체 += 1
+    사본0 = A.대상 + '.다시심기전'
+    if not os.path.exists(사본0):
+        shutil.copy2(A.대상, 사본0)
+    print('  --다시: 효과 %d개(객체 %d개) 뺐다 · 사본 %s' % (len(지울), 지운객체, os.path.basename(사본0)))
+    있는 = 보이기('뺀 뒤 대상 마스터', 대상)
+    있는GUID = {fm for _, fm, _, _ in 있는}
 
 if not os.path.exists(A.도너):
     raise SystemExit('★도너가 없다: %s' % A.도너)
 도너 = 읽기(A.도너)
-도너효과 = [(r, fm) for r, fm, _, _ in 보이기('도너 마스터 · %s' % os.path.basename(A.도너), 도너)]
+도너효과 = [(r, fm) for r, fm, _, _ in 보이기('도너 %s · %s' % ('체인 ' + A.도너체인 if A.도너체인 else '마스터', os.path.basename(A.도너)), 도너, A.도너체인)]
 심을 = [(r, fm) for r, fm in 도너효과 if fm not in 있는GUID]
 if not 심을:
     print('\n이미 다 걸려 있다 — 손대지 않는다')
@@ -169,7 +230,9 @@ for (새cid, fm), (옛r, _) in zip(새컴포넌트, 심을):
     if 값들(되, 새cid) != 값들(도너, 옛r):
         틀림 += 1
 print('  새 객체 %d개 · ObjectID %d~%d · 사본 %s' % (len(새덩어리), 시작id, 다음id - 1, os.path.basename(사본)))
-if 빠짐 or 틀림:
-    print('★탈 — 빠진 효과 %s · 값 다른 컴포넌트 %d' % ([이름표[g] for g in 빠짐], 틀림))
+_탈 = 표본율탈(되)
+if 빠짐 or 틀림 or _탈:
+    print('★탈 — 빠진 효과 %s · 값 다른 컴포넌트 %d · 표본율 어긋난 효과 %s' % ([이름표[g] for g in 빠짐], 틀림, _탈))
     sys.exit(1)
-print('  파라미터 값 도너와 동일 ✓')
+# (2026-09-26 합침: 유스튜디오 prproj.ts 75행이 «파라미터 값 도너와 동일 ✓» 를 글자로 읽는다 — 볼트 문구를 통째로 품고 표본율을 뒤에 붙인다)
+print('  파라미터 값 도너와 동일 ✓ · 표본율 마스터와 동일 ✓')
