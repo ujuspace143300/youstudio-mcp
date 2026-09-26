@@ -26,6 +26,30 @@ W, H = 960, 540
 
 
 def 카드들(src):
+    """박힌 자막 카드 [(시작, 끝)] — 원본 옆 `<원본>.카드.json` 에 한 번만 재 두고 다시 쓴다.
+    ★2026-09-27 100편 배치 — 편마다 에이전트·카드경계검사가 이 함수를 여러 번 불러 원본 전체를 10fps 로
+      매번 다시 풀었다(동시 5~6편 · 부하 40~50). 원본 크기·수정 시각이 같으면 저장해 둔 값을 쓴다."""
+    src = os.path.abspath(os.path.expanduser(src))
+    st = os.stat(src)
+    key = f"{st.st_size}:{int(st.st_mtime)}:{FPS}:{W}x{H}"
+    cache = src + ".카드.json"
+    try:
+        c = json.load(open(cache, encoding="utf-8"))
+        if c.get("key") == key:
+            return [tuple(x) for x in c["cards"]]
+    except (OSError, ValueError, KeyError):
+        pass
+    cards = _카드재기(src)
+    try:
+        tmp = cache + f".{os.getpid()}"
+        json.dump({"key": key, "cards": cards}, open(tmp, "w", encoding="utf-8"))
+        os.replace(tmp, cache)
+    except OSError:
+        pass
+    return cards
+
+
+def _카드재기(src):
     """박힌 자막 카드 [(시작, 끝)] — 글자 모양이 바뀌는 자리로 나눈다.
     글자 = 밝은 픽셀(>190) 가로 3px 안에 어두운 픽셀(<90) — 자막 상자(검은 반투명) 위 흰 글자만 잡고, 밝은 배경은 거른다.
     2026-09-27 싱글282 164~175초 실측: 카드 바뀜 7곳을 실제(프레임 확인) 대비 0.1~0.2초 안에서 다 잡았다."""
