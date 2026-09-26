@@ -22,11 +22,13 @@
             · responseMimeType application/json → 답에서 JSON 하나를 떼어 검증
   못 받는 입력: 구글 Files API 로 이미 올린 URI(generativelanguage…/files/…) → None(EvoLink 길로)
 
-  2026-09-26 실측(윈도우, agy 1.2.10, gemini-3.8-flash-high):
-      사진 읽기 15초 · 5초 영상(글자·소리) 34초 · 유튜브 URL 16초 · --json-schema 39초 — 넷 다 정답.
+  2026-09-26 실측(윈도우, agy 1.2.11, gemini-3.8-flash-high) — 첨부는 **절대경로 + 답변 전용 에이전트**:
+      글 질문 2초 · 5초 영상 10초 · 60초 대사(영상→그림+소리) flash-low 14초, 중앙 오차 0.31초.
+      ★파일 이름만 주면 agy 가 디스크를 헤매 135초·41회 — 절대경로가 핵심이다(_build 주석).
+      ★view_file 은 mp4 의 그림만 넘긴다 — 소리는 mp3 로 따로 뽑아 같이 준다(_audio_of).
 
   끄는 법: 환경변수 YOUSTUDIO_GEMINI_ROUTE=evolink  → agy 를 건너뛰고 예전처럼 EvoLink 만.
-  모델:    환경변수 YOUSTUDIO_AGY_MODEL (기본 gemini-3.8-flash-high — 볼트 규칙 기본값)
+  모델:    환경변수 YOUSTUDIO_AGY_MODEL (기본 gemini-3.8-flash-low — DEFAULT_MODEL 주석의 실측)
   기록:    ~/.volcano/logs/gemini_route.jsonl 에 호출마다 한 줄 (route agy / fallback)
            → fallback 줄 수 = EvoLink 로 넘어간 횟수 = 돈이 나간 횟수.
 """
@@ -41,7 +43,10 @@ import tempfile
 import time
 from pathlib import Path
 
-DEFAULT_MODEL = "gemini-3.8-flash-high"
+# ★파이프라인 기본은 flash-low — 60초 대사 받아쓰기 실측(2026-09-26): high 167초·중앙 0.27초·최대 0.97초 /
+#   medium 111초·0.38·6.85 / low 14초·0.31·1.88. 생각 시간이 속도를 가른다(EvoLink 호출도 대부분 thinkingBudget 0).
+#   대화용 ~/.claude/agy_call.py 의 기본(high)과는 따로다. 바꾸려면 YOUSTUDIO_AGY_MODEL.
+DEFAULT_MODEL = "gemini-3.8-flash-low"
 RETRIES = 3            # 구글 503(UNAVAILABLE)만 다시 한다 — 2026-09-24 실측 60~73초 실패 뒤 재시도 7초 성공
 DEFAULT_LIMIT_MIN = 10
 ARGV_MAX = 24000       # 윈도우 명령줄 한도 32767자 — 넘으면 질문을 파일로 넘긴다
@@ -94,6 +99,34 @@ def _to_json_schema(s):
     return out
 
 
+_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool,
+          "number": (int, float), "integer": int}
+
+
+def _schema_errors(v, s, where="$"):
+    """EvoLink responseSchema 가 서버에서 강제하던 것을 여기서 잰다 — 타입과 required 칸. 틀린 곳 목록."""
+    if not isinstance(s, dict):
+        return []
+    t = s.get("type")
+    ts = t if isinstance(t, list) else [t] if t else []
+    if v is None:
+        return [] if "null" in ts or not ts else [f"{where} 가 비었다"]
+    ok = [x for x in ts if x in _TYPES and isinstance(v, _TYPES[x])
+          and not (x in ("number", "integer") and isinstance(v, bool))]
+    if ts and not ok:
+        return [f"{where} 는 {t} 여야 한다({type(v).__name__})"]
+    errs = []
+    if isinstance(v, dict):
+        errs += [f"{where}.{k} 가 없다" for k in s.get("required", []) if k not in v]
+        for k, sub in (s.get("properties") or {}).items():
+            if k in v:
+                errs += _schema_errors(v[k], sub, f"{where}.{k}")
+    elif isinstance(v, list) and isinstance(s.get("items"), dict):
+        for i, x in enumerate(v):
+            errs += _schema_errors(x, s["items"], f"{where}[{i}]")
+    return errs
+
+
 def _first_json(text):
     """답 글에서 완결된 JSON 값 하나를 떼어 낸다(앞에 파일 링크·설명이 붙는 일이 있다). 없으면 None."""
     t = text.strip()
@@ -122,40 +155,73 @@ class _Unsupported(Exception):
     pass
 
 
+ANSWER_AGENT = """---
+name: answer
+description: 첨부를 view_file 로 한 번씩 열어 보고 곧바로 답만 한다
+mainAgent: true
+excludeDefaultComponents: true
+tools: [view_file]
+---
+# answer
+너는 질문에 한 번에 답하는 모델이다. 질문에 적힌 첨부 파일(절대경로)만 view_file 로 한 번씩 연다.
+다른 파일·폴더는 열지 않는다. 명령을 실행하지 않는다. 첨부를 보고 들은 뒤 곧바로 답한다.
+"""
+
+
+def _audio_of(video, work, name):
+    """영상의 소리를 mp3 로 따로 뽑는다. view_file 은 mp4 에서 그림만 넘긴다(2026-09-26 실측 — 소리 있는
+    영상에 «소리는 없습니다»). 소리가 없거나 ffmpeg 가 없으면 None."""
+    dst = work / name
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video), "-vn",
+                            "-ac", "1", "-c:a", "libmp3lame", "-b:a", "64k", str(dst)],
+                           capture_output=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return dst if r.returncode == 0 and dst.exists() and dst.stat().st_size > 1024 else None
+
+
 def _build(body, work):
-    """요청 본문 → (질문 글, 첨부 수). 첨부 파일은 work 폴더에 놓는다."""
+    """요청 본문 → (질문 글, 첨부 수, 주소 첨부 여부). 첨부 파일은 work 폴더에 놓고 **절대경로**로 가리킨다.
+
+    ★2026-09-26 실측 — 파일 이름만 주면 view_file 이 «절대경로만 받는다»로 거절해 agy 가 파일을 찾아
+      디스크를 헤맸다(41회 호출·65만 토큰·135초, 클로드 설정·대화 기록까지 열었다).
+      절대경로로 주니 5초 영상 12.7초·3회·3.4천 토큰, 60초 대사(mp3) 15.7초·3회.
+    """
     n = 0
     has_url = False
 
-    def media(part):
+    def local(path, mime):
         nonlocal n
+        n += 1
+        ap = Path(path).resolve().as_posix()
+        if mime.startswith("video/") or Path(path).suffix.lower() in (".mp4", ".mov", ".webm", ".mkv"):
+            snd = _audio_of(path, work, f"첨부{n}_소리.mp3")
+            if snd:
+                return (f"[첨부 {n} 영상의 그림: {ap}]\n"
+                        f"[첨부 {n} 영상의 소리: {snd.resolve().as_posix()}] (같은 영상의 소리 — 시각이 그림과 같다)")
+        return f"[첨부 {n}: {ap} ({mime})]"
+
+    def media(part):
+        nonlocal n, has_url
         if "text" in part:
             return part["text"]
         inl = part.get("inline_data") or part.get("inlineData")
         if inl:
             mime = inl.get("mime_type") or inl.get("mimeType") or ""
-            n += 1
-            name = f"첨부{n}{EXT.get(mime, '.bin')}"
-            (work / name).write_bytes(base64.b64decode(inl["data"]))
-            return f"[첨부 {n}: {name} ({mime})]"
+            f = work / f"첨부{n + 1}{EXT.get(mime, '.bin')}"
+            f.write_bytes(base64.b64decode(inl["data"]))
+            return local(f, mime)
         for key in ("@inline_file", "@file_uri"):
             loc = part.get(key)
             if loc:
-                src = Path(loc["path"])
-                n += 1
-                name = f"첨부{n}{src.suffix or EXT.get(loc.get('mime', ''), '.bin')}"
-                try:
-                    os.link(src, work / name)
-                except OSError:
-                    shutil.copyfile(src, work / name)
-                return f"[첨부 {n}: {name} ({loc.get('mime', '')})]"
+                return local(loc["path"], loc.get("mime", ""))
         fd = part.get("file_data") or part.get("fileData")
         if fd:
             uri = fd.get("file_uri") or fd.get("fileUri") or ""
             if "generativelanguage.googleapis.com" in uri or not uri.startswith("http"):
                 raise _Unsupported("구글 Files API 로 올린 파일은 agy 가 못 본다: " + uri[:80])
             n += 1
-            nonlocal has_url
             has_url = True
             return f"[첨부 {n}: 영상 주소 {uri} — 이 주소의 영상을 직접 보라]"
         raise _Unsupported("모르는 part: " + ",".join(part.keys()))
@@ -170,16 +236,12 @@ def _build(body, work):
         txt = "\n".join(media(p) for p in c.get("parts", []))
         chunks.append(f"[{c.get('role', 'user')}]\n{txt}" if multi else txt)
     prompt = "\n\n".join(chunks)
-    if n:
-        # ★agy 는 모델이 아니라 «에이전트»다. 60초 대사 받아쓰기를 맡기자 명령을 돌리며 4초마다 모델을 다시 불러
-        #   10분 제한에 세 번 다 걸렸다(2026-09-26 실측, 5시간 한도 5% 소모). 로컬 첨부는 직접 보게만 한다.
-        #   유튜브 주소는 agy 가 도구로 보러 가야 해서 이 금지를 넣지 않는다(주소 쪽 결과는 원래 들쭉날쭉 — 82~244초).
-        rule = ("첨부 파일을 고치거나 지우지 마라." if has_url else
-                "명령·스크립트를 실행하지 말고(ffmpeg·파이썬 등 금지) 첨부를 네가 직접 한 번 보고 곧바로 답하라. "
-                "첨부 파일을 고치거나 지우지 마라.")
-        prompt = ("아래 [첨부]는 지금 작업 폴더에 있는 파일(또는 영상 주소)이다. 첨부를 직접 보고"
-                  f"(영상은 화면과 소리 모두) 답하라. {rule}\n\n" + prompt)
-    return prompt, n
+    if n and not has_url:
+        prompt = ("아래 [첨부] 파일을 view_file 로 절대경로 그대로 한 번씩 열어 보고(영상은 그림 파일과 소리 파일을 "
+                  "둘 다) 곧바로 답하라. 다른 파일은 열지 마라.\n\n" + prompt)
+    elif has_url:
+        prompt = "아래 [첨부] 영상 주소의 영상을 직접 보고(화면과 소리 모두) 답하라. 파일을 고치거나 지우지 마라.\n\n" + prompt
+    return prompt, n, has_url
 
 
 def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print):
@@ -202,24 +264,36 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
     work = Path(tempfile.mkdtemp(prefix="agy_"))
     try:
         try:
-            prompt, n = _build(body, work)
+            prompt, n, has_url = _build(body, work)
         except _Unsupported as e:
             return fail(str(e))
         gc = body.get("generationConfig") or body.get("generation_config") or {}
         schema = gc.get("responseSchema") or gc.get("response_schema")
         want_json = bool(schema) or "json" in str(gc.get("responseMimeType") or gc.get("response_mime_type") or "")
-        if want_json and not schema:
+        js = _to_json_schema(schema) if schema else None
+        # ★답변 전용 에이전트에는 --json-schema 답을 채우는 «작업 완료» 도구가 없다 — 구조화 답이 늘 빈다
+        #   (2026-09-26 실측). 그래서 스키마는 질문 글로 주고, 받은 JSON 을 _schema_errors 로 검사한다.
+        #   기본 에이전트(유튜브 주소)만 --json-schema 를 쓴다.
+        use_flag = bool(schema) and has_url
+        if want_json and not use_flag:
             prompt += "\n\n[출력 형식] JSON 값 하나만 출력하라. 앞뒤 설명·코드블록 금지."
+            if js:
+                prompt += "\n아래 JSON Schema 를 반드시 따른다(required 칸 전부):\n" + json.dumps(js, ensure_ascii=False)
         cmd = [exe, "--dangerously-skip-permissions", "--disable-slash-commands", "--model", model,
                "--print-timeout", f"{limit_min}m", "--output-format", "json"]
-        if schema:
-            (work / "_schema.json").write_text(json.dumps(_to_json_schema(schema), ensure_ascii=False),
-                                               encoding="utf-8")
+        if not has_url:
+            # 답변 전용 에이전트 — 기본 도구·기본 안내문을 빼고 view_file 하나만(글 질문 589토큰·2초).
+            #   유튜브 주소는 agy 기본 에이전트가 보러 가야 해서 쓰지 않는다.
+            (work / ".agents" / "agents" / "answer").mkdir(parents=True, exist_ok=True)
+            (work / ".agents" / "agents" / "answer" / "agent.md").write_text(ANSWER_AGENT, encoding="utf-8")
+            cmd += ["--agent", "answer"]
+        if use_flag:
+            (work / "_schema.json").write_text(json.dumps(js, ensure_ascii=False), encoding="utf-8")
             cmd += ["--json-schema", str(work / "_schema.json")]
         if len(prompt) > ARGV_MAX:
             (work / "_질문.md").write_text(prompt, encoding="utf-8")
-            prompt = ("이 폴더의 _질문.md 파일 전체가 너의 작업 지시다. 그 파일을 끝까지 읽고 그대로 수행해 답하라. "
-                      "폴더의 파일을 고치거나 지우지 마라.")
+            prompt = (f"{(work / '_질문.md').resolve().as_posix()} 파일 전체가 너의 작업 지시다. view_file 로 끝까지 "
+                      "읽고 그대로 수행해 답하라. 파일을 고치거나 지우지 마라.")
         cmd += ["-p", prompt]
 
         out = err = ""
@@ -250,8 +324,8 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
         if not isinstance(res, dict) or "response" not in res and "structured_output" not in res:
             return fail("agy 출력이 JSON 이 아니다: " + (out or "").strip()[:160])
         if res.get("status") not in (None, "SUCCESS"):
-            return fail(f"agy status={res.get('status')}")
-        if schema:
+            return fail(f"agy status={res.get('status')}: {str(res.get('error') or '')[:200]}")
+        if use_flag:
             so = res.get("structured_output")
             if so in (None, {}, []):
                 return fail("구조화 답이 비었다")
@@ -270,6 +344,9 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
                 obj = _first_json(text)
                 if obj is None:
                     return fail("JSON 을 요구했는데 답에 JSON 이 없다: " + text[:120])
+                bad = _schema_errors(obj, js) if js else []
+                if bad:
+                    return fail("스키마와 다르다: " + "; ".join(bad[:3]))
                 text = json.dumps(obj, ensure_ascii=False)
         u = res.get("usage") or {}
         sec = time.time() - t0
