@@ -303,6 +303,9 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
     if not exe:
         return fail("agy 가 설치돼 있지 않다")
 
+    # ★일시 실패(시간 제한·빈 답·끊긴 파이프 등 종료코드≠0)도 다시 묻는다 (2026-09-27 100편 배치 — 동시 체인
+    #   8~10개로 부하 33 일 때 싱글252·284·267 ⑦ 화자 판정이 «broken pipe»·«빈 답» 한 번에 AgyStop 으로 죽었다.
+    #   FROM=7 로 다시 돌리면 다 통과했다 = 일시 실패.)
     last = ""
     for 시도 in range(FORMAT_TRIES):
         try:
@@ -311,7 +314,7 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
             last = e.reason
             if not e.retry or 시도 == FORMAT_TRIES - 1:
                 break
-            log(f"  agy 답 형식 문제({e.reason[:100]}) — agy 로 다시 묻는다 ({시도 + 1}/{FORMAT_TRIES})")
+            log(f"  agy 실패({e.reason[:100]}) — agy 로 다시 묻는다 ({시도 + 1}/{FORMAT_TRIES})")
     return fail(last)
 
 
@@ -368,12 +371,12 @@ def _once(body, caller, limit_min, model, log, t0, exe):
                 else:
                     proc.kill()
                 proc.communicate()
-                return fail(f"{limit_min}분 시간 제한")
+                return fail(f"{limit_min}분 시간 제한", retry=True)
             both = (out or "") + (err or "")
             if proc.returncode == 0 and "UNAVAILABLE" not in both:
                 break
             if "UNAVAILABLE" not in both:
-                return fail(f"종료코드 {proc.returncode}: {both.strip()[-200:]}")
+                return fail(f"종료코드 {proc.returncode}: {both.strip()[-200:]}", retry=True)
             log(f"  agy 구글 서버 일시 장애(503) — {5 * (i + 1)}초 뒤 다시 ({i + 1}/{RETRIES})")
             time.sleep(5 * (i + 1))
         else:
@@ -393,7 +396,7 @@ def _once(body, caller, limit_min, model, log, t0, exe):
             text = (res.get("response") or "").strip()
             if not text:
                 # agy 는 --print-timeout 에 걸려도 빈 답에 종료코드 0 을 낸다(2026-09-24 실측)
-                return fail("빈 답 — 시간 제한에 걸렸을 가능성이 크다")
+                return fail("빈 답 — 시간 제한에 걸렸을 가능성이 크다", retry=True)
             # ★유튜브 주소는 agy 가 들쭉날쭉하다 — 같은 질문에 82~244초, 가끔 «영상을 볼 수 없음»(2026-09-26 실측 5회).
             #   못 봤다는 답을 성공으로 넘기지 않는다.
             if n and re.search(r"볼 수 없|볼수없|cannot (view|access|watch|see)|unable to (view|access|watch)", text, re.I) \
