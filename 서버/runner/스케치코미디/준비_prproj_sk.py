@@ -885,6 +885,10 @@ def main():
     import re as _re3
     원발화 = []
     _vtt = os.path.join(workdir, "work", proj["source"]["id"] + ".ko.vtt")
+    # ★agy 원본 전사(2026-09-26 사장님 결정 B)는 시각이 모델 추정이라 거칠다 — 겹침 판정 여유를
+    #   AGY_여유 만큼 더 넓힌다(넓히면 배제가 늘 뿐 번인이 새지는 않는 쪽).
+    from s2pipe.agy_asr import 원본전사_출처, AGY_여유
+    원여유 = AGY_여유 if 원본전사_출처(_vtt) == "agy" else 0.0
     if os.path.exists(_vtt):
         for m in _re3.finditer(r"(\d+):(\d+):(\d+)\.(\d+) --> (\d+):(\d+):(\d+)\.(\d+)",
                              open(_vtt, encoding="utf-8").read()):
@@ -898,7 +902,7 @@ def main():
         if 원발화:
             # 자막은 발화보다 조금 먼저 뜨고 늦게 진다 — 앞뒤 여유를 두고 겹침 판정
             말수 = sum(1 for t_, e_ in 원발화
-                       if t_ < seg["t1"] + 0.3 and e_ > seg["t0"] - 0.5)
+                       if t_ < seg["t1"] + 0.3 + 원여유 and e_ > seg["t0"] - 0.5 - 원여유)
             근거 = "원본 전사"
         else:
             말수 = sum(1 for t_, e_ in 말들cut if t_ < pc["t1"] and e_ > pc["t0"])

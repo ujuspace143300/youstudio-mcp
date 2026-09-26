@@ -6,7 +6,8 @@
   *댓글*.zip = 완성 댓글 카드 PNG · *추천제목*후보*.txt = 상단 제목 후보.
   ★로고는 편마다 다르다 — --로고 를 안 주면 멈추고 묻는다(린박스 하단 규칙과 같은 사상).
 
-  하는 일: 원본 코덱 검사(AV1/VP9 → H.264 변환) · Speechmatics 전사(유료, 사전 승인 필수)
+  하는 일: 원본 코덱 검사(AV1/VP9 → H.264 변환) · 원본 전사(기본 agy 구독 — 2026-09-26 사장님 결정 B.
+          --전사 speechmatics 면 유료, 사전 승인 필수)
   → work/<슬러그>.mp4 · .ko.vtt · .info.json · _댓글/ · _로고.png · _제목후보.txt
 
 사용: python 편시작_deep.py <소재폴더> --slug Deep01 --로고 <로고.png> --config <config.json>
@@ -34,6 +35,8 @@ def main():
     ap.add_argument("--slug", required=True)
     ap.add_argument("--로고", default=None)
     ap.add_argument("--채널", default="띱 Deep", help="하단 크레딧 채널명(예: 싱글벙글). 기본 띱 Deep")
+    ap.add_argument("--전사", choices=["agy", "speechmatics"], default="agy",
+                    help="원본 전사 엔진 — 기본 agy(구독). speechmatics 는 유료(사전 승인)")
     a = ap.parse_args()
     d = a.folder
     assert os.path.isdir(d), "소재 폴더 없음: " + d
@@ -77,17 +80,29 @@ def main():
     info = {"channel": a.채널, "title": 원제, "comments": []}
     json.dump(info, open(os.path.join(work, f"{vid}.info.json"), "w", encoding="utf-8"), ensure_ascii=False)
 
-    # ③ 전사 (Speechmatics ko — ★유료. 부르기 전에 승인받았어야 한다)
+    # ③ 원본 전사 — ★2026-09-26 사장님 결정(B): «전사는 agy 로 하고 자막만 스피치매틱스로».
+    #   기본은 agy(제미나이 구독, 과금 없음). 자막 시각의 원천인 완성본 재전사(한편 ③ s2pipe.asr)는
+    #   그대로 Speechmatics 다. agy 시각은 거칠어서 vtt 머리에 «NOTE 출처 agy» 를 남기고,
+    #   make 절단 게이트·준비 배제·sync 복원이 이 표시를 보고 소리 실측으로 받친다.
+    #   --전사 speechmatics 를 주면 예전처럼 유료 전사(★사전 승인 필수).
     vtt = os.path.join(work, f"{vid}.ko.vtt")
+    # ★낱말사전(2026-09-04 사장님 규칙) — 소재 폴더 *사전*.json 이 있으면 work 로 옮겨
+    #   고유명사를 미리 일러 준다. 편 중간에 확정된 이름은 work/<슬러그>_사전.json 에.
+    for _사 in glob.glob(os.path.join(d, "*사전*.json")):
+        shutil.copy2(_사, os.path.join(work, f"{vid}_사전.json"))
+    if not os.path.exists(vtt) and a.전사 == "agy":
+        from s2pipe import agy_asr
+        vocab = asr.load_vocab(vid, channel=a.채널)
+        if vocab:
+            print(f"  낱말사전 {len(vocab)}개: {', '.join(e['content'] for e in vocab[:8])}")
+        lines = agy_asr.transcribe(dst, vocab)
+        agy_asr.write_vtt(lines, vtt, agy_asr.MODEL)
+        print(f"전사(agy) {len(lines)}줄 → {os.path.basename(vtt)}")
     if not os.path.exists(vtt):
         aud = os.path.join(work, f"{vid}_asr.mp3")
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", dst, "-vn",
                         "-ac", "1", "-ar", "16000", "-b:a", "48k", aud], check=True)
-        print("전사 제출 (Speechmatics ko)…")
-        # ★낱말사전(2026-09-04 사장님 규칙) — 소재 폴더 *사전*.json 이 있으면 work 로 옮겨
-        #   고유명사를 미리 일러 준다. 편 중간에 확정된 이름은 work/<슬러그>_사전.json 에.
-        for _사 in glob.glob(os.path.join(d, "*사전*.json")):
-            shutil.copy2(_사, os.path.join(work, f"{vid}_사전.json"))
+        print("전사 제출 (Speechmatics ko — ★유료)…")
         vocab = asr.load_vocab(vid, channel=a.채널)
         if vocab:
             print(f"  낱말사전 {len(vocab)}개: {', '.join(e['content'] for e in vocab[:8])}")

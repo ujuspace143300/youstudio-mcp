@@ -227,6 +227,19 @@ def main():
         print("ASR 결과가 없다 — 먼저 `python -m s2pipe.asr` 를 돌려라 (★요금)")
         return 1
 
+    # ── ⓪ 이음매 관문 (2026-09-26 사장님 결정 B — 원본 전사를 agy 로 바꾸며 make 의 절단 반려를 여기로 옮겼다).
+    #    완성본 Speechmatics 낱말로 «편집 이음매에서 말이 잘렸는가» 를 잰다. 반려면 여기서 멈춘다.
+    from s2pipe import 이음매관문
+    _이bad, _이warn = 이음매관문.검사(proj)
+    for w in _이warn:
+        print(f"  주의  {w}")
+    for b in _이bad:
+        print(f"  반려  ★{b}")
+    print(f"  [{'OK' if not _이bad else 'X'}] 이음매 관문 — 반려 {len(_이bad)} · 주의 {len(_이warn)}")
+    if _이bad:
+        print("  ★이음매에서 말이 잘렸다 — segments 의 t0/t1 을 고치고 ②굽기부터 다시(FROM=2).")
+        return 1
+
     # 옛 모델 표 — 괄호 효과자막의 출처이자, 재실행 시 항상 같은 원천
     src = proj.get("subs_before_sync") or proj.get("subs", [])
     narr = [s for s in src if s.get("kind") == "narr"]
@@ -347,6 +360,12 @@ def main():
                     h, m2, s2 = ls[0].split(" --> ")[0].split(":")
                     원줄.append((int(h) * 3600 + int(m2) * 60 + float(s2), ls[1]))
             복원 = []
+            # ★agy 원본 전사(2026-09-26 사장님 결정 B)면 줄 시각이 모델 추정이다 — 되살린 줄은
+            #   완성본(cut.mp4) 소리로 실제 말 구간을 재서 시작·끝을 맞춘다. 못 재면 되살리지 않는다
+            #   (말 없는 자리에 자막을 띄우느니 빠지는 쪽 — 커버리지 게이트가 따로 잡는다).
+            from s2pipe.agy_asr import 원본전사_출처, 말소리_구간
+            원agy = 원본전사_출처(vtt경로) == "agy"
+            cut3 = os.path.join(HERE, _C3["paths"]["work"], proj["slug"], "cut.mp4")
             for t원, 글 in 원줄:
                 tc = 컷시각(t원)
                 깨끗 = 정돈(글)
@@ -357,9 +376,23 @@ def main():
                 덮임 = any(d["t"] - 0.8 <= tc <= d.get("t1", d["t"] + 6) + 0.3 for d in dlg)
                 if not 덮임:
                     복원.append({"t": round(tc, 2), "text": 깨끗})
+            if 원agy:
+                맞춘 = []
+                for r in 복원:
+                    구간 = 말소리_구간(cut3, r["t"]) if os.path.exists(cut3) else None
+                    if 구간 is None:
+                        print(f"     (agy 원본 전사 줄 「{r['text'][:16]}」 {r['t']:.1f}s — 완성본에 말소리가 안 잡혀 되살리지 않음)")
+                        continue
+                    if any(d["t"] - 0.8 <= 구간[0] <= d.get("t1", d["t"] + 6) + 0.3 for d in dlg):
+                        continue                          # 맞춰 보니 이미 덮인 말
+                    r["t"], r["_소리끝"] = 구간[0], 구간[1]
+                    맞춘.append(r)
+                복원 = 맞춘
             for k, r in enumerate(복원):
                 다음 = min([d["t"] for d in dlg if d["t"] > r["t"]] + [r["t"] + 2.0])
                 r["t1"] = round(min(r["t"] + 2.0, max(다음 - 0.05, r["t"] + 0.6)), 2)
+                if "_소리끝" in r:                        # agy 줄은 실측 말끝까지만(다음 줄은 넘지 않는다)
+                    r["t1"] = round(min(max(r.pop("_소리끝"), r["t"] + 0.6), 다음 - 0.05), 2)
             if 복원:
                 print(f"  ★컷 전사가 놓친 대사 {len(복원)}줄 — 원본 전사로 복원 (문구는 원본 전사 그대로):")
                 for r in 복원:
