@@ -99,13 +99,22 @@ def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미�
         if resp is not None:
             try:
                 got = json.loads(agy_gemini.text_of(resp))["lines"]
-                break
             except (ValueError, KeyError, TypeError) as e:
                 log(f"  답 형식 오류({e}) — 다시 ({k + 1}/{TRIES})")
+                continue
+            # ★시각 늘어남 관문 (2026-09-26 싱글280 실측): 통째 읽기 답의 시각이 원본보다 길게 세어져
+            #   마지막 17줄이 원본 끝(156.5초)을 넘었다 — 잘라 붙이면 끝 1초에 몰려 plan 이 엉뚱한 자리(아웃트로
+            #   카드)를 결말로 골랐다. 원본 길이를 넘는 줄이 있으면 틀린 답으로 보고 통째로 다시 읽힌다(조각 금지).
+            넘침 = [float(x.get("t", 0)) for x in got if float(x.get("t", 0)) > dur + 0.5]
+            if 넘침:
+                log(f"  ★시각이 원본({dur:.1f}초)보다 늘어났다 — {len(넘침)}줄이 끝을 넘음(최대 {max(넘침):.1f}초). 다시 ({k + 1}/{TRIES})")
+                got = None
+                continue
+            break
         else:
             log(f"  agy 실패 — 다시 ({k + 1}/{TRIES})")
     if got is None:
-        raise RuntimeError(f"agy 전사 실패 — {TRIES}번 시도")
+        raise RuntimeError(f"agy 전사 실패 — {TRIES}번 시도(답 형식 오류 또는 시각 늘어남)")
     lines = []
     for ln in got:
         t, e, tx = float(ln["t"]), float(ln["e"]), ln["text"].strip()

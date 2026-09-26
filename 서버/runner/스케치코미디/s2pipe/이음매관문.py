@@ -45,6 +45,34 @@ def 이음매(proj):
     return out, round(at, 3)
 
 
+def _원본조용(proj, 원t, 폭=0.2, 쪽="뒤"):
+    """원본에서 원t 의 «쪽»(앞/뒤) «폭» 초가 조용한가 — 말대역(300~3500Hz)이 둘레 6초 바닥(20%)+6dB 아래인
+    프레임이 절반 이상. 원본을 못 읽으면 None."""
+    try:
+        import subprocess as _sp
+        import numpy as _np
+        W = os.path.expanduser("~/Desktop/스케치코미디/work")
+        src = os.path.join(W, f"{proj['source']['id']}.mp4")
+        a0 = max(0.0, 원t - 3.0)
+        r = _sp.run(["ffmpeg", "-v", "error", "-ss", f"{a0:.2f}", "-t", "6", "-i", src, "-vn", "-ac", "1",
+                     "-ar", "16000", "-f", "s16le", "-"], capture_output=True)
+        x = _np.frombuffer(r.stdout, dtype=_np.int16).astype(_np.float32) / 32768
+        FR = 320
+        m = len(x) // FR
+        if m < 50:
+            return None
+        f = _np.fft.rfftfreq(FR, 1 / 16000)
+        sel = (f > 300) & (f < 3500)
+        E = 20 * _np.log10(_np.abs(_np.fft.rfft(x[:m * FR].reshape(m, FR) * _np.hanning(FR), axis=1))[:, sel].sum(axis=1) + 1e-9)
+        문 = float(_np.percentile(E, 20)) + 6.0
+        c = int((원t - a0) / 0.02)
+        k = int(폭 / 0.02)
+        구간 = E[max(0, c - k):c] if 쪽 == "앞" else E[c:c + k]
+        return bool((구간 < 문).mean() >= 0.5)
+    except Exception:
+        return None
+
+
 def 검사(proj):
     words = [w for w in (proj.get("asr_words") or []) if w.get("type") == "word"]
     bad, warn = [], []
@@ -61,6 +89,16 @@ def 검사(proj):
         걸침 = [w for w in words if w["t"] < J - 0.03 and w["e"] > J + 0.03]
         앞 = [w for w in words if w["e"] <= J + 0.03]
         뒤 = [w for w in words if w["t"] >= J - 0.03]
+        # ★원본 소리로 한 번 더 본다 (2026-09-26 싱글282 51.51 · 285/286 «좋아»«크아» — 완성본 전사가 이음매 양쪽
+        #   낱말을 붙여 들어 «가로지른다» 로 보였지만 원본은 자른 자리 앞 0.2초·뒤 0.2초가 둘 다 조용했다).
+        #   잘려 나간 소리 = 앞 조각 t1 «뒤» 와 뒤 조각 t0 «앞» — 둘 다 조용하면 잘린 말이 아니다(주의로).
+        segs_k = [x_ for x_ in proj.get("segments", []) if x_.get("keep", True)]
+        양쪽조용 = False
+        if 걸침 and i + 1 < len(segs_k):
+            양쪽조용 = bool(_원본조용(proj, segs_k[i]["t1"], 쪽="뒤")) and bool(_원본조용(proj, segs_k[i + 1]["t0"], 쪽="앞"))
+        if 걸침 and 양쪽조용:
+            warn.append(f"{tag} — 낱말 「{걸침[0]['w']}」 가 걸쳐 보이지만 원본은 자른 자리 앞뒤가 조용하다(전사가 붙여 들음)")
+            continue
         if 걸침:
             (warn if 허용됨(J) or not 뜻말(걸침[0]["w"]) else bad).append(f"{tag} — 낱말 「{걸침[0]['w']}」 {걸침[0]['t']:.2f}~{걸침[0]['e']:.2f} 가 이음매를 가로지른다")
             continue
