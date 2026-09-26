@@ -98,6 +98,16 @@ def main():
         lines = agy_asr.transcribe(dst, vocab)
         agy_asr.write_vtt(lines, vtt, agy_asr.MODEL)
         print(f"전사(agy) {len(lines)}줄 → {os.path.basename(vtt)}")
+        # ★박힌 자막 띠로 시각 맞춤 (2026-09-27 사장님 A안 — «확인하는 용도로만»): agy 통째 읽기는 영상마다 시간을
+        #   조금씩 늘려 센다(싱글282 끝에서 8초). 박힌 자막이 «언제 떴는가» 만 재서 맞춘다 — 글자는 안 쓴다.
+        from s2pipe import 자막띠시각
+        자막띠시각.실행(dst, vtt, 반영=True)
+        _, _L = 자막띠시각.읽기(vtt)
+        _넘 = [t for t, _e, _x in _L if t > dur_src + 0.5] if (dur_src := float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst],
+            capture_output=True, text=True).stdout)) else []
+        if _넘:
+            raise SystemExit(f"★맞춘 뒤에도 원본({dur_src:.1f}초) 끝을 넘는 줄 {len(_넘)}개 — 전사 시각이 크게 틀렸다. 사장님께 여쭌다")
     if not os.path.exists(vtt):
         aud = os.path.join(work, f"{vid}_asr.mp3")
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", dst, "-vn",

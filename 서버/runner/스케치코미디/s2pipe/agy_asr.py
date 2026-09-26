@@ -105,7 +105,9 @@ def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미�
             # ★시각 늘어남 관문 (2026-09-26 싱글280 실측): 통째 읽기 답의 시각이 원본보다 길게 세어져
             #   마지막 17줄이 원본 끝(156.5초)을 넘었다 — 잘라 붙이면 끝 1초에 몰려 plan 이 엉뚱한 자리(아웃트로
             #   카드)를 결말로 골랐다. 원본 길이를 넘는 줄이 있으면 틀린 답으로 보고 통째로 다시 읽힌다(조각 금지).
-            넘침 = [float(x.get("t", 0)) for x in got if float(x.get("t", 0)) > dur + 0.5]
+            # ★2026-09-27: 조금 늘어난 건(싱글282 — 3번 다 원본보다 2~4% 늘어남) 뒤의 자막띠시각 맞춤이 바로잡는다.
+            #   원본 길이의 12% 를 넘게 늘어났을 때만 틀린 답으로 본다(280 1차 — 끝 17줄이 한곳에 몰린 경우).
+            넘침 = [float(x.get("t", 0)) for x in got if float(x.get("t", 0)) > dur * 1.12]
             if 넘침:
                 log(f"  ★시각이 원본({dur:.1f}초)보다 늘어났다 — {len(넘침)}줄이 끝을 넘음(최대 {max(넘침):.1f}초). 다시 ({k + 1}/{TRIES})")
                 got = None
@@ -120,8 +122,8 @@ def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미�
         t, e, tx = float(ln["t"]), float(ln["e"]), ln["text"].strip()
         if not tx:
             continue
-        t = min(max(t, 0.0), dur)
-        e = min(max(e, t + 0.2), dur)
+        t = max(t, 0.0)                                   # 끝을 넘은 시각도 그대로 둔다 — 자막띠시각 맞춤이 옮긴다
+        e = max(e, t + 0.2)
         lines.append({"t": round(t, 2), "e": round(e, 2), "text": tx})
     log(f"  {len(lines)}줄")
     lines.sort(key=lambda x: x["t"])
