@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PY = process.platform === "win32" ? "python" : "python3";
 
+export class AgyStop extends Error {}
+
 export function agyGenerate(body, caller, limitMin = 10) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agyreq_"));
   try {
@@ -17,9 +19,12 @@ export function agyGenerate(body, caller, limitMin = 10) {
     fs.writeFileSync(inF, typeof body === "string" ? body : JSON.stringify(body), "utf8");
     const r = spawnSync(PY, [path.join(HERE, "agy_gemini.py"), "--body", inF, "--out", outF, "--caller", caller, "--limit", String(limitMin)],
       { encoding: "utf8", stdio: ["ignore", "inherit", "inherit"], timeout: (limitMin * 60 + 180) * 1000 });
+    // 3 = 영상·소리 판정이 agy 로 끝내 안 됨 — EvoLink 로 넘기지 않고 멈춘다(2026-09-26 사장님 결정 2번)
+    if (r.status === 3) throw new AgyStop("agy 실패 · 영상·소리 판정 — EvoLink 금지라 멈춤 (" + caller + ")");
     if (r.status !== 0 || !fs.existsSync(outF)) return null;
     return JSON.parse(fs.readFileSync(outF, "utf8"));
   } catch (e) {
+    if (e instanceof AgyStop) throw e;               // 멈춤은 삼키지 않는다
     console.error("agy 다리 실패:", e.message);
     return null;
   } finally {

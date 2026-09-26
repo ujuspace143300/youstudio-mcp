@@ -99,6 +99,8 @@ def ask(payload, models, timeout=900, tries=3, log=print):
                            for c in payload.get("contents", [])]
 
     # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저, 막히면 아래 EvoLink → 순정 길로.
+    #   단 영상·소리 첨부는 agy 가 끝내 안 되면 agy_gemini.AgyStop 으로 멈춘다(결정 2번 — EvoLink 금지).
+    #   답 형식 오류는 agy_gemini 가 먼저 3번까지 다시 묻는다(싱글286 20:24:40 실측 누수).
     #   plan·subs·sync·댓글보충·준비_prproj_sk 가 전부 이 함수를 지나므로 여기 한 곳에서 바꾼다.
     resp = agy_gemini.generate(payload, caller="스케치코미디/gem.ask",
                                limit_min=max(3, min(15, timeout // 60)), log=log)

@@ -51,6 +51,39 @@ RETRIES = 3            # 구글 503(UNAVAILABLE)만 다시 한다 — 2026-09-24
 DEFAULT_LIMIT_MIN = 10
 ARGV_MAX = 24000       # 윈도우 명령줄 한도 32767자 — 넘으면 질문을 파일로 넘긴다
 LOG = Path.home() / ".volcano" / "logs" / "gemini_route.jsonl"
+FORMAT_TRIES = 3       # 답 형식이 틀리면(JSON 없음·스키마 다름·agy status 오류·첨부 못 봄) agy 로 다시 묻는 횟수
+
+
+class AgyStop(BaseException):
+    """영상·소리 판정이 agy 로 끝내 안 됐다 — EvoLink 로 넘기지 않고 멈춘다(2026-09-26 사장님 결정 2번).
+    ★BaseException 이다: 부르는 쪽의 «except Exception» 이 삼켜 조용히 계속하지 못하게(싱글286 실측 —
+    준비·댓글 선별 등 3곳이 except Exception 으로 실패를 삼킨다). Ctrl-C 처럼 끝까지 올라가 체인을 멈춘다."""
+
+
+class _Fail(Exception):
+    def __init__(self, reason, retry=False):
+        super().__init__(reason)
+        self.reason, self.retry = reason, retry
+
+
+def has_media(body):
+    """요청에 영상·소리 첨부가 있는가 — 있으면 agy 실패 시 EvoLink 로 가지 않고 멈춘다."""
+    def media_mime(m, path=""):
+        m = (m or "").lower()
+        return m.startswith(("video/", "audio/")) or Path(path).suffix.lower() in (
+            ".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac")
+    for c in body.get("contents", []):
+        for p in c.get("parts", []):
+            inl = p.get("inline_data") or p.get("inlineData")
+            if inl and media_mime(inl.get("mime_type") or inl.get("mimeType")):
+                return True
+            for key in ("@inline_file", "@file_uri"):
+                if p.get(key) and media_mime(p[key].get("mime", ""), p[key].get("path", "")):
+                    return True
+            fd = p.get("file_data") or p.get("fileData")
+            if fd:                                   # 유튜브 등 주소 = 영상
+                return True
+    return False
 
 EXT = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm",
        "image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/webp": ".webp",
@@ -245,11 +278,20 @@ def _build(body, work):
 
 
 def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print):
-    """agy 로 generateContent 를 흉내 낸다. 실패하면 None — 호출하는 쪽이 EvoLink 로 간다."""
+    """agy 로 generateContent 를 흉내 낸다. 실패하면 None — 호출하는 쪽이 EvoLink 로 간다.
+    ★단, 영상·소리 첨부 요청은 끝내 실패하면 None 대신 AgyStop 을 던진다 — EvoLink 금지(사장님 결정 2번).
+    ★답 형식 오류는 FORMAT_TRIES 번까지 agy 로 다시 묻는다 (2026-09-26 싱글286 실측: 영상 작표 한 번이
+      «JSON 을 요구했는데 답에 JSON 이 없다: ]» 로 떨어져 곧장 EvoLink 로 샜다 — 같은 편 다른 13건은 정상)."""
     t0 = time.time()
     model = model or os.environ.get("YOUSTUDIO_AGY_MODEL") or DEFAULT_MODEL
+    media = has_media(body)
 
     def fail(reason):
+        if media:
+            _record(caller, "stop", time.time() - t0, reason, model)
+            log(f"  agy 실패({reason[:160]}) — 영상·소리 판정이라 EvoLink 로 넘기지 않고 멈춘다")
+            raise AgyStop(f"agy 실패 · 영상·소리 판정 — EvoLink 금지(사장님 결정 2번)라 멈춤: {reason[:200]}"
+                          f" · 부른 곳 {caller}. agy 로그인·사용량(agy_call.py --usage)을 보고 다시 돌린다.")
         log(f"  agy 실패({reason[:160]}) → EvoLink 로 넘어간다")
         _record(caller, "fallback", time.time() - t0, reason, model)
         return None
@@ -260,6 +302,23 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
     exe = _agy_exe()
     if not exe:
         return fail("agy 가 설치돼 있지 않다")
+
+    last = ""
+    for 시도 in range(FORMAT_TRIES):
+        try:
+            return _once(body, caller, limit_min, model, log, t0, exe)
+        except _Fail as e:
+            last = e.reason
+            if not e.retry or 시도 == FORMAT_TRIES - 1:
+                break
+            log(f"  agy 답 형식 문제({e.reason[:100]}) — agy 로 다시 묻는다 ({시도 + 1}/{FORMAT_TRIES})")
+    return fail(last)
+
+
+def _once(body, caller, limit_min, model, log, t0, exe):
+    """agy 한 번 부르기. 성공이면 응답, 실패면 _Fail(retry=답 형식 문제인가)."""
+    def fail(reason, retry=False):
+        raise _Fail(reason, retry)
 
     work = Path(tempfile.mkdtemp(prefix="agy_"))
     try:
@@ -322,13 +381,13 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
 
         res = _first_json(out or "")
         if not isinstance(res, dict) or "response" not in res and "structured_output" not in res:
-            return fail("agy 출력이 JSON 이 아니다: " + (out or "").strip()[:160])
+            return fail("agy 출력이 JSON 이 아니다: " + (out or "").strip()[:160], retry=True)
         if res.get("status") not in (None, "SUCCESS"):
-            return fail(f"agy status={res.get('status')}: {str(res.get('error') or '')[:200]}")
+            return fail(f"agy status={res.get('status')}: {str(res.get('error') or '')[:200]}", retry=True)
         if use_flag:
             so = res.get("structured_output")
             if so in (None, {}, []):
-                return fail("구조화 답이 비었다")
+                return fail("구조화 답이 비었다", retry=True)
             text = json.dumps(so, ensure_ascii=False)
         else:
             text = (res.get("response") or "").strip()
@@ -339,14 +398,14 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
             #   못 봤다는 답을 성공으로 넘기지 않는다.
             if n and re.search(r"볼 수 없|볼수없|cannot (view|access|watch|see)|unable to (view|access|watch)", text, re.I) \
                     and len(text) < 200:
-                return fail("첨부를 못 봤다고 답했다: " + text[:80])
+                return fail("첨부를 못 봤다고 답했다: " + text[:80], retry=True)
             if want_json:
                 obj = _first_json(text)
                 if obj is None:
-                    return fail("JSON 을 요구했는데 답에 JSON 이 없다: " + text[:120])
+                    return fail("JSON 을 요구했는데 답에 JSON 이 없다: " + text[:120], retry=True)
                 bad = _schema_errors(obj, js) if js else []
                 if bad:
-                    return fail("스키마와 다르다: " + "; ".join(bad[:3]))
+                    return fail("스키마와 다르다: " + "; ".join(bad[:3]), retry=True)
                 text = json.dumps(obj, ensure_ascii=False)
         u = res.get("usage") or {}
         sec = time.time() - t0
@@ -377,9 +436,13 @@ def main():
     ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT_MIN)
     a = ap.parse_args()
     body = json.loads(Path(a.body).read_text(encoding="utf-8"))
-    resp = generate(body, caller=a.caller, limit_min=a.limit, log=lambda m: print(m, file=sys.stderr))
+    try:
+        resp = generate(body, caller=a.caller, limit_min=a.limit, log=lambda m: print(m, file=sys.stderr))
+    except AgyStop as e:
+        print(f"★멈춤 — {e}", file=sys.stderr)
+        sys.exit(3)                                  # 3 = 멈춤(영상·소리 판정 · EvoLink 금지) — .mjs 도 멈춘다
     if resp is None:
-        sys.exit(1)
+        sys.exit(1)                                  # 1 = 글 판정 실패 — 부른 쪽이 EvoLink 비상 길로
     Path(a.out).write_text(json.dumps(resp, ensure_ascii=False), encoding="utf-8")
 
 
