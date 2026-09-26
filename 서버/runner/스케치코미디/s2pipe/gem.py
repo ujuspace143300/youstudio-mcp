@@ -1,4 +1,5 @@
-# Gemini 호출을 한 곳에 모은다. **EvoLink 를 먼저 쓰고 순정으로 물러난다.**
+# Gemini 호출을 한 곳에 모은다. **agy(구독) → EvoLink → 순정** 순서로 물러난다.
+#   (2026-09-26 사장님 지시로 agy 가 맨 앞 — 서버/runner/agy_gemini.py. 아래 EvoLink 기록은 비상 경로 설명이다.)
 #
 # ★★2026-08-18 실측 — 같은 그림·같은 모델로 견줬다:
 #     EvoLink 3.4~4.6초 · 순정 24.8초. **5~7배 빠르고 503 이 없다.**
@@ -14,9 +15,13 @@
 #   그래서 덩치가 크면 EvoLink 를 건너뛴다(BIG_MB).
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import agy_gemini  # noqa: E402  서버/runner/agy_gemini.py
 
 EVO_BASE = "https://api.evolink.ai/v1beta/models"
 GOO_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -92,6 +97,13 @@ def ask(payload, models, timeout=900, tries=3, log=print):
     payload = dict(payload)
     payload["contents"] = [{**c, "role": c.get("role", "user")}
                            for c in payload.get("contents", [])]
+
+    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저, 막히면 아래 EvoLink → 순정 길로.
+    #   plan·subs·sync·댓글보충·준비_prproj_sk 가 전부 이 함수를 지나므로 여기 한 곳에서 바꾼다.
+    resp = agy_gemini.generate(payload, caller="스케치코미디/gem.ask",
+                               limit_min=max(3, min(15, timeout // 60)), log=log)
+    if resp is not None:
+        return agy_gemini.text_of(resp), "agy", resp["modelVersion"]
 
     body = json.dumps(payload).encode()
     big = len(body) / 1024 / 1024 > BIG_MB

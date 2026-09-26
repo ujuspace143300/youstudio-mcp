@@ -16,6 +16,7 @@
   python 서버/runner/분석_강조판독.py --전체 [--초 90] [--덮어쓰기]
 """
 import argparse, base64, json, os, subprocess, sys, time, urllib.error, urllib.request
+import agy_gemini  # 서버/runner/agy_gemini.py — agy 먼저, EvoLink 는 비상용 (2026-09-26)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 목록_기본 = os.path.join(ROOT, "분석/지무비/목록.json")
@@ -91,6 +92,11 @@ def 호출(clip, model, 최대토큰=16384):
     body = {"contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "video/mp4", "data": b64}}, {"text": 프롬프트}]}],
             "generationConfig": {"temperature": 0, "maxOutputTokens": 최대토큰, "responseMimeType": "application/json",
                                  "thinkingConfig": {"thinkingBudget": 0}}}
+    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저. 막히면 아래 EvoLink 길.
+    t0 = time.time()
+    resp = agy_gemini.generate(body, caller="분석_강조판독", limit_min=15)
+    if resp is not None:
+        return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
     req = urllib.request.Request(f"https://api.evolink.ai/v1beta/models/{model}:generateContent",
                                  data=json.dumps(body).encode("utf-8"),
                                  headers={"content-type": "application/json", "user-agent": UA,

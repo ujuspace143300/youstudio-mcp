@@ -21,6 +21,7 @@
   python 서버/runner/분석_판독.py --n 3 --덮어쓰기    # 이미 있는 것도 다시
 """
 import argparse, json, os, re, subprocess, sys, time, urllib.error, urllib.request
+import agy_gemini  # 서버/runner/agy_gemini.py — agy 먼저, EvoLink 는 비상용 (2026-09-26)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 링크_기본 = os.path.join(ROOT, "분석/지무비/링크.json")
@@ -55,6 +56,11 @@ def 호출(url_video, prompt, model, 최대토큰, 백엔드):
         "generationConfig": {"temperature": 0, "maxOutputTokens": 최대토큰,
                              "responseMimeType": "application/json", "thinkingConfig": {"thinkingBudget": 0}},
     }
+    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저. 막히면 아래 EvoLink/순정 길.
+    t0 = time.time()
+    resp = agy_gemini.generate(body, caller="분석_판독", limit_min=15)
+    if resp is not None:
+        return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], "STOP", json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
     # UA 실측(2026-08-18): 기본 Python-urllib 로 부르면 **403 code 1010**(Cloudflare 차단) — 보통 UA 를 붙인다
     UA = "youstudio-mcp/0.8 (analysis runner)"
     if 백엔드 == "evolink":

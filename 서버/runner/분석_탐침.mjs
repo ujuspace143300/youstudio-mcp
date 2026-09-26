@@ -2,13 +2,14 @@
 //   재는 것: EvoLink(1순위) / 구글 순정(2순위) 의 generateContent 가 file_data.file_uri 에
 //   유튜브 URL 을 받아 **영상을 실제로 보고** 답하는가. 프롬프트는 짧게(첫 장면 한 줄 묘사).
 //   키는 **환경변수에서만** 읽는다(서버 무보관). 응답 원문은 잘라서 찍고 파일로 남긴다.
-// 사용: node 서버/runner/분석_탐침.mjs [--url <youtube>] [--backend evolink|google|둘다]
+// 사용: node 서버/runner/분석_탐침.mjs [--url <youtube>] [--backend agy|evolink|google|둘다]  (둘다 = 셋 다)
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { agyGenerate } from "./agy_gemini.mjs"; // 2026-09-26 — agy 도 같이 잰다
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const URL_ = arg("--url", "https://www.youtube.com/watch?v=snhH6I5XlFQ");
-const BACKEND = arg("--backend", "둘다");
+const BACKEND = arg("--backend", "agy"); // 2026-09-26 기본을 agy 로 — EvoLink·순정은 --backend 로 부를 때만
 const MODEL = arg("--model", "gemini-3.5-flash");
 const OUT = arg("--out", "C:/Users/user/Desktop/youstudio_work/분석/_탐침");
 
@@ -48,6 +49,16 @@ async function 탐침(이름, url, headers) {
 }
 
 const 결과 = [];
+if (BACKEND === "agy" || BACKEND === "둘다") {
+  const t0 = Date.now();
+  const r = agyGenerate(본문, "분석_탐침", 5);
+  const 답 = r ? r.candidates[0].content.parts.map((p) => p.text ?? "").join("").trim() : null;
+  const 초 = Number(((Date.now() - t0) / 1000).toFixed(1));
+  console.log(`
+── agy · ${r ? "성공" : "실패"} · ${초}s`);
+  if (답) console.log("답:", 답);
+  결과.push({ 이름: "agy", status: r ? 200 : 0, 초, 답, 사용: r?.usageMetadata ?? null, ok: !!답 && !/영상을 볼 수 없음/.test(답) });
+}
 if (BACKEND === "evolink" || BACKEND === "둘다") {
   const k = key("EVOLINK_API_KEY");
   if (!k) console.log("EVOLINK_API_KEY 없음 — 건너뜀");

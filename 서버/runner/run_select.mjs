@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { authHeaders } from "./기기.mjs"; // 발급 대장 인증(토큰·기기 id) — 설계/인증_이메일허가제.md 7
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { agyGenerate } from "./agy_gemini.mjs"; // 제미나이는 agy 먼저, EvoLink 는 비상용 (2026-09-26 사장님)
 const URL_ = "http://localhost:8787";
 const W = "C:/Users/user/Desktop/youstudio_work/fulltime";
 const briefDoc = JSON.parse(fs.readFileSync(W + "/brief/brief.json", "utf8"));
@@ -68,6 +69,19 @@ for (const d of r1.do ?? []) {
 // jobs — judge (Google)
 const visualPayload = {};
 for (const job of r1.jobs) {
+  // agy 는 @inline_file/@file_uri 자리표의 로컬 파일을 그대로 본다 — 업로드·base64 가 필요 없다
+  const t0a = Date.now();
+  const viaAgy = agyGenerate(job.request.body, "run_select/" + job.name, 15);
+  if (viaAgy) {
+    const rawA = JSON.stringify(viaAgy);
+    fs.mkdirSync(path.dirname(job.out), { recursive: true });
+    fs.writeFileSync(job.out, rawA, "utf8");
+    console.log(`judge ${job.name} agy ${((Date.now() - t0a) / 1000).toFixed(1)}s → ${path.basename(job.out)}`);
+    const parsedA = JSON.parse(viaAgy.candidates[0].content.parts.map((p) => p.text ?? "").join(""));
+    const mA = r1.measure.find((x) => x.from === "job:" + job.name);
+    setPath(visualPayload, mA.as, parsedA);
+    continue;
+  }
   const apiKey = key(job.auth.env);
   if (!apiKey) throw new Error(job.auth.env + " 없음");
   const uploadBase = "https://generativelanguage.googleapis.com/upload/v1beta/files";
