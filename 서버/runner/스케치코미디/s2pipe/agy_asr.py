@@ -8,8 +8,9 @@
 #   vtt 머리에 «NOTE 출처 agy» 를 남기고, 시각을 정밀하게 쓰는 소비처(make 절단 게이트 등)는
 #   이 표시를 보고 소리 실측으로 받친다(원본전사_출처()).
 #
-# 긴 소리는 뒤로 갈수록 시각이 밀린다 — 무음 자리에서 약 CHUNK_S 초씩 잘라 조각마다 전사하고
-# 조각 시작초를 더해 이어 붙인다.
+# ★영상은 통째로 한 번에 읽힌다 — 조각으로 잘라 읽히지 않는다 (2026-09-26 사장님 «영상을 통째로 읽어야해.
+#   절대로 조각되서 읽으면 안되고»). 처음 판은 약 60초 조각으로 잘랐다 — «긴 걸 주면 뒤로 갈수록 시각이 밀린다»는
+#   짐작 때문이었고, 통째 읽기와는 한 번도 견주지 않았다. 통째로 주면 앞뒤 흐름(사투리·이름·화자)을 다 본다.
 import argparse
 import json
 import os
@@ -22,10 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import agy_gemini  # noqa: E402  서버/runner/agy_gemini.py
 
 MODEL = "gemini-3.8-flash-high"  # ★2026-09-26 사장님 지정 «agy flash-high 로». (실측: 8분 원본 12분 41초 · low 는 약 3분 반)
-CHUNK_S = 60.0          # 조각 목표 길이
-SEARCH_S = 12.0         # 목표 지점 앞뒤로 무음을 찾는 폭
 MAX_CHARS = 28          # Speechmatics to_lines 와 같은 줄 상한
-TRIES = 3               # 조각 하나당 agy 시도 횟수
+TRIES = 3               # agy 시도 횟수
 AGY_여유 = 1.0           # 시각을 겹침 판정에 쓰는 소비처가 더하는 여유(초) — Deep93 실측(소리 맞춤 뒤)
                         #   시작 오차 중앙 0.25·90% 1.48초. 1.0 이면 대부분을 덮고, 넓힐수록 배제(확대)가 는다
 출처표시 = "NOTE 출처 agy"   # vtt 머리 — 소비처가 이 줄로 거친 시각임을 안다
@@ -56,57 +55,26 @@ def _dur(path):
     return float(o.stdout.strip())
 
 
-def _silences(audio):
-    """(시작, 끝) 무음 목록 — 조각 경계를 말 사이에 두려고."""
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", audio, "-af",
-                        "silencedetect=noise=-32dB:d=0.3", "-f", "null", "-"],
-                       capture_output=True, text=True)
-    out, s = [], None
-    for ln in r.stderr.splitlines():
-        m = re.search(r"silence_start: ([\d.]+)", ln)
-        if m:
-            s = float(m.group(1))
-        m = re.search(r"silence_end: ([\d.]+)", ln)
-        if m and s is not None:
-            out.append((s, float(m.group(1))))
-            s = None
-    return out
-
-
-def cut_points(audio, dur):
-    """약 CHUNK_S 초마다, 그 근처에서 가장 긴 무음의 가운데를 경계로 고른다."""
-    sil = _silences(audio)
-    pts, at = [0.0], 0.0
-    while dur - at > CHUNK_S * 1.4:
-        goal = at + CHUNK_S
-        near = [(e - s, (s + e) / 2) for s, e in sil
-                if goal - SEARCH_S <= (s + e) / 2 <= goal + SEARCH_S]
-        at = max(near)[1] if near else goal
-        pts.append(round(at, 2))
-    pts.append(dur)
-    return pts
-
-
 def _prompt(span, vocab):
     v = ""
     if vocab:
         v = ("\n등장 고유명사(이 표기로 적어라): " +
              ", ".join(x["content"] if isinstance(x, dict) else str(x) for x in vocab))
     return (
-        f"첨부한 영상(소리 포함)은 한국어 스케치 코미디의 {span:.1f}초짜리 조각이다. 들리는 말을 전부 받아 적어라.\n"
+        f"첨부한 영상(소리 포함)은 한국어 스케치 코미디 한 편 전체({span:.1f}초)다. 처음부터 끝까지 들리는 말을 전부 받아 적어라.\n"
         "규칙:\n"
         "- 들린 그대로 적는다. 사투리·반말·더듬는 말·짧은 감탄(아, 어, 야)도 그대로. 없는 말을 지어내지 않는다.\n"
         "- 작은 목소리·전화 너머 목소리·겹치는 말도 빠뜨리지 않는다. 노래 가사·효과음은 적지 않는다.\n"
         f"- 한 줄은 {MAX_CHARS}자 이하. 말이 0.5초 이상 쉬면 새 줄. 화자가 바뀌면 새 줄.\n"
-        "- t = 그 줄 첫 음절이 소리 나기 시작하는 초, e = 마지막 음절 소리가 끝나는 초. 이 조각의 0초 기준, 소수 둘째 자리까지.\n"
+        "- t = 그 줄 첫 음절이 소리 나기 시작하는 초, e = 마지막 음절 소리가 끝나는 초. 영상 0초 기준, 소수 둘째 자리까지.\n"
         "- 시각은 추정하지 말고 소리를 듣고 정확히 맞춘다. 줄은 시간 순서대로.\n"
         '- 답은 JSON {"lines": [{"t": 0.44, "e": 0.92, "text": "..."}]} 하나만.' + v
     )
 
 
-def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미디/agy_asr", 매체="video", 조각수=None,
-               맞춤=False, 원시=None):
-    """원본 → [{"t","e","text"}] (원본 시간축). 조각 하나라도 agy 가 실패하면 RuntimeError.
+def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미디/agy_asr", 맞춤=False, 원시=None):
+    """원본 영상 전체 → [{"t","e","text"}]. agy 한 번에 통째로 읽힌다(조각 금지). 끝내 실패하면 RuntimeError
+    (또는 agy_gemini.AgyStop — 영상 판정이라 EvoLink 로 넘기지 않는다).
     맞춤(소리 경계 보정)은 기본 끔 — Deep91 flash-high 에서 가짜 반려를 1→4건으로 늘렸다(2026-09-26 실측)."""
     model = model or MODEL
     work = tempfile.mkdtemp(prefix="agy_asr_")
@@ -114,52 +82,39 @@ def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미�
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000",
                     "-b:a", "64k", aud], check=True)
     dur = _dur(aud)
-    pts = cut_points(aud, dur)
-    log(f"agy 전사 — {dur:.0f}초를 {len(pts) - 1}조각으로 ({', '.join(f'{p:.0f}' for p in pts)})")
-    lines = []
-    for i in range(len(pts) - 1 if 조각수 is None else min(조각수, len(pts) - 1)):
-        a, b = pts[i], pts[i + 1]
-        if 매체 == "video":
-            # 그림+소리 — 프레임이 시간 기준을 잡아 준다(소리만 주면 시각이 약 1.2배로 늘어났다, Deep93 실측)
-            piece, mime = os.path.join(work, f"조각{i:02d}.mp4"), "video/mp4"
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-i", src,
-                            "-t", f"{b - a:.3f}", "-vf", "scale=-2:360", "-c:v", "libx264",
-                            "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                            piece], check=True)
+    # 영상 전체를 360p 로만 줄인다 — 길이·순서는 그대로, 올리는 용량만 줄인다
+    whole = os.path.join(work, "원본_전체_360p.mp4")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "scale=-2:360", "-c:v", "libx264",
+                    "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-ac", "1", whole],
+                   check=True)
+    limit = int(min(40, 8 + dur / 60 * 4))          # 60초에 약 1.5분(high 실측) — 넉넉히
+    log(f"agy 전사 — 영상 전체 {dur:.0f}초를 한 번에 ({model}, 시간 제한 {limit}분)")
+    body = {"contents": [{"role": "user", "parts": [
+                {"@inline_file": {"path": whole, "mime": "video/mp4"}},
+                {"text": _prompt(dur, vocab)}]}],
+            "generationConfig": {"responseMimeType": "application/json", "responseSchema": SCHEMA}}
+    got = None
+    for k in range(TRIES):
+        resp = agy_gemini.generate(body, caller=caller, limit_min=limit, model=model, log=log)
+        if resp is not None:
+            try:
+                got = json.loads(agy_gemini.text_of(resp))["lines"]
+                break
+            except (ValueError, KeyError, TypeError) as e:
+                log(f"  답 형식 오류({e}) — 다시 ({k + 1}/{TRIES})")
         else:
-            piece, mime = os.path.join(work, f"조각{i:02d}.mp3"), "audio/mpeg"
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-i", aud,
-                            "-t", f"{b - a:.3f}", "-c:a", "libmp3lame", "-b:a", "64k", piece], check=True)
-        body = {"contents": [{"role": "user", "parts": [
-                    {"@inline_file": {"path": piece, "mime": mime}},
-                    {"text": _prompt(b - a, vocab)}]}],
-                "generationConfig": {"responseMimeType": "application/json",
-                                     "responseSchema": SCHEMA}}
-        # ★조각마다 다시 시도한다 — 2026-09-26 Deep93 실측: agy 가 «Malformed function call» 로
-        #   한 조각을 한 번 떨궜다(일시 오류). 끝내 안 되면 멈춘다 — 전사는 EvoLink·Speechmatics
-        #   (유료)로 몰래 넘기지 않는다(볼트 규칙 「전사는 용도로 나눈다」).
-        got = None
-        for k in range(TRIES):
-            resp = agy_gemini.generate(body, caller=f"{caller}#{i}", limit_min=8, model=model, log=log)
-            if resp is not None:
-                try:
-                    got = json.loads(agy_gemini.text_of(resp))["lines"]
-                    break
-                except (ValueError, KeyError, TypeError) as e:
-                    log(f"  조각 {i} 답 형식 오류({e}) — 다시 ({k + 1}/{TRIES})")
-            else:
-                log(f"  조각 {i} agy 실패 — 다시 ({k + 1}/{TRIES})")
-        if got is None:
-            raise RuntimeError(f"agy 전사 실패 — 조각 {i} ({a:.0f}~{b:.0f}초), {TRIES}번 시도")
-        n0 = len(lines)
-        for ln in got:
-            t, e, tx = float(ln["t"]), float(ln["e"]), ln["text"].strip()
-            if not tx:
-                continue
-            t = min(max(t, 0.0), b - a)
-            e = min(max(e, t + 0.2), b - a)
-            lines.append({"t": round(a + t, 2), "e": round(a + e, 2), "text": tx})
-        log(f"  조각 {i}: {a:.0f}~{b:.0f}초 → {len(lines) - n0}줄")
+            log(f"  agy 실패 — 다시 ({k + 1}/{TRIES})")
+    if got is None:
+        raise RuntimeError(f"agy 전사 실패 — {TRIES}번 시도")
+    lines = []
+    for ln in got:
+        t, e, tx = float(ln["t"]), float(ln["e"]), ln["text"].strip()
+        if not tx:
+            continue
+        t = min(max(t, 0.0), dur)
+        e = min(max(e, t + 0.2), dur)
+        lines.append({"t": round(t, 2), "e": round(e, 2), "text": tx})
+    log(f"  {len(lines)}줄")
     lines.sort(key=lambda x: x["t"])
     if 원시:                                           # 맞춤 전 모델 시각 그대로(시험·대조용)
         write_vtt(lines, 원시, model or agy_gemini.DEFAULT_MODEL)

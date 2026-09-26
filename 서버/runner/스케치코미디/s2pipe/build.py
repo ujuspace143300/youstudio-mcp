@@ -56,10 +56,13 @@ def probe_dur(src):
 def find_burned_subs(src, W, H, dur, n=10):
     """원본에 박힌 자막의 윗변. 못 찾으면 None. 우리 자막과 두 겹이 되는 것을 막는다."""
     import numpy as np
+    # ★호출마다 전용 임시 폴더 (2026-09-26 — 여러 편 동시 진행 준비): 예전엔 공용 임시 폴더의 고정 이름
+    #   _s2burn{i}.png 이라 두 편이 동시에 구우면 서로의 프레임을 덮어써 남의 자막 자리를 읽을 수 있었다.
+    _tmp = __import__("tempfile").mkdtemp(prefix="_s2burn_")
     tops = []
     for i in range(n):
         t = dur * (i + 1) / (n + 1)
-        p = os.path.join(__import__("tempfile").gettempdir(), f"_s2burn{i}.png")
+        p = os.path.join(_tmp, f"_s2burn{i}.png")
         r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss",
                             f"{t:.2f}", "-i", src, "-frames:v", "1", "-y", p],
                            capture_output=True)

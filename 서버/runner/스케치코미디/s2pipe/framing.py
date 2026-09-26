@@ -26,7 +26,10 @@ def _ascii_copy(src):
     dst = os.path.join(tempfile.gettempdir(), "sketch_models", os.path.basename(src))
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if not os.path.exists(dst) or os.path.getsize(dst) != os.path.getsize(src):
-        shutil.copy2(src, dst)
+        # ★다 복사한 뒤 한 번에 바꿔 단다 (2026-09-26 — 여러 편 동시 진행 때 반쯤 복사된 모델을 읽지 않게)
+        tmp = f"{dst}.{os.getpid()}.tmp"
+        shutil.copy2(src, tmp)
+        os.replace(tmp, dst)
     return dst if dst.isascii() else None
 
 
