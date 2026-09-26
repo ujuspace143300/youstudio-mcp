@@ -511,6 +511,24 @@ def main():
     #    "=<문구>" = 정확 핀(포함돼 있어도 바꾼다 — 줄 줄이기) · "" = 빼기 핀.
     for 핀t, 핀글 in (proj.get("문구교정") or {}).items():
         핀tf = float(핀t)
+        if 핀글.startswith("+"):
+            # ★더하기 핀 «+문구» (2026-09-27 싱글277 — 결말 «먹을래?» 를 완성본 Speechmatics 가 통째로 놓쳐
+            #   맞는 줄이 없어 핀을 못 달았다). 사람이 원본 박힌 자막 카드로 시각을 확인한 짧은 말만 넣는다 —
+            #   시작 = 핀 시각, 끝 = 다음 줄 전까지(글자당 0.18초, 최소 0.8초).
+            글 = 핀글[1:]
+            if any(abs(d["t"] - 핀tf) < 0.3 and CLEAN.sub("", 글) in CLEAN.sub("", d["text"]) for d in dlg):
+                print(f"  [OK] 더하기 핀 [{핀t}s] — 이미 들어 있다")
+                continue
+            뒤 = [d["t"] for d in dlg if d["t"] > 핀tf]
+            끝 = 핀tf + max(0.8, len(글) * 0.18)
+            if 뒤:
+                끝 = min(끝, min(뒤) - 0.05)
+            총 = sum(s["t1"] - s["t0"] for s in proj["segments"] if s.get("keep", True))
+            끝 = min(끝, 총 - 0.05)                               # 영상 끝을 넘지 않게(완성 검사 12번)
+            dlg.append({"t": round(핀tf, 2), "t1": round(끝, 2), "text": 글})
+            dlg.sort(key=lambda d: d["t"])
+            print(f"  ★더하기 핀 적용: [{핀tf:.1f}~{끝:.1f}s] 「{글}」 (완성본 전사가 놓친 말)")
+            continue
         # 작표마다 줄 경계가 달라진다 — 시각이 줄 구간에 «겹치는» 줄을 찾고,
         # 확정 문구가 이미 들어 있으면 통과, 없으면 그 줄을 교체한다.
         후보줄 = [d for d in dlg

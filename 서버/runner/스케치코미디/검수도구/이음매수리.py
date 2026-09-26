@@ -107,8 +107,24 @@ for J, i in 반려J:
         print(f"  이음매 {J:.2f} — 양쪽 다 조용하다(완성본 전사가 붙여 들음) — 손대지 않음")
 for s, k, a0, b0, why in 고침:
     print(f"  {k} {a0:.2f} → {b0:.2f}  ({why})")
-    if 쓰기:
-        s[k] = b0
+    s[k] = b0
+# ★넓히다 원본에서 겹치면 같은 대사가 두 번 나온다(2026-09-27 싱글277 — 훅 끝을 뒤로, 클라이맥스 시작을 앞으로
+#   넓혀 1.4초가 겹쳤다). 완성본에서 뒤에 오는 조각의 시작을 앞 조각 끝으로 민다 — 경계제안.py 와 같은 규칙.
+for ai, a in enumerate(segs):
+    for b in segs[ai + 1:]:
+        if b["t0"] < a["t1"] <= b["t1"] and a["t0"] <= b["t0"]:
+            print(f"  t0 {b['t0']:.2f} → {a['t1']:.2f}  (앞 조각과 겹침 — 같은 대사 두 번 방지)")
+            고침.append((b, "t0", b["t0"], a["t1"], "겹침 방지"))
+            b["t0"] = a["t1"]
+        elif a["t0"] < b["t1"] <= a["t1"] and b["t0"] <= a["t0"]:
+            print(f"  t1 {b['t1']:.2f} → {a['t0']:.2f}  (앞 조각과 겹침 — 같은 대사 두 번 방지)")
+            고침.append((b, "t1", b["t1"], a["t0"], "겹침 방지"))
+            b["t1"] = a["t0"]
+합 = sum(s_["t1"] - s_["t0"] for s_ in segs)
+if 합 > 79.0:
+    print(f"  ★넓힌 뒤 합계 {합:.1f}초 — 80초 한도에 걸린다. 곁 대사를 사람이 덜어 내야 한다(반영은 한다)")
+if not 쓰기:
+    sys.exit(0)
 if 쓰기 and 고침:
     json.dump(json.load(open(pj, encoding="utf-8")), open(pj + ".이음매전", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     proj["_est_sec"] = round(sum(s["t1"] - s["t0"] for s in segs), 1)
