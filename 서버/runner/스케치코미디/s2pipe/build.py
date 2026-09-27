@@ -322,9 +322,9 @@ def cut_and_join(src, segs, dst, work, fps):
             # ★상자 크기는 설정값(숨은기록 1080x904) — 1080x908 을 박아 두어 다른 조각과 concat 이 «Invalid argument» 로
             #   죽었다(2026-09-27 싱글246 결말 바퀴벌레 샷). 프레임 속도도 원본 fps 로.
             _bw, _bh = int(b.get("w", 1080)), int(b.get("h", 908))
-            vf = (f"color=c=0x{_bg}:s={_bw}x{_bh}:r={fps}[b];"
-                  f"[0:v]scale={_bw}:-2,setsar=1[f];"
-                  "[b][f]overlay=(W-w)/2:(H-h)/2:shortest=1,setsar=1")
+            # pad 로 둘레를 채운다 — color+overlay 는 조각 첫 프레임에 배경만 나오는 1프레임 번쩍임이 있었다(2026-09-27 싱글235)
+            vf = (f"[0:v]scale={_bw}:-2,setsar=1,"
+                  f"pad={_bw}:{_bh}:(ow-iw)/2:(oh-ih)/2:color=0x{_bg},setsar=1")
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
             d_q = round((s["t1"] - s["t0"]) * fps) / fps
             run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
