@@ -57,12 +57,15 @@
              키 모드로 가 과금되지 않게. 한편.py 가 keys 폴더를 전부 <이름>_API_KEY 로 자식에게 넘긴다(반박 17 ·
              사장님 결정 ④ 2026-09-26 «순정 구글 키 길은 막는다»).
 
-  2026-09-27 맥2 — 맥1 판(d822dd5 «agy 비상 길 누수 막기»)과 합침
+  2026-09-27 맥2 — 맥1 판(d822dd5 «agy 비상 길 누수 막기»)과 합침 + 동시 16
     멈춤     영상·소리 첨부(has_media) 요청이 끝내 실패하면 None 대신 AgyStop(BaseException)을 던진다 — EvoLink 금지
              (사장님 결정 2번). 명령줄(main)은 종료코드 3 · agy_gemini.mjs 도 3 을 멈춤으로 받는다. judge_run.agy_먼저 는
              판정멈춤(종료코드 3)으로, 파악전사는 «agy 실패»(한 번 더 → 멈춤)로 받는다. 기록 route 는 agy_fail_stop.
     형식     JSON 없음·스키마 다름·까닭 모를 헛출력은 FORMAT_TRIES(3)번까지 다시 묻는다(싱글286 실측 누수 — 맥1 판).
              필터 차단·인증 실패는 다시 하지 않는다(다시 해도 같다 — 이 맥 판 판단 유지).
+    동시 16  볼케이노 3D쇼츠 팩 규격(info3d/flow/agy_review.py · AGY_MAX 16 · 다시 묻기 4초·8초)을 기본값으로 —
+             ~/.volcano/agy_slots/ 파일 잠금 16칸을 볼트 설치/agy_call.py 와 같이 쓴다(이 컴퓨터의 agy 호출이 합쳐 16개).
+             빈자리를 기다린 시간은 시간 제한에 넣지 않는다. 환경변수 AGY_MAX 로 바꿀 수 있다. (사장님 지시 2026-09-27)
 """
 import base64
 import re
@@ -88,6 +91,9 @@ DEFAULT_LIMIT_MIN = 10
 ARGV_MAX = 24000       # 윈도우 명령줄 한도 32767자 — 넘으면 질문을 파일로 넘긴다
 LOG = Path.home() / ".volcano" / "logs" / "gemini_route.jsonl"
 FORMAT_TRIES = 3       # 답 형식이 틀리면(JSON 없음·스키마 다름·agy 출력이 JSON 아님) agy 로 다시 묻는 횟수 (맥1 d822dd5)
+RETRY_GAP_SEC = 4      # 다시 묻기 간격 — 볼케이노 3D쇼츠 팩 agy_review.agy_json 의 4초·8초 (머리 주석 「동시 16」)
+AGY_MAX = 16           # agy 동시 호출 상한 — 3D쇼츠 팩 agy_review.AGY_MAX. 볼트 설치/agy_call.py 와 같은 잠금 칸을 쓴다
+SLOT_DIR = Path.home() / ".volcano" / "agy_slots"
 
 # agy 자식 환경에서 뺄 이름 (머리 주석 「순정 키」). agy 1.2.11 실행 파일 안 문자열로 확인한 이름 + 같은 꼴의 키 이름.
 _KEY_ENV = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI",
@@ -137,6 +143,52 @@ def has_media(body):
                 return True
     return False
 
+
+def _lock_nb(f):
+    """파일 잠금을 기다리지 않고 잡는다 — 못 잡으면 OSError. 프로세스가 죽으면 운영체제가 풀어 준다."""
+    if os.name == "nt":
+        import msvcrt
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+class _agy_slot:
+    """agy 동시 호출 문(머리 주석 「동시 16」) — 빈 칸 하나를 잡을 때까지 기다리고, 나가면 푼다. waited = 기다린 초."""
+
+    def __init__(self, log=print):
+        self.n = max(1, int(os.environ.get("AGY_MAX") or AGY_MAX))
+        self.f, self.waited, self.log = None, 0.0, log
+
+    def __enter__(self):
+        SLOT_DIR.mkdir(parents=True, exist_ok=True)
+        t0, told = time.time(), False
+        while True:
+            for i in range(self.n):
+                f = open(SLOT_DIR / f"slot_{i:02d}.lock", "a+")
+                try:
+                    _lock_nb(f)
+                    self.f, self.waited = f, time.time() - t0
+                    return self
+                except OSError:
+                    f.close()
+            if not told:
+                self.log(f"  agy 동시 {self.n}개가 다 차 있다 — 빈자리를 기다린다")
+                told = True
+            time.sleep(0.5)
+
+    def __exit__(self, *exc):
+        if os.name == "nt":
+            try:
+                import msvcrt
+                self.f.seek(0)
+                msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+        self.f.close()      # 맥·리눅스는 닫으면 풀린다
+        return False
 
 
 def _agy_find():
@@ -605,26 +657,30 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
         n503 = nonce = nfmt = 0
         지난 = []           # 버린 시도의 까닭 — 실패·표시 글에 붙인다
         while True:
-            left = deadline - time.time()
-            try:
-                rc, out, err = _run(cmd + ["--print-timeout", f"{max(1, int(left))}s"] + tail, work, env,
-                                    max(1.0, left) + KILL_GRACE_SEC)
-            except subprocess.TimeoutExpired:
-                return fail(f"{limit_min:g}분 시간 제한" + (f" (앞 시도: {' / '.join(지난)})" if 지난 else ""))
+            # 동시 16 문(머리 주석) — 빈자리를 기다린 시간은 시간 제한에 넣지 않는다(기다리다 시간이 다 가지 않게)
+            with _agy_slot(log) as slot:
+                deadline += slot.waited
+                left = deadline - time.time()
+                try:
+                    rc, out, err = _run(cmd + ["--print-timeout", f"{max(1, int(left))}s"] + tail, work, env,
+                                        max(1.0, left) + KILL_GRACE_SEC)
+                except subprocess.TimeoutExpired:
+                    return fail(f"{limit_min:g}분 시간 제한" + (f" (앞 시도: {' / '.join(지난)})" if 지난 else ""))
             got = _read(rc, out, err, n, want_json, js, use_flag)
             if got[0] == "ok":
                 break
             kind, reason = got[0], got[1]
             지난.append(reason[:100])
+            # 다시 묻기 간격은 3D쇼츠 팩과 같은 4초·8초(RETRY_GAP_SEC) — 기다리는 동안 문은 비운다(팩과 같다)
             if kind == "503" and n503 + nonce < RETRIES - 1:
                 n503 += 1
-                wait = 5 * n503
+                wait = RETRY_GAP_SEC * n503
             elif kind == "once" and nonce < ONCE and n503 + nonce < RETRIES - 1:
                 nonce += 1
-                wait = 2
+                wait = RETRY_GAP_SEC
             elif kind == "format" and nfmt < FORMAT_TRIES - 1:
                 nfmt += 1
-                wait = 2
+                wait = RETRY_GAP_SEC * nfmt
             else:
                 if kind == "503":
                     return fail("구글 서버 일시 장애(503) 반복 — " + " / ".join(지난))
