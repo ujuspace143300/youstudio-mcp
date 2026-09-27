@@ -567,7 +567,7 @@ def main():
                 핀깨 = CLEAN.sub("", 핀글[1:])
                 for 뒤줄 in sorted([x for x in dlg if d["t"] < x["t"] <= d.get("t1", d["t"]) + 2.5], key=lambda x: x["t"]):
                     뒤깨 = CLEAN.sub("", 뒤줄["text"])
-                    if 뒤깨 and 뒤깨 in 핀깨 and 핀깨.endswith(뒤깨[-min(len(뒤깨), 4):]):
+                    if len(뒤깨) >= 2 and 뒤깨 in 핀깨 and len(핀깨) > len(뒤깨) and 핀깨.endswith(뒤깨[-min(len(뒤깨), 4):]):
                         print(f"  ★정확 핀이 뒤 줄 「{뒤줄['text']}」 을 담는다 — 흡수(같은 말 두 번 방지)")
                         d["t1"] = max(d.get("t1", d["t"]), 뒤줄.get("t1", 뒤줄["t"] + 1.0))
                         dlg.remove(뒤줄)
