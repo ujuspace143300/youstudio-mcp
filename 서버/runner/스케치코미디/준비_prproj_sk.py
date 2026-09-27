@@ -156,6 +156,10 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
                 raise 오류
             try:
                 j = json.loads(txt)
+                if isinstance(j, list):
+                    # 모델이 {"who":[…]} 대신 목록만 내는 일이 잦다(2026-09-27 배치 — «list indices must be integers» 로
+                    #   회차가 버려져 3회 표결이 2회로 줄었다). 줄 수가 맞는 목록이면 그대로 who 로 받는다.
+                    j = {"who": j[0]["who"]} if j and isinstance(j[0], dict) and "who" in j[0] else {"who": j}
                 who = [str(w) for w in j["who"]]
                 c = {str(k): str(v) for k, v in (j.get("cast") or {}).items()}
             except Exception:
