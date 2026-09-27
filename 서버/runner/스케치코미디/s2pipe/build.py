@@ -319,8 +319,11 @@ def cut_and_join(src, segs, dst, work, fps):
             # (2026-09-07 사장님 «위아래가 검은색으로 짤리는 게 맞아?»). 준비의 템플릿
             # 원문화면 띠(150px)와 같은 기하·같은 색 = 페이지 위에 카드가 놓인 모양.
             _bg = CFG.get("layout", {}).get("bg", "F7F8FB")
-            vf = (f"color=c=0x{_bg}:s=1080x908:r=24000/1001[b];"
-                  "[0:v]scale=1080:608,setsar=1[f];"
+            # ★상자 크기는 설정값(숨은기록 1080x904) — 1080x908 을 박아 두어 다른 조각과 concat 이 «Invalid argument» 로
+            #   죽었다(2026-09-27 싱글246 결말 바퀴벌레 샷). 프레임 속도도 원본 fps 로.
+            _bw, _bh = int(b.get("w", 1080)), int(b.get("h", 908))
+            vf = (f"color=c=0x{_bg}:s={_bw}x{_bh}:r={fps}[b];"
+                  f"[0:v]scale={_bw}:-2,setsar=1[f];"
                   "[b][f]overlay=(W-w)/2:(H-h)/2:shortest=1,setsar=1")
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
             d_q = round((s["t1"] - s["t0"]) * fps) / fps
@@ -335,9 +338,15 @@ def cut_and_join(src, segs, dst, work, fps):
             print(f"    P{s.get('phase')} 조각 {i} {s['t1']-s['t0']:5.1f}초 → 원문화면"
                   f" fit-width(흐림 배경) — 얼굴 추적 없음", flush=True)
             continue
-        plan = framing.plan_beats(src, s, i, W, H, usable_h, b, work, cuts, prev)
+        # ★조각별 «자막띠무시» (2026-09-27 싱글246 — 결말 반전 그림(바닥을 지나가는 바퀴벌레)이 원본 자막띠 자리
+        #   y≈1000~1060 에 있어 자막띠 자르기로 통째 잘렸다). 사람이 «이 조각엔 박힌 자막이 없다» 를 프레임으로 확인한
+        #   조각만 세로 전체를 쓴다. 틀리면 ⑦ 준비의 «컷 하단 잔존 번인 자막» 검사가 잡는다.
+        uh = H if s.get("자막띠무시") else usable_h
+        if uh != usable_h:
+            print(f"    조각 {i}: 자막띠무시 — 세로 {H}px 전체를 쓴다(박힌 자막 없음 확인된 조각)", flush=True)
+        plan = framing.plan_beats(src, s, i, W, H, uh, b, work, cuts, prev)
         if not plan:
-            vf, info = framing.plan_frame(src, s, i, W, H, usable_h, b, work, prev=prev)
+            vf, info = framing.plan_frame(src, s, i, W, H, uh, b, work, prev=prev)
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
             d_q = round((s["t1"] - s["t0"]) * fps) / fps
             run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
