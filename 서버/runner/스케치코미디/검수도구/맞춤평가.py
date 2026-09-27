@@ -8,10 +8,10 @@
 #   그 낱말 글자열에서 찾아(편집 거리 25% 이하 · 두 번째 후보와 뚜렷이 갈릴 때만) 첫 글자 시각 = 참 시작.
 #   조각 안에 통째로 들어간 줄만 정답이 있다. 이웃 정답과 동떨어진(어긋남이 이웃 중앙값에서 1.5초 넘게 벗어난)
 #   정답은 잘못 찾은 것으로 보고 버린다.
-# 비교: 맞춤 전(work/<id>.ko.vtt.맞춤전 그대로) · 옛 맞춤(2026-09-27 오전 탐욕판 사본 옛맞춤) · 새 맞춤(s2pipe.자막띠시각.맞춤 —
-#   고른 값이 자막띠시각에 들어갔으면 그것과 같다).
-# 카드: 원본 옆 캐시(<원본>.카드.json)가 맞으면 그것을, 없으면 ~/.cache/맞춤평가/ 에 따로 재 둔다
-#   (work 폴더에는 쓰지 않는다 — 자막 띠만 잘라 풀어 같은 값을 낸다).
+# 비교: 맞춤 전(work/<id>.ko.vtt.맞춤전 그대로) · 옛 맞춤(검수도구/맞춤_옛판.py — 2026-09-27 운영판 전역 DP, 옛 카드 80~90% 띠)
+#   · 새 맞춤(s2pipe.자막띠시각.맞춤 — v2 카드·글자 폭) · 관문 뒤(자막띠시각.관문 이 거부하면 맞춤 전).
+# 카드: 원본 옆 캐시(옛 <원본>.카드.json · 새 <원본>.카드2.json)가 맞으면 그것을, 없으면 ~/.cache/맞춤평가/ 에 따로 재 둔다
+#   (work 폴더에는 쓰지 않는다).
 # 2026-09-27 싱글249 «너희들 다 비키니 입을 거야?» 카드 182.3초가 vtt 에 192.2초로 나간 일로 만들었다.
 import json
 import os
@@ -37,7 +37,7 @@ def 카드(src):
     for p in (src + ".카드.json", os.path.join(CACHE, os.path.basename(src) + ".카드.json")):
         try:
             c = json.load(open(p, encoding="utf-8"))
-            if c.get("key") == key:
+            if c.get("key") in (key, key + ":0.8-0.9"):          # 운영 캐시 키에는 띠 꼬리가 붙어 있다
                 return [tuple(x) for x in c["cards"]]
         except (OSError, ValueError, KeyError):
             pass
@@ -48,8 +48,27 @@ def 카드(src):
     return cards
 
 
+def 새카드(src):
+    """v2 카드와 글자 폭 — 원본 옆 <원본>.카드2.json 이 맞으면 그것, 아니면 ~/.cache/맞춤평가/ 에 재 둔다."""
+    src = os.path.abspath(src)
+    st = os.stat(src)
+    key = f"{Z.판}:{st.st_size}:{int(st.st_mtime)}:{Z.FPS}:{Z.W}x{Z.H}"
+    mine = os.path.join(CACHE, os.path.basename(src) + ".카드2.json")
+    for p in (Z.캐시경로(src), mine):
+        try:
+            c = json.load(open(p, encoding="utf-8"))
+            if c.get("key") == key:
+                return [tuple(x) for x in c["cards"]], c.get("폭")
+        except (OSError, ValueError, KeyError):
+            pass
+    cards, 띠, 폭 = Z._카드재기(src)
+    os.makedirs(CACHE, exist_ok=True)
+    json.dump({"key": key, "cards": cards, "띠": 띠, "폭": 폭}, open(mine, "w", encoding="utf-8"))
+    return cards, 폭
+
+
 def 카드재기_띠만(src):
-    """Z._카드재기 와 같은 계산 — 다만 ffmpeg 에서 띠만 잘라 받아 메모리를 적게 쓴다."""
+    """옛 카드(80~90% 고정 띠 — 2026-09-27 운영판 Z._카드재기 와 같은 계산). 띠만 잘라 받아 메모리를 적게 쓴다."""
     W, H, FPS = Z.W, Z.H, Z.FPS
     y0, y1 = int(H * 0.80), int(H * 0.90)
     x0, x1 = int(W * 0.2), int(W * 0.8)
@@ -178,64 +197,12 @@ def 참시각(proj, L):
     return 좋은
 
 
-# ── 옛 맞춤(2026-09-27 오전판 — 탐욕 붙이기) · 비교 기준으로 남겨 둔다 ──────────────────────
-def 전체배율(L, cards):
-    cs = np.array([c[0] for c in cards])
-    t = np.array([l[0] for l in L])
-
-    def 점수(a, b):
-        d = np.min(np.abs((t * a + b)[:, None] - cs[None, :]), axis=1)
-        return float((d < 0.5).mean())
-
-    전 = 점수(1.0, 0.0)
-    best = (전, 1.0, 0.0)
-    for a in np.arange(0.90, 1.1001, 0.002):
-        for b in np.arange(-12, 12.01, 0.1):
-            sc = 점수(a, b)
-            if sc > best[0] + 1e-9:
-                best = (sc, a, b)
-    return 전, best
+# ── 옛 맞춤(2026-09-27 운영판 전역 DP)과 새 맞춤 ─────────────────────────────────────────
+import 맞춤_옛판 as 옛판  # noqa: E402
 
 
-def 옛맞춤(L, cards, 배율=None):
-    cs = np.array([c[0] for c in cards])
-    전, (sc, a, b) = 배율 or 전체배율(L, cards)
-    새, 차들 = [], []
-    for t0, t1, x in L:
-        보정 = float(np.median(차들[-7:])) if 차들 else 0.0
-        예 = t0 * a + b + 보정
-        j = int(np.argmin(np.abs(cs - 예)))
-        if abs(cs[j] - 예) <= 1.2:
-            n0 = float(cs[j])
-            차들.append(보정 + (n0 - 예))
-            n1 = n0 + (t1 - t0) * a
-            if cards[j][1] > n0:
-                n1 = min(n1, cards[j][1] + 0.3)
-        else:
-            n0, n1 = 예, 예 + (t1 - t0) * a
-        새.append((round(max(0.0, n0), 2), round(max(n0 + 0.2, n1), 2), x))
-    return a, b, 전, sc, 새
-
-
-# ── 새 맞춤 — 자막띠시각.맞춤 이 이것을 쓰면(Z.맞춤 에 매개변수가 있으면) 그쪽을 부른다 ─────────────
-_새판 = None
-
-
-def _새모듈():
-    global _새판
-    m = Z
-    if os.environ.get("MATCH_EVAL_NEW"):                     # 시험판 모듈 경로(개발 중에만)
-        if _새판 is None:
-            import importlib.util
-            sp = importlib.util.spec_from_file_location("새판", os.environ["MATCH_EVAL_NEW"])
-            _새판 = importlib.util.module_from_spec(sp)
-            sp.loader.exec_module(_새판)
-        m = _새판
-    return m
-
-
-def 새맞춤(L, cards, 매=None, 배율=None):
-    return _새모듈().맞춤(L, cards, 배율=배율, **(매 or {}))
+def 새맞춤(L, cards, 폭=None, 매=None):
+    return Z.맞춤(L, cards, 폭=폭, **(매 or {}))
 
 
 # ── 평가 ───────────────────────────────────────────────────────────────
@@ -254,11 +221,11 @@ def 편자료(slug):
     if not (os.path.exists(vtt0) and os.path.exists(src) and proj.get("asr_words")):
         return None
     _, L = Z.읽기(vtt0)
-    cards = 카드(src)
     참 = 참시각(proj, L)
     if len(참) < 5:
         return None
-    return {"slug": slug, "L": L, "cards": cards, "참": 참}
+    cards2, 폭 = 새카드(src)
+    return {"slug": slug, "L": L, "cards": 카드(src), "cards2": cards2, "폭": 폭, "참": 참}
 
 
 def 모든편(인자):
@@ -273,26 +240,23 @@ def 모든편(인자):
 
 
 def 재기(자료, 매=None):
-    L, cards, 참 = 자료["L"], 자료["cards"], 자료["참"]
-    if "배율" not in 자료:
-        자료["배율"] = 전체배율(L, cards)
+    """(맞춤 전, 옛 맞춤, 새 맞춤, 관문 뒤, 관문 채택) 오차."""
+    L, 참 = 자료["L"], 자료["참"]
     if "옛" not in 자료:
-        자료["옛"] = [x[0] for x in 옛맞춤(L, cards, 자료["배율"])[4]]
+        자료["옛"] = [x[0] for x in 옛판.맞춤(L, 자료["cards"])[4]]
     전 = 오차([l[0] for l in L], 참)
     지 = 오차(자료["옛"], 참)
-    if "새배율" not in 자료:
-        m = _새모듈()
-        자료["새배율"] = (m._전체배율(np.array([l[0] for l in L]), np.array([c[0] for c in cards]))
-                       if hasattr(m, "_전체배율") else 자료["배율"])
-    새 = 오차([x[0] for x in 새맞춤(L, cards, 매, 자료["새배율"])[4]], 참)
-    return 전, 지, 새
+    새줄 = 새맞춤(L, 자료["cards2"], 자료["폭"], 매)[4]
+    새 = 오차([x[0] for x in 새줄], 참)
+    ok = Z.관문(L, 새줄, 자료["cards2"], 자료["폭"])[0]
+    return 전, 지, 새, (새 if ok else 전), ok
 
 
 def 표(rows):
     f = lambda o: f"{o['중앙']:4.2f} {o['p90']:5.2f} {o['최대']:5.2f} {o['2초넘음']:4.0%}"
-    print(f"{'편':8} {'줄':>3} {'참':>3} | {'맞춤 전 (중앙 p90 최대 >2초)':28} | {'옛 맞춤(탐욕)':24} | {'새 맞춤':24}")
-    for slug, n, 전, 지, 새 in rows:
-        print(f"{slug:8} {n:3d} {전['n']:3d} | {f(전):28} | {f(지):24} | {f(새):24}")
+    print(f"{'편':8} {'줄':>3} {'참':>3} | {'맞춤 전 (중앙 p90 최대 >2초)':28} | {'옛 맞춤(운영판 DP)':24} | {'새 맞춤':24} | 관문")
+    for slug, n, 전, 지, 새, _뒤, ok in rows:
+        print(f"{slug:8} {n:3d} {전['n']:3d} | {f(전):28} | {f(지):24} | {f(새):24} | {'채택' if ok else '거부→맞춤 전'}")
 
 
 def 점(os_):
@@ -305,9 +269,8 @@ def 고르기(자료들):
     import itertools
     짝 = [d for d in 자료들 if int(re.sub(r"\D", "", d["slug"]) or 0) % 2 == 0]
     홀 = [d for d in 자료들 if d not in 짝]
-    격자 = {"매끈": [0.5, 1.0, 2.0], "캡": [3.0, 6.0, 99.0], "줄벌": [0.3, 0.8, 1.5],
-            "카드벌": [0.05, 0.2], "공유벌": [0.3, 1.0], "사전": [0.0, 0.03, 0.1], "허용": [0.15, 0.3],
-            "길이벌": [0.0, 0.1, 0.3]}
+    격자 = {"기울": [1.0, 2.0], "점프": [1.5, 3.0], "점프폭": [4.0, 6.0], "못붙": [1.0, 1.5],
+            "폭벌": [0.5, 1.0, 1.5], "자리": [1.0, 2.0]}          # 2026-09-28 114편 — 고른 값이 가운데 오게
     keys = list(격자)
     결과 = []
     for vals in itertools.product(*[격자[k] for k in keys]):
@@ -344,10 +307,9 @@ def main():
         print(f"고른 값: {매}\n")
     rows = []
     for d in 자료들:
-        전, 지, 새 = 재기(d, 매)
-        rows.append((d["slug"], len(d["L"]), 전, 지, 새))
+        rows.append((d["slug"], len(d["L"]), *재기(d, 매)))
     표(rows)
-    for 이름, k in (("옛", 3), ("새", 4)):
+    for 이름, k in (("전", 2), ("옛", 3), ("새", 4), ("관문뒤", 5)):
         모 = [r[k] for r in rows]
         print(f"{이름:4}: 편 중앙값 평균 {np.mean([o['중앙'] for o in 모]):.2f} · p90 평균 {np.mean([o['p90'] for o in 모]):.2f}"
               f" · 최대 평균 {np.mean([o['최대'] for o in 모]):.2f} · >2초 평균 {np.mean([o['2초넘음'] for o in 모]):.1%}")

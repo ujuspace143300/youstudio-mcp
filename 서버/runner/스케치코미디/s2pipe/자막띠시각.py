@@ -8,13 +8,34 @@
 # 왜: agy 통째 읽기가 영상마다 시간을 조금씩 늘려 센다 — 싱글282 는 3번 다 약 4%(끝에서 8초) 늦었다
 #   («요즘 애들이 일을 참 잘해!» 실제 222.3초 · agy 230.9초). 틀린 시각으로 구간을 자르면 결말이 빠진다.
 # 방법:
-#   ① 화면 아래 자막 띠(높이 80~90%, 가운데 60% 폭)를 0.1초마다 — 검은 자막 상자 위 흰 글자 모양을 본다.
-#   ② 글자 모양이 바뀌면 «새 자막 카드» — 카드 [(시작, 끝)] 목록.
-#   ③ agy 줄 시작 t 를 a·t+b 로 옮겨 카드 시작과 가장 많이 겹치는 (a, b) 를 찾는다(첫 어림 — 후보 창만 정한다).
-#   ④ 전역 단조 정렬(동적 계획법)로 줄마다 카드를 고른다 — 이웃 줄끼리 «카드 − agy» 어긋남이 매끄럽게 변하고,
-#      카드 길이가 줄 길이와 비슷할수록 좋게. 못 붙인 줄은 양옆 붙은 줄의 어긋남으로 보간한다(맞춤() 설명).
+#   ① 화면 아래(높이 60~99%, 가운데 60% 폭)에서 «검은 상자 위 흰 글자» 픽셀이 몰린 높이를 편마다 찾아 그 띠만 본다.
+#   ② 글자 모양이 바뀌면 «새 자막 카드» — 카드 [(시작, 끝)] 목록과 카드마다 글자 폭(px).
+#      글자 폭은 줄 글자 수와 비례한다(글자당 약 24px) — 글자를 읽지는 않고 «얼마나 긴 자막인가» 만 맞춤 증거로 쓴다.
+#   ③ 줄마다 «숨은 어긋남» δ(카드 시각 − a·agy 시각)를 상태로 두는 동적 계획법(비터비) — 맞춤() 설명.
+#   ④ 맞춘 결과의 품질을 맞춤 전과 같은 자로 재고(관문()), 나쁘면 맞춤 전 시각을 그대로 둔다(실행()).
 #   벌점 값은 검수도구/맞춤평가.py(납품 편 완성본 Speechmatics 로 되돌린 참 시작과 대조)로 골랐다.
 #   박힌 자막이 없는 원본(카드가 적음)은 손대지 않는다.
+#
+# ★2026-09-28 수리(싱글171·176·170 — 맞춤이 맞춤 전보다 크게 나빠짐):
+#   · 171: 옛 첫 어림(«카드 ±0.5초 안에 드는 줄 비율» 최대)이 배율 0.740 을 골랐다(참 배율 1.02). 카드가 1~2초마다 떠서
+#     아무 배율이나 절반쯤은 우연히 맞는다(맞춤 전 52% · 0.740 63% · 1.0 56%) — 점수가 우연 수준이라 배율을 못 가렸다.
+#     114편을 재 보니 첫 어림이 참 배율에서 0.05 넘게 벗어난 편이 28편이었다(241: 참 1.003 · 어림 0.708).
+#     0.740 에서 후보 창(±30초)이 끝 줄의 진짜 카드(148초)를 빼 버려 뒤쪽이 최대 10초 이르게 붙었다.
+#   · 176: 배율은 맞았는데(1.000) 뒤쪽(145초~)이 줄마다 한 칸씩 앞 카드로 밀려 붙었다(최대 6초 늦음·참 −0.4~+0.4).
+#     옛 동적 계획법은 «이웃 줄끼리 어긋남 변화 ≤ 허용 0.3+늘폭» 을 공짜로 줘서, 0.3~0.5초씩 조금씩 미는 사슬이
+#     줄마다 벌점 없이 쌓였다(못 붙인 줄 벌점 1.5 보다 싸다). 카드 검출이 놓친 자리(145~148초)에서 사슬이 시작됐다.
+#   · 카드 검출: 띠를 80~90% 높이로 고정해 뒀는데 싱글벙글 자막 글자는 89~94% 에 있다(171·176·207·277 실측) —
+#     글자 윗부분만 보고 있었다. 171 은 참 시작의 56% 만 카드가 있었다(새 띠 94%). 싱글170 은 카드를 잘못 잡아
+#     전사가 카드 두 칸씩 밀렸다(중앙 3.6초·최대 4.9초 — work/싱글170.ko.vtt.맞춤틀림_띠높이). 고정 띠를 넓히는 시험은
+#     편마다 엇갈렸다(207 −12 · 277 +12) — 편마다 재는 게 답이다. 114편 모두 89~94% 로 재졌다.
+#   클래스: «맞춤이 자기 점수만 보고, 우연히 높아지는 점수와 공짜 누적 밀림을 구별하지 못한다» + «검출 띠가 고정값».
+#   수리: 떨림(카드가 말보다 먼저·늦게 뜨는 것)은 줄마다 붙임 값에서, 어긋남 변화는 상태 전이 값에서 따로 치른다 —
+#     조금씩 미는 사슬도 민 만큼 값을 낸다. 배율은 따로 어림하지 않고 배율마다 전체 비용을 재서 가장 싼 것을 고른다.
+#     카드 글자 폭 ↔ 줄 글자 수를 붙임 값에 넣어 우연히 가까운 엉뚱한 카드를 거른다. 점프폭(6초)을 넘는 뜀은 없다.
+#     띠는 편마다 글자가 몰린 높이로 잡는다. 맞춘 뒤 관문()이 맞춤 전보다 나쁘면 맞춤 전을 쓴다(«주의» 가 아니다).
+#   재실측(검수도구/맞춤평가.py · 납품 114편 참 시작 대조) — 결과는 커밋 메시지와 한편_완주_지침 «도구 주의».
+#   왜 옛 검사를 지났나: 편시작 로그의 «카드와 맞은 줄 52% → 63%» 는 맞춘 줄을 카드 시작에 옮긴 뒤 재므로 늘 오른다 —
+#     맞춤이 틀려도 좋아 보이는 지표였다. 맞춤평가(참 시작 대조)는 이미 납품한 편에서 손으로만 돌렸다.
 import json
 import os
 import re
@@ -24,57 +45,124 @@ import sys
 import numpy as np
 
 FPS = 10
-띠위, 띠아래 = 0.80, 0.90   # 78~95% 로 넓혀 봤으나 편마다 카드 수가 엇갈려(207 −12 · 277 +12) 되돌림 — 2026-09-27
 W, H = 960, 540
+판 = "v2"                     # 카드 캐시 판 — 옛 `.카드.json`(80~90% 띠)과 섞이지 않게 파일 이름도 따로 쓴다
+찾기위, 찾기아래 = 0.60, 0.99  # 글자 높이를 찾는 범위
+옛띠 = (0.80, 0.90)           # 글자가 거의 없을 때(박힌 자막 없는 원본) 쓰는 띠 — 예전 값
 
 
-def 카드들(src):
-    """박힌 자막 카드 [(시작, 끝)] — 원본 옆 `<원본>.카드.json` 에 한 번만 재 두고 다시 쓴다.
-    ★2026-09-27 100편 배치 — 편마다 에이전트·카드경계검사가 이 함수를 여러 번 불러 원본 전체를 10fps 로
-      매번 다시 풀었다(동시 5~6편 · 부하 40~50). 원본 크기·수정 시각이 같으면 저장해 둔 값을 쓴다."""
+def 캐시경로(src):
+    return os.path.abspath(os.path.expanduser(src)) + ".카드2.json"
+
+
+def 카드들(src, 정보=False):
+    """박힌 자막 카드 [(시작, 끝)] (정보=True 면 (카드, {"띠": [위, 아래], "폭": [카드마다 글자 폭 px]})) — 원본 옆 `<원본>.카드2.json` 에 한 번만 재 두고 다시 쓴다.
+    ★2026-09-27 100편 배치 — 편마다 에이전트·카드경계검사가 이 함수를 여러 번 불러 원본 전체를 매번 다시 풀었다.
+      원본 크기·수정 시각·판이 같으면 저장해 둔 값을 쓴다.
+    ★2026-09-27 밤 v2 — 띠를 편마다 찾는다. 옛 캐시(`.카드.json`, 80~90% 고정 띠)는 읽지도 지우지도 않는다
+      (이미 돌고 있던 옛 코드가 그 파일을 쓰므로 이름을 갈라 서로 덮어쓰지 않게)."""
     src = os.path.abspath(os.path.expanduser(src))
     st = os.stat(src)
-    key = f"{st.st_size}:{int(st.st_mtime)}:{FPS}:{W}x{H}:{띠위}-{띠아래}"
-    cache = src + ".카드.json"
+    key = f"{판}:{st.st_size}:{int(st.st_mtime)}:{FPS}:{W}x{H}"
+    cache = 캐시경로(src)
     try:
         c = json.load(open(cache, encoding="utf-8"))
         if c.get("key") == key:
-            return [tuple(x) for x in c["cards"]]
+            cards = [tuple(x) for x in c["cards"]]
+            return (cards, {"띠": c.get("띠"), "폭": c.get("폭")}) if 정보 else cards
     except (OSError, ValueError, KeyError):
         pass
-    cards = _카드재기(src)
+    cards, 띠, 폭 = _카드재기(src)
     try:
         tmp = cache + f".{os.getpid()}"
-        json.dump({"key": key, "cards": cards}, open(tmp, "w", encoding="utf-8"))
+        json.dump({"key": key, "cards": cards, "띠": 띠, "폭": 폭}, open(tmp, "w", encoding="utf-8"))
         os.replace(tmp, cache)
     except OSError:
         pass
-    return cards
+    return (cards, {"띠": 띠, "폭": 폭}) if 정보 else cards
 
 
-def _카드재기(src):
-    """박힌 자막 카드 [(시작, 끝)] — 글자 모양이 바뀌는 자리로 나눈다.
-    글자 = 밝은 픽셀(>190) 가로 3px 안에 어두운 픽셀(<90) — 자막 상자(검은 반투명) 위 흰 글자만 잡고, 밝은 배경은 거른다.
-    2026-09-27 싱글282 164~175초 실측: 카드 바뀜 7곳을 실제(프레임 확인) 대비 0.1~0.2초 안에서 다 잡았다."""
-    r = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vf",
-                        f"fps={FPS},scale={W}:{H},format=gray", "-f", "rawvideo", "-"],
-                       capture_output=True, check=True)
-    fr = np.frombuffer(r.stdout, dtype=np.uint8)
-    n = len(fr) // (W * H)
-    # 띠 높이는 위 띠위·띠아래 (싱글207 은 자막이 93% 높이라 놓친 카드가 있다 — 알려진 한계)
-    y0, y1 = int(H * 띠위), int(H * 띠아래)
-    x0, x1 = int(W * 0.2), int(W * 0.8)
-    띠 = fr[:n * W * H].reshape(n, H, W)[:, y0:y1, x0:x1]
+def _글자(띠):
+    """글자 = 밝은 픽셀(>190) 가로 3px 안에 어두운 픽셀(<90) — 자막 상자(검은 반투명) 위 흰 글자만 잡고, 밝은 배경은 거른다."""
     밝 = 띠 > 190
     어 = 띠 < 90
     곁 = np.zeros_like(어)
     for k in (1, 2, 3):
         곁[:, :, k:] |= 어[:, :, :-k]
         곁[:, :, :-k] |= 어[:, :, k:]
-    글자 = 밝 & 곁
+    return 밝 & 곁
+
+
+def _띠고르기(prof, Y0):
+    """줄마다 글자 픽셀 합 → 글자가 몰린 줄 범위(찾기 범위 안 행 번호). 봉우리를 품은 덩어리(15줄 넘는 빈틈에서 끊음)."""
+    if prof.max() <= 0:
+        return None
+    rows = np.nonzero(prof >= 0.2 * prof.max())[0]
+    pk = int(np.argmax(prof))
+    lo = hi = pk
+    for r in sorted(rows[rows < pk], reverse=True):
+        if lo - r <= 15:
+            lo = r
+    for r in rows[rows > pk]:
+        if r - hi <= 15:
+            hi = r
+    return max(0, lo - 3), min(len(prof), hi + 4)
+
+
+def _카드재기(src):
+    """박힌 자막 카드 [(시작, 끝)] 와 고른 띠 [위, 아래](높이 비율) — 글자 모양이 바뀌는 자리로 나눈다.
+    ① 찾기 범위(60~99%)를 10fps 로 풀어 글자 픽셀을 모은다(가로로 8개씩 묶어 저장 — 메모리 1/8).
+    ② 줄마다 글자 픽셀 합이 봉우리의 20% 넘는 덩어리 = 이 편의 자막 띠(싱글벙글 실측 89~94%).
+       글자가 거의 없으면(박힌 자막 없는 원본) 옛 띠(80~90%).
+    ③ 띠 안 글자가 12px 넘게 있으면 «자막 있음», 이웃 프레임 글자 모양이 절반 넘게 달라지면 «새 카드».
+    2026-09-27 싱글282 164~175초 실측: 카드 바뀜 7곳을 실제(프레임 확인) 대비 0.1~0.2초 안에서 다 잡았다(옛 띠).
+    2026-09-27 밤 v2: 참 시작(완성본 Speechmatics) 앞 0.9초~뒤 0.4초 안에 카드가 있는 비율 — 171 56→94% · 176 80→100%."""
+    x0, x1 = int(W * 0.05), int(W * 0.95)                   # 폭 재기용으로 넓게 푼다 — 카드 검출은 가운데 60%(옛과 같게)만 본다
+    c0, c1 = int(W * 0.2) - x0, int(W * 0.8) - x0
+    Y0, Y1 = int(H * 찾기위), int(H * 찾기아래)
+    bw, bh = x1 - x0, Y1 - Y0
+    p = subprocess.Popen(["ffmpeg", "-v", "error", "-threads", "2", "-i", src, "-vf",
+                          f"fps={FPS},scale={W}:{H},format=gray,crop={bw}:{bh}:{x0}:{Y0}",
+                          "-f", "rawvideo", "-"], stdout=subprocess.PIPE)
+    묶, prof = [], np.zeros(bh)
+    fsz = bw * bh
+    while True:
+        buf = p.stdout.read(fsz * 200)
+        n = len(buf) // fsz
+        if n == 0:
+            break
+        g = _글자(np.frombuffer(buf[:n * fsz], dtype=np.uint8).reshape(n, bh, bw))
+        prof += g[:, :, c0:c1].sum(axis=(0, 2))
+        묶.append(np.packbits(g, axis=2))
+    p.stdout.close()
+    if p.wait() != 0:
+        raise subprocess.CalledProcessError(p.returncode, "ffmpeg")
+    if not 묶:
+        return [], None, []
+    pk = np.concatenate(묶)
+    n = len(pk)
+    rr = _띠고르기(prof, Y0) if prof.max() >= n * 2 else None     # 프레임당 평균 2px 도 안 되면 박힌 자막 없음
+    if rr is None:
+        rr = (int(H * 옛띠[0]) - Y0, int(H * 옛띠[1]) - Y0)
+    r0, r1 = rr
+    넓 = np.unpackbits(pk[:, r0:r1], axis=2)[:, :, :bw].astype(bool)
+    글자 = 넓[:, :, c0:c1]
+    열 = 넓.any(axis=1)                                         # 프레임마다 글자 있는 열
     수 = 글자.reshape(n, -1).sum(axis=1)
     있음 = 수 >= 12
-    cards, s = [], None
+    cards, 폭들, s = [], [], None
+
+    def 폭(i0, i1):
+        """카드 글자 폭(픽셀, 960 폭 기준) — 가운데 프레임들에서 글자 열 2~98% 범위의 중앙값. 줄 글자 수와 비례한다."""
+        v = []
+        for f in range(i0 + (i1 - i0) // 4, max(i0 + 1, i1 - (i1 - i0) // 4)):
+            xs = np.nonzero(열[f])[0]
+            if len(xs) >= 5:
+                # 2~98% 범위(떨어진 조각 몇 개는 버린다). 덩어리로 나눠 작은 조각을 빼는 방법도 시험했으나(174 상관 0.72→0.83)
+                #   반투명 회색 상자(171)에서 글자가 성겨 폭이 반토막 나(0.75→0.60) 넣지 않았다 — 2026-09-28.
+                v.append(float(np.percentile(xs, 98) - np.percentile(xs, 2)))
+        return round(float(np.median(v)), 1) if v else 0.0
+
     for i in range(n):
         if 있음[i] and s is None:
             s = i
@@ -87,10 +175,12 @@ def _카드재기(src):
             if not 있음[i] or 바뀜:
                 if i - s >= 3:                                 # 0.3초보다 짧은 번쩍임은 버린다
                     cards.append((round(s / FPS, 2), round(i / FPS, 2)))
+                    폭들.append(폭(s, i))
                 s = i if 있음[i] else None
     if s is not None and n - s >= 3:
         cards.append((round(s / FPS, 2), round(n / FPS, 2)))
-    return cards
+        폭들.append(폭(s, n))
+    return cards, [round(float((r0 + Y0) / H), 3), round(float((r1 + Y0) / H), 3)], 폭들
 
 
 def 읽기(vtt):
@@ -100,103 +190,119 @@ def 읽기(vtt):
     return txt, L
 
 
-def _전체배율(t, cs):
-    """a·t+b 로 옮겼을 때 카드 시작 ±0.5초 안에 드는 줄 비율이 가장 큰 (a, b) — 첫 어림."""
-    def 점수(a, b):
-        d = np.min(np.abs((t * a + b)[:, None] - cs[None, :]), axis=1)
-        return float((d < 0.5).mean())
-
-    전 = 점수(1.0, 0.0)
-    best = (전, 1.0, 0.0)
-    # ★범위 0.70~1.30 (2026-09-27 싱글207 — 실제 0.79~0.82 가 필요했는데 0.80 끝에 걸려 25초 어긋남)
-    for a in np.arange(0.70, 1.3001, 0.002):
-        for b in np.arange(-15, 15.01, 0.1):
-            sc = 점수(a, b)
-            if sc > best[0] + 1e-9:
-                best = (sc, a, b)
-    return 전, best
+STEP = 0.1
+# 벌점 값: 2026-09-28 납품 114편 참 시작으로 격자 탐색(짝수 편으로 고르고 홀수 편으로 확인 — 짝 1.22 · 홀 1.28),
+#   133편에서 기울 1~3·허용·늘폭·점프, 편 전체 어긋남 사전 값, «agy 가 이미 카드에 붙은 구간 되돌림» 을 더 시험했으나 모두 나빠져 넣지 않았다.
+#   알려진 한계: 싱글161 뒤쪽(155초~)은 줄마다 한 칸 앞 카드로 붙어 최대 4.5초 이르다(맞춤 전 1.4초) — 이 편은 카드 폭이
+#   글자 수와 잘 안 맞아(글자당 18px 어림) 폭 값이 오히려 틀린 쪽을 밀었고, 관문 지표(붙음 77→86% · 폭맞음 58→61%)로도 안 잡힌다.
+기본값 = dict(기울=1.0, 허용=0.1, 늘폭=0.02, 못붙=1.5, 자리=2.0, 길이=0.2, 창=0.8, 폭벌=1.5, 폭자=0.5, 점프=3.0, 점프폭=6.0,
+            배율=(0.76, 1.05, 0.01), R=20.0, 붙창=0.6, 최소카드=0.5)
 
 
-def 맞춤(L, cards, 배율=None, 창=30.0, 캡=6.0, 매끈=1.0, 허용=0.3, 늘폭=0.03, 줄벌=1.5, 카드벌=0.05,
-        공유벌=1.0, 사전=0.0, 길이벌=0.6, 원시=0.0, 최소카드=0.5, 건너=8):
-    """(a, b, 맞은비율 전, 후, 새 줄 목록)
-    전역 단조 정렬(동적 계획법): 줄 i 를 카드 j(i) 에 붙이되 j 는 줄 순서대로 줄지 않는다.
-      비용 = 매끈·min(캡, max(0, |어긋남 변화| − 허용 − 늘폭·줄 간격))   (어긋남 = 카드 시작 − agy 시작 ·
-             캡 = agy 가 덩어리마다 다시 맞춰 어긋남이 한 번에 튀는 자리도 허용)
-           + 길이벌·min(3, |카드 길이 − 줄 길이|) + 줄벌 × 못 붙인 줄 + 카드벌 × 건너뛴 카드
-           + 공유벌(앞 줄과 같은 카드) + 사전·|카드 − (a·t+b)| + 원시·|카드 − t|
-      최소카드초보다 짧은 카드는 붙일 자리에서 뺀다. 못 붙인 줄은 양옆 붙은 줄의 어긋남을 시각으로 보간해 옮긴다.
-      벌점 기본값 = 검수도구/맞춤평가.py 로 짝수 편에서 고르고 홀수 편에서 확인(2026-09-27 · 41편 참 시작 대조:
-      중앙 오차 1.33→0.13초 · p90 3.08→0.78 · 최대 3.81→1.31 · 2초 넘게 틀린 줄 21.7%→2.4%, 편 평균).
-    ★2026-09-27 싱글249 «너희들 다 비키니 입을 거야?» 카드 182.3초가 vtt 에 192.2초 — 옛 방식(줄마다 가까운 카드에
-      탐욕으로 붙이고 최근 7줄 중앙값을 따라감)은 한 칸 밀려 붙으면 계속 밀렸다(싱글248·257 뒤쪽 2~8초).
-      agy 어긋남은 직선이 아니다(싱글248: −0.2 → −3.4 → −0.6초 — 덩어리마다 다시 맞는다)."""
-    cs = np.array([c[0] for c in cards], dtype=float)
-    ce = np.array([c[1] for c in cards], dtype=float)
-    t = np.array([l[0] for l in L], dtype=float)
-    N, M = len(L), len(cs)
-    전, (sc, a, b) = 배율 or _전체배율(t, cs)
-    if N == 0 or M == 0:
-        return a, b, 전, sc, [(l[0], l[1], l[2]) for l in L]
-    예 = t * a + b
-    dur = np.array([l[1] - l[0] for l in L], dtype=float) * a
-    cdur = ce - cs
-    쓸 = cdur >= 최소카드                                   # 너무 짧은 카드(번쩍임·잘못 잰 조각)는 붙일 자리에서 뺀다
-    후보 = [np.nonzero((np.abs(cs - 예[i]) <= 창) & 쓸)[0] for i in range(N)]
-    # best[i][jj] = 줄 i 를 후보 jj 에 붙였을 때까지의 최소 비용 · 뒤로 따라갈 (k, kk)
-    best, back = [], []
+def _비터비(t, dur, cs, cdur, a, 매, 폭어긋=None):
+    """숨은 어긋남 δ ∈ [−R, R](0.1초 칸)를 줄마다 고른다. 줄 i 의 예상 시작 = a·t_i + δ_i.
+    붙임 값(방출) = min(못붙, 자리·|예상 − 카드 시작| + 길이·min(3, |카드 길이 − 줄 길이|))  (창 밖 카드는 못 붙임)
+    전이 값      = 기울 × max(0, |δ_i − δ_{i−1}| − 허용 − 늘폭·줄 간격)
+    → 떨림은 붙임 값에서 치르고, 어긋남을 옮기는 것은 옮긴 만큼(기울/초) 값을 낸다 — 조금씩 미는 사슬도 공짜가 아니다.
+    반환 (총비용, δ 경로)."""
+    k, e0, 늘, U, ws, wd, tol = (매["기울"], 매["허용"], 매["늘폭"], 매["못붙"], 매["자리"], 매["길이"], 매["창"])
+    R = 매["R"]
+    grid = np.arange(-R, R + 1e-9, STEP)
+    S, N = len(grid), len(t)
+    emit = np.empty((N, S))
     for i in range(N):
-        J = 후보[i]
+        p = a * t[i] + grid
+        J = np.nonzero((cs > p[0] - tol) & (cs < p[-1] + tol))[0]
         if len(J) == 0:
-            best.append(np.zeros(0)); back.append(([], []))
+            emit[i] = U
             continue
-        d_i = cs[J] - t[i]
-        자리 = 사전 * np.abs(cs[J] - 예[i]) + 원시 * np.abs(cs[J] - t[i]) + 길이벌 * np.minimum(np.abs(cdur[J] - dur[i]), 3.0)
-        cost = 줄벌 * i + 자리            # 이 줄이 첫 붙임일 때
-        bk = np.full(len(J), -1); bkk = np.full(len(J), -1)
-        for k in range(max(0, i - 건너 - 1), i):
-            Jk = 후보[k]
-            if len(Jk) == 0:
-                continue
-            d_k = cs[Jk] - t[k]
-            gap = max(0.0, t[i] - t[k])
-            변 = np.abs(d_i[None, :] - d_k[:, None])
-            c = 매끈 * np.minimum(np.maximum(0.0, 변 - 허용 - 늘폭 * gap), 캡)
-            dj = J[None, :] - Jk[:, None]
-            c = np.where(dj < 0, np.inf, c)
-            c = c + np.where(dj == 0, 공유벌, 카드벌 * np.maximum(0, dj - 1))
-            tot = best[k][:, None] + c + 줄벌 * (i - k - 1)
-            kk = np.argmin(tot, axis=0)
-            v = tot[kk, np.arange(len(J))] + 자리
-            better = v < cost
-            cost = np.where(better, v, cost)
-            bk = np.where(better, k, bk); bkk = np.where(better, kk, bkk)
-        best.append(cost); back.append((bk, bkk))
-    # 끝: 마지막 붙인 줄 뒤로 남은 줄은 못 붙임
-    fin, arg = np.inf, None
-    for i in range(N):
-        if len(best[i]) == 0:
+        dd = np.abs(p[:, None] - cs[None, J])
+        c = ws * dd + wd * np.minimum(np.abs(cdur[J] - dur[i]), 3.0)[None, :]
+        if 폭어긋 is not None:                              # 카드 글자 폭 ↔ 줄 글자 수(한 줄 × 카드 전부 미리 잰 값)
+            c = c + 폭어긋[i, J][None, :]
+        c = np.where(dd <= tol, c, np.inf)
+        emit[i] = np.minimum(U, c.min(axis=1))
+    idx = np.arange(S, dtype=float)
+    c1 = k * STEP
+    costs = np.empty((N, S))
+    costs[0] = emit[0]
+    rs = [0] * N
+    for i in range(1, N):
+        g = costs[i - 1]
+        r = rs[i] = int(round((e0 + 늘 * max(0.0, t[i] - t[i - 1])) / STEP))
+        m = g.copy()
+        for q in range(1, r + 1):                           # 허용 폭 안은 공짜 — 이동 최솟값
+            m[q:] = np.minimum(m[q:], g[:-q])
+            m[:-q] = np.minimum(m[:-q], g[q:])
+        fwd = c1 * idx + np.minimum.accumulate(m - c1 * idx)                 # min_{y<=x} m[y] + c1·(x−y)
+        bwd = -c1 * idx + np.minimum.accumulate((m + c1 * idx)[::-1])[::-1]  # min_{y>=x} m[y] + c1·(y−x)
+        # 덩어리 뜀(agy 가 덩어리마다 다시 맞춰 어긋남이 한 번에 3~5초 바뀜 — 싱글179·248): 점프폭 안이면 값 «점프» 하나로 건넌다.
+        #   점프폭을 넘는 뜀은 없다(싱글171 새 카드 시험 — 점프폭 없이는 −14초로 뛰어 촘촘한 앞 카드에 붙었다).
+        q = int(round(매["점프폭"] / STEP))
+        jm = g.copy()
+        for d_ in range(1, q + 1):
+            jm[d_:] = np.minimum(jm[d_:], g[:-d_])
+            jm[:-d_] = np.minimum(jm[:-d_], g[d_:])
+        costs[i] = np.minimum(np.minimum(fwd, bwd), jm + 매["점프"]) + emit[i]
+    path = np.empty(N, dtype=np.int64)
+    path[-1] = int(np.argmin(costs[-1]))
+    total = float(costs[-1][path[-1]])
+    for i in range(N - 1, 0, -1):
+        dd_ = np.abs(grid - grid[path[i]])
+        tr = k * np.maximum(0.0, dd_ - rs[i] * STEP)
+        tr = np.minimum(tr, np.where(dd_ <= 매["점프폭"] + 1e-9, 매["점프"], np.inf))
+        path[i - 1] = int(np.argmin(costs[i - 1] + tr))
+    return total, grid[path]
+
+
+def 맞춤(L, cards, 배율=None, 폭=None, **값):
+    """(a, b, 전, 후, 새 줄 목록) — a = 고른 배율, b = 어긋남 중앙값, 전·후 = 품질()의 «카드에 붙은 줄» 비율.
+    배율 a 를 0.76~1.05(0.01 칸)마다 비터비로 풀어 총비용이 가장 싼 a 를 고른다(114편 참 배율 0.79~1.03).
+    줄 시작 = 예상 시작(a·t+δ)에서 붙창(0.6초) 안 카드가 있으면 그 카드 시작(카드 하나에 줄 하나 — 가까운 줄),
+    없으면 예상 시작 그대로. 배율(float)을 주면 그 배율만 푼다."""
+    매 = dict(기본값)
+    매.update(값)
+    cs_all = np.array([c[0] for c in cards], dtype=float)
+    ce_all = np.array([c[1] for c in cards], dtype=float)
+    쓸 = (ce_all - cs_all) >= 매["최소카드"] if len(cards) else np.zeros(0, bool)
+    cs, ce = cs_all[쓸], ce_all[쓸]
+    폭어긋 = None
+    if 폭 is not None and len(폭) == len(cards) and 매["폭벌"] > 0:
+        w = np.array(폭, dtype=float)[쓸]
+        n = np.array([max(1, len(re.sub(r"\s", "", l[2]))) for l in L], dtype=float)
+        ok = w > 0
+        if ok.sum() >= 5:
+            px = float(np.median(w[ok])) / float(np.median(n))    # 글자당 픽셀 — 짝 없이 두 분포의 중앙값으로 어림
+            r = np.abs(np.log(np.maximum(w, 1.0)[None, :] / (px * n[:, None])))
+            폭어긋 = 매["폭벌"] * np.minimum(1.0, r / 매["폭자"])
+            폭어긋[:, ~ok] = 0.5 * 매["폭벌"]
+    t = np.array([l[0] for l in L], dtype=float)
+    dur = np.array([l[1] - l[0] for l in L], dtype=float)
+    if len(L) == 0 or len(cs) == 0:
+        return 1.0, 0.0, 0.0, 0.0, [(l[0], l[1], l[2]) for l in L]
+    if isinstance(배율, (int, float)):
+        as_ = [float(배율)]
+    else:
+        lo, hi, st = 매["배율"]
+        as_ = np.arange(lo, hi + 1e-9, st)
+    best = None
+    for a in as_:
+        c, path = _비터비(t, dur * a, cs, ce - cs, a, 매, 폭어긋)
+        if best is None or c < best[0]:
+            best = (c, float(a), path)
+    _, a, path = best
+    예 = a * t + path
+    붙 = {}                                                   # 줄 → 카드
+    임자 = {}                                                 # 카드 → 줄
+    for i in range(len(L)):
+        j = int(np.argmin(np.abs(cs - 예[i])))
+        if abs(cs[j] - 예[i]) > 매["붙창"]:
             continue
-        v = best[i] + 줄벌 * (N - 1 - i)
-        jj = int(np.argmin(v))
-        if v[jj] < fin:
-            fin, arg = float(v[jj]), (i, jj)
-    붙 = {}
-    while arg is not None and arg[0] >= 0:
-        i, jj = arg
-        붙[i] = int(후보[i][jj])
-        k, kk = back[i][0][jj], back[i][1][jj]
-        arg = (int(k), int(kk)) if k >= 0 else None
-    # 같은 카드를 여럿이 나눠 가지면 첫 줄만 카드 시작에 — 나머지는 그 줄의 어긋남으로 옮긴다(보간 대상)
-    쓴 = set()
-    for i in sorted(붙):
-        if 붙[i] in 쓴:
-            del 붙[i]
-        else:
-            쓴.add(붙[i])
-    ks = sorted(붙, key=lambda i: t[i])                     # np.interp 는 x 가 커지는 순서여야 한다
-    dk = np.array([cs[붙[i]] - t[i] for i in ks]) if ks else None
-    tk = np.array([t[i] for i in ks]) if ks else None
+        k = 임자.get(j)
+        if k is None or abs(cs[j] - 예[i]) < abs(cs[j] - 예[k]):
+            if k is not None:
+                del 붙[k]
+            붙[i], 임자[j] = j, i
     새 = []
     for i, (t0, t1, x) in enumerate(L):
         if i in 붙:
@@ -206,16 +312,76 @@ def 맞춤(L, cards, 배율=None, 창=30.0, 캡=6.0, 매끈=1.0, 허용=0.3, 늘
             if ce[j] > n0:
                 n1 = min(n1, ce[j] + 0.3)
         else:
-            d = float(np.interp(t0, tk, dk)) if ks else (예[i] - t0)
-            n0 = t0 + d
+            n0 = float(예[i])
             n1 = n0 + (t1 - t0) * a
         새.append((round(max(0.0, n0), 2), round(max(n0 + 0.2, n1), 2), x))
     for i in range(len(새) - 1):                            # 다음 줄 시작을 넘지 않게
         if 새[i][1] > 새[i + 1][0] and 새[i + 1][0] > 새[i][0] + 0.2:
             새[i] = (새[i][0], round(새[i + 1][0] - 0.05, 2), 새[i][2])
-    s0 = np.array([x[0] for x in 새])
-    후 = float((np.min(np.abs(s0[:, None] - cs[None, :]), axis=1) < 0.5).mean())
-    return a, b, 전, 후, 새
+    전 = 품질(L, cards, 폭)["붙음"]
+    후 = 품질(새, cards, 폭)["붙음"]
+    return a, float(np.median(path)), 전, 후, 새
+
+
+def _짝(L, cs, 창):
+    """줄 시작 ±창 안 카드와 짝짓기(카드 하나에 줄 하나, 가까운 것부터) → {줄: 카드}."""
+    후보 = sorted((abs(cs[j] - s0), i, j) for i, (s0, _e, _x) in enumerate(L)
+                for j in np.nonzero(np.abs(cs - s0) <= 창)[0])
+    쓴카드, 짝 = set(), {}
+    for _d, i, j in 후보:
+        if i not in 짝 and j not in 쓴카드:
+            쓴카드.add(j)
+            짝[i] = j
+    return 짝
+
+
+def 품질(L, cards, 폭=None, 창=0.35, 최소카드=0.5, 글자당=None):
+    """줄 시작이 카드 시작과 맞는 정도 — 맞춤 전·후를 «같은 자»로 잰다(맞춤이 스스로 고른 붙임을 믿지 않는다).
+    붙음   = 줄 시작 ±창 안에 카드 시작이 있는 줄 비율(카드 하나에 줄 하나).
+    폭맞음 = 붙은 줄 가운데 «카드 글자 폭 ≈ 글자당 픽셀 × 줄 글자 수»(±25%)인 비율.
+             ★맞춤과 따로 선 자: 줄을 엉뚱한 카드에 붙이면 시각은 맞아 보여도 글자 수와 카드 폭이 따로 논다
+             (옛 맞춤 114편 대조 — 틀린 171·200·241 은 «붙음» 이 올랐는데 폭맞음은 0.45→0.32 · 0.73→0.59 · 0.60→0.17).
+    긴빈틈 = 붙은 줄 없이 이어진 가장 긴 시간(초) · 줄폭맞음 = 줄마다 True/False/None(안 붙음·폭 없음)."""
+    ok = [k for k, c in enumerate(cards) if c[1] - c[0] >= 최소카드]
+    if not L or not ok:
+        return {"붙음": 0.0, "폭맞음": 0.0, "긴빈틈": 0.0, "짝": 0, "글자당": None, "줄폭맞음": [None] * len(L)}
+    cs = np.array([cards[k][0] for k in ok])
+    w = np.array([폭[k] if 폭 is not None and k < len(폭) else 0.0 for k in ok], dtype=float)
+    짝 = _짝(L, cs, 창)
+    n = {i: max(1, len(re.sub(r"\s", "", L[i][2]))) for i in 짝}
+    wp = {i: w[j] / n[i] for i, j in 짝.items() if w[j] > 0}
+    줄폭 = [None] * len(L)
+    폭맞음 = 0.0
+    if 글자당 is None and len(wp) >= 5:
+        글자당 = float(np.median(list(wp.values())))
+    if 글자당 and wp:
+        for i, r in wp.items():
+            줄폭[i] = bool(abs(np.log(r / 글자당)) < np.log(1.25))
+        폭맞음 = float(np.mean([v for v in 줄폭 if v is not None]))
+    점 = sorted([L[0][0]] + [L[i][0] for i in 짝] + [L[-1][0]])
+    return {"붙음": len(짝) / len(L), "폭맞음": 폭맞음, "긴빈틈": float(np.max(np.diff(점))), "짝": len(짝),
+            "글자당": 글자당, "줄폭맞음": 줄폭}
+
+
+def 관문(L, 새, cards, 폭=None):
+    """맞춤 채택 여부 — (채택, 까닭 목록, 전 품질, 후 품질).
+    ★2026-09-28 싱글171·176·200·241(옛 맞춤이 맞춤 전보다 크게 나빠진 편)에서 정했다 — «주의» 가 아니라 맞춤 전을 쓴다:
+      ① 붙음이 맞춤 전보다 줄면 거부.
+      ② 폭맞음이 맞춤 전보다 0.10 넘게 줄거나 0.45 미만이면 거부(114편 새 맞춤 최저 0.53 · 옛 틀린 맞춤 0.17~0.51).
+      옛 맞춤(운영판) 114편에 대 보면 맞춤 전보다 나빴던 171·200·205·206·227·241·264 를 거부하고, 맞춤이 도운 167·207·247 은 채택한다.
+      줄 10개 창마다 재는 구간 판정도 시험했으나 창마다 짝이 3~6개뿐이라 맞는 맞춤(282·222)까지 거부해 넣지 않았다.
+      176 처럼 뒤쪽만 틀린 옛 맞춤은 전체 지표로 안 잡힌다 — 그 클래스(공짜 누적 밀림)는 맞춤()의 전이 값이 막는다."""
+    q0 = 품질(L, cards, 폭)
+    q1 = 품질(새, cards, 폭)
+    까닭 = []
+    if q1["붙음"] < q0["붙음"]:
+        까닭.append(f"카드에 붙은 줄이 줄어듦({q0['붙음']:.0%} → {q1['붙음']:.0%})")
+    if 폭 is not None and q1["글자당"]:
+        if q1["폭맞음"] < q0["폭맞음"] - 0.10:
+            까닭.append(f"카드 글자 폭이 줄 글자 수와 덜 맞음({q0['폭맞음']:.0%} → {q1['폭맞음']:.0%})")
+        elif q1["폭맞음"] < 0.45:
+            까닭.append(f"카드 글자 폭이 줄 글자 수와 맞는 줄이 {q1['폭맞음']:.0%} — 엉뚱한 카드에 붙음")
+    return not 까닭, 까닭, q0, q1
 
 
 def 쓰기(vtt, 원문, 새):
@@ -229,18 +395,37 @@ def 쓰기(vtt, 원문, 새):
 
 
 def 실행(src, vtt, 반영=False, log=print):
+    """맞추고 품질 관문(관문())을 지나면 vtt 에 쓴다. 반환 dict(채택 여부·지표) 또는 None(카드가 적어 안 맞춤).
+    반영이면 맞춤 전 원문을 `.맞춤전` 에, 지표를 `.맞춤.json` 에 남긴다(관문이 거부해도 — vtt 는 맞춤 전 그대로)."""
     원문, L = 읽기(vtt)
-    cards = 카드들(src)
+    cards, 정보 = 카드들(src, 정보=True)
+    띠, 폭 = 정보.get("띠"), 정보.get("폭")
     if len(cards) < max(8, len(L) // 3):
-        log(f"자막띠시각: 박힌 자막 카드 {len(cards)}개 — 적어서 맞추지 않는다")
+        log(f"자막띠시각: 박힌 자막 카드 {len(cards)}개(띠 {띠}) — 적어서 맞추지 않는다")
         return None
-    a, b, 전, 후, 새 = 맞춤(L, cards)
-    log(f"자막띠시각: 카드 {len(cards)}개 · 늘어남 배율 {a:.3f} · 밀림 {b:+.1f}초 · 카드와 맞은 줄 {전:.0%} → {후:.0%}")
+    a, b, _전, _후, 새 = 맞춤(L, cards, 폭=폭)
+    ok, 까닭, q0, q1 = 관문(L, 새, cards, 폭)
+    옮김 = np.array([n[0] - o[0] for n, o in zip(새, L)])
+    결과 = {"판": 판, "배율": round(a, 3), "어긋남중앙": round(b, 2), "카드": len(cards), "띠": 띠, "줄": len(L),
+           "전": {k: round(q0[k], 3) for k in ("붙음", "폭맞음", "긴빈틈")},
+           "후": {k: round(q1[k], 3) for k in ("붙음", "폭맞음", "긴빈틈")},
+           "옮김최대": round(float(np.abs(옮김).max()), 2), "채택": ok, "까닭": 까닭}
+    # ★편시작 로그에 숫자로 남긴다(2026-09-28): 옛 로그의 «맞은 줄 52%→63%» 는 맞춘 줄을 카드에 옮긴 뒤 재 늘 올랐다 —
+    #   폭맞음(카드 글자 폭 ↔ 줄 글자 수)은 맞춤과 따로 선 자라 틀린 맞춤에서 떨어진다.
+    log(f"자막띠시각: 카드 {len(cards)}개(띠 {띠}) · 배율 {a:.3f} · 어긋남 중앙 {b:+.1f}초 · 옮김 최대 {결과['옮김최대']:.1f}초 · "
+        f"카드에 붙은 줄 {q0['붙음']:.0%} → {q1['붙음']:.0%} · 폭맞음 {q0['폭맞음']:.0%} → {q1['폭맞음']:.0%} · "
+        f"붙은 줄 없는 가장 긴 구간 {q0['긴빈틈']:.0f} → {q1['긴빈틈']:.0f}초 · {'채택' if ok else '거부'}")
+    if not ok:
+        log("★자막띠시각 경고: 맞춤을 버리고 맞춤 전 시각을 그대로 쓴다 — " + " · ".join(까닭))
+    if len(cards) < 0.6 * len(L):
+        log(f"★자막띠시각 경고: 카드 {len(cards)}개가 줄 {len(L)}개의 60% 미만 — 박힌 자막 검출 누락 의심(띠 {띠})")
     if 반영:
         if not os.path.exists(vtt + ".맞춤전"):
             open(vtt + ".맞춤전", "w", encoding="utf-8").write(원문)
-        쓰기(vtt, 원문, 새)
-    return a, b, 전, 후
+        json.dump(결과, open(vtt + ".맞춤.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        if ok:
+            쓰기(vtt, 원문, 새)
+    return 결과
 
 
 if __name__ == "__main__":
