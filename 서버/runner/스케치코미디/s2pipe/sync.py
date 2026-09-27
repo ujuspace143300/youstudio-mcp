@@ -32,7 +32,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 CLEAN = re.compile(r"[\s.,!?~…()（）\[\]\"'·]")
-구두점 = re.compile(r"[.,…·]")          # 채널 절대규칙 — 마침표·쉼표 금지 (? ! 허용)
+구두점 = re.compile(r"(?<!\d)[.,](?!\d)|[.,](?=\D)|(?<=\D)[.,]|[…·]")   # 채널 절대규칙 — 마침표·쉼표 금지 (? ! 허용)
+# ★숫자 사이 점·쉼표(1.2M · 1,000원)는 남긴다 — 다 지우면 «1.2M» 핀이 «12M» 이 됐다 (2026-09-27 싱글185)
 
 
 def 정돈(text):
