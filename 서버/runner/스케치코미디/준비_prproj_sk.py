@@ -313,6 +313,23 @@ def main():
     #   (2026-09-10 싱글369: 합의금 결말 160.7s 뒤 바로 택시 꼰대 스킷 162s).
     여운 = 0.0 if proj.get("결말확인") else float(proj.get("여운", 1.8))
     ext = max(0.0, min(여운, 여운_상한 - _막["t1"]))
+    # ★받침: 엔드카드 검출이 놓쳐도 여운 안에 남색 «싱글벙글» 카드 프레임이 있으면 그 앞에서 멈춘다
+    #   (2026-09-27 100편 배치 — 싱글201·212·246 프리미어 끝에 로고 카드가 0.1~1.8초 붙었다. 카드 평균색 실측
+    #   RGB≈(40,43,87)). 0.1초 간격으로 보고 첫 남색 프레임 0.05초 앞에서 끊는다.
+    if ext:
+        _t = _막["t1"]
+        while _t < _막["t1"] + ext:
+            _r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{_t:.2f}", "-i", src_orig, "-frames:v", "1",
+                                 "-vf", "scale=64:36", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                capture_output=True).stdout
+            _k = len(_r) // 3
+            if _k:
+                _R, _G, _B = sum(_r[0::3]) / _k, sum(_r[1::3]) / _k, sum(_r[2::3]) / _k
+                if _R < 70 and _G < 70 and _B > 70 and _B - _R > 25:
+                    ext = max(0.0, _t - 0.05 - _막["t1"])
+                    print(f"  여운 안 {_t:.2f}s 에 남색 로고 카드 — 여운 {ext:.2f}s 로 줄임")
+                    break
+            _t += 0.1
     if ext:
         segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext, _여운전t1=segs[-1]["t1"])
         total = round(total + ext, 4)
