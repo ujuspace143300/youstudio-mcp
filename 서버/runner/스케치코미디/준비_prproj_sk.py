@@ -422,7 +422,21 @@ def main():
     if deep:
         import glob as _g
         pngs = sorted(_g.glob(os.path.join(wdir, os.pardir, f"{slug}_댓글", "**", "*.png"), recursive=True))
-        picked = 댓글선별(pngs, proj.get("logline", ""))
+        # 댓글 선별도 같은 까닭으로 저장본을 쓴다(댓글 파일·로그라인이 같으면 답이 같다)
+        import hashlib as _hl2
+        _댓키 = _hl2.sha1(json.dumps([[os.path.basename(p_), os.path.getsize(p_)] for p_ in pngs] +
+                                    [proj.get("logline", "")], ensure_ascii=False).encode()).hexdigest()
+        _댓캐 = os.path.join(wdir, "_댓글선별캐시.json")
+        try:
+            _dc = json.load(open(_댓캐, encoding="utf-8"))
+        except Exception:                                # noqa: BLE001
+            _dc = {}
+        if _댓키 in _dc and all(os.path.exists(p_) for p_ in _dc[_댓키]):
+            picked = _dc[_댓키]
+            print(f"댓글 선별 — 저장본 사용 · {len(picked)}장")
+        else:
+            picked = 댓글선별(pngs, proj.get("logline", ""))
+            json.dump({_댓키: picked}, open(_댓캐, "w", encoding="utf-8"), ensure_ascii=False)
         slots = max(len(picked), 1)
         each = total / slots
         # 댓글 자리 = 영상 상자 아래 ~ 출처 위 (침범 금지 · 좌우 꽉차게 — 2026-09-01 사장님)
@@ -779,9 +793,26 @@ def main():
     # ★화자별 자막 색 (2026-09-02 사장님) — 화자마다 색, 효과자막은 나레와 같은 노랑.
     #   화자1 은 기본색 유지(주인공), 파스텔 팔레트라 눈이 편하다. 나레(V4)는 건드리지 않는다.
     dlg_cues = [c for c in cues if c["lane"] == "dlg"]
-    who, 불안정, cast = 화자판정([c["text"] for c in dlg_cues], os.path.join(wdir, "cut.mp4"),
-                                proj.get("logline", ""), times=[c["t0"] for c in dlg_cues],
-                                예상화자수=proj.get("화자수"))
+    # ★화자 판정 결과를 저장해 다시 쓴다 (2026-09-27 100편 배치 — FROM=4 를 다시 돌릴 때마다 영상 3회 판정을 새로
+    #   불러 agy 5시간 한도가 18시에 바닥났다: 13~18시 gem.ask 392회). 조각·자막 줄·시각이 같으면 영상도 같다.
+    import hashlib as _hl
+    _화키 = _hl.sha1(json.dumps([proj["source"].get("id"), [(round(s["t0"], 2), round(s["t1"], 2)) for s in segs],
+                                 [c["text"] for c in dlg_cues], [round(c["t0"], 2) for c in dlg_cues],
+                                 proj.get("logline", ""), proj.get("화자수")], ensure_ascii=False).encode()).hexdigest()
+    _화캐 = os.path.join(wdir, "_화자판정캐시.json")
+    try:
+        _캐 = json.load(open(_화캐, encoding="utf-8"))
+    except Exception:                                    # noqa: BLE001
+        _캐 = {}
+    if _화키 in _캐:
+        who, 불안정, cast = _캐[_화키]
+        print(f"화자 판정 — 저장본 사용(조각·자막 그대로) · {len(who)}줄")
+    else:
+        who, 불안정, cast = 화자판정([c["text"] for c in dlg_cues], os.path.join(wdir, "cut.mp4"),
+                                    proj.get("logline", ""), times=[c["t0"] for c in dlg_cues],
+                                    예상화자수=proj.get("화자수"))
+        if any(w for w in who):
+            json.dump({_화키: [who, 불안정, cast]}, open(_화캐, "w", encoding="utf-8"), ensure_ascii=False)
     팔레트 = {"효과": (245, 244, 37), "2": (135, 206, 250), "3": (255, 182, 193),
               "4": (144, 238, 144), "5": (255, 200, 150)}          # 4·5는 예비(화자가 더 많을 때)
     from collections import Counter
