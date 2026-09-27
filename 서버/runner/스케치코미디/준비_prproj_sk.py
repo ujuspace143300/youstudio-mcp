@@ -150,6 +150,17 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
             return None, _e
     with _TPE(max_workers=회수) as _ex:
         답들 = list(_ex.map(_한번, range(회수)))
+    # ★영상이 구글 안전 필터(«sensitive words»)에 막히면 글만으로 다시 판정한다 (2026-09-27 싱글233 — 영상+자막은
+    #   두 번 다 거절, 같은 자막 목록을 글만 보내면 통과했다). 글만이면 겉모습 대신 대화 맥락(질문·대답 교대,
+    #   호칭)으로 판정한다 — 영상 판정보다 거칠어 로그에 남긴다. 거절이 아닌 장애(시간 제한 등)는 여기로 오지 않는다.
+    if all(e is not None for _t, e in 답들) and all("sensitive" in str(e).lower() for _t, e in 답들):
+        print("  주의  화자 판정 — 영상이 구글 안전 필터에 막힘 → 글(자막 목록)만으로 다시 판정")
+        payload = {"contents": [{"role": "user", "parts": [{"text":
+            "(영상 없이 판정한다 — 대화 맥락·호칭·질문과 대답의 교대로 말하는 사람을 정하라. "
+            "겉모습 대신 말투·역할을 cast 에 적어라.)\n" + prompt}]}],
+            "generationConfig": {"maxOutputTokens": 6000, "responseMimeType": "application/json"}}
+        with _TPE(max_workers=회수) as _ex:
+            답들 = list(_ex.map(_한번, range(회수)))
     for n회, (txt, 오류) in enumerate(답들):
         try:
             if 오류 is not None:
