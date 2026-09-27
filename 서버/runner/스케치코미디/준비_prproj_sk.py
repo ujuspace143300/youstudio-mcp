@@ -1203,21 +1203,81 @@ def main():
                 return True
         return False
 
+    # ★기하 관문 (2026-09-27 싱글266·188 글자 노출 · 85편 상자 띠) — 굽기(build)와 «같은 함수»(s2pipe/번인관문.걸림)로
+    #   컷 상자(원본 사각형)를 카드마다 잰 상자 윗변·사람이 잰 화면 캡션(조각 «가림»)과 위치로 비교한다. 픽셀 검출
+    #   (컷잔존)은 글자 윗머리 몇 px·반투명 상자를 원리상 못 잡았다. 원문화면·전체화면·프레임-인-프레임 컷도 본다.
+    from s2pipe import 번인관문 as 관
+    _src카드 = src_orig if os.path.exists(src_orig) else dst_src
+    박스들 = 관.카드상자들(_src카드, log=print) if b.get("avoid_burned_subs") else []
+
+    def 컷사각(i):
+        seg, pic = segs[i], picture[i]
+        sc = pic["box"]["scale"] / 100.0
+        pxn, cyn = (float(v) for v in pic["box"]["pos"].split(":"))
+        px_, cy_ = pxn * 1080, cyn * 1920
+        x0 = clamp(960 + (0 - px_) / sc, 0, 1920 - 1080 / sc)
+        y0 = clamp(540 + (b["y0"] - cy_) / sc, 0, 1080 - box_h / sc)
+        w, h = min(1080 / sc, 1920), min(box_h / sc, 1080)
+        return {"t0": pic["src_in"], "t1": pic["src_in"] + (pic["t1"] - pic["t0"]),
+                "x": int(max(x0, 0)), "y": int(max(y0, 0)), "w": int(round(w)), "h": int(round(h)), "이름": f"컷{i+1:02d}"}
+
+    def 기하걸림(i):
+        return 관.걸림(박스들, [컷사각(i)], 관.가림목록([segs[i]]))
+
     # 전체화면 컷은 make ① 이 «박힌 자막 카드 겹침 0» 을 이미 보장한다 — 픽셀 글자 검출은 옷·소품 글씨를 자막으로
-    #   오인한다(2026-09-27 싱글226 축구 유니폼 «EA7»). 원문화면처럼 이 검사에서 뺀다.
+    #   오인한다(2026-09-27 싱글226 축구 유니폼 «EA7»). 원문화면처럼 픽셀 검사에서 뺀다(기하 관문은 본다).
     for round_ in range(3):
-        걸림 = [i for i in range(len(picture))
-                if not (segs[i].get("원문화면") or segs[i].get("전체화면")) and i not in 안쪽컷 and 컷잔존(i)]
+        기하 = {i: 기하걸림(i) for i in range(len(picture))
+                if not (segs[i].get("원문화면") or segs[i].get("전체화면")) and i not in 안쪽컷}
+        기하 = {i: v for i, v in 기하.items() if v}
+        걸림 = sorted(set(기하) | {i for i in range(len(picture))
+                               if not (segs[i].get("원문화면") or segs[i].get("전체화면")) and i not in 안쪽컷
+                               and i not in 기하 and 컷잔존(i)})
         if not 걸림:
             break
-        print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 윗변을 45px 올려 다시 잡는다")
+        print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 다시 잡는다"
+              + (f" (카드 상자 기하 {[i+1 for i in 기하]})" if 기하 else ""))
         for i in 걸림:
-            유효탑[i] = 유효탑.get(i, sub_top or int(1080 * 0.872)) - 45
-            상자잡기(i, 유효탑[i])
+            카드윗 = [g["상자윗변"] for g in 기하.get(i, []) if g["종류"] == "카드"]
+            if 카드윗:
+                유효탑[i] = min(유효탑.get(i, 9999), min(카드윗) - 2)
+            elif i not in 기하:
+                유효탑[i] = 유효탑.get(i, sub_top or int(1080 * 0.872)) - 45
+            상자잡기(i, 유효탑.get(i, sub_top or int(1080 * 0.872)))
+            # 화면 캡션(가림)은 세로가 아니라 가로로 피한다 — 상자를 캡션 반대쪽으로 민다
+            for g in 관.걸림([], [컷사각(i)], 관.가림목록([segs[i]])):
+                r = next(x for x in 관.가림목록([segs[i]]) if x["y0"] == g["상자윗변"])
+                sc = picture[i]["box"]["scale"] / 100.0
+                pxn, cyn = (float(v) for v in picture[i]["box"]["pos"].split(":"))
+                px_ = pxn * 1080
+                if (r["x0"] + r["x1"]) / 2 < 960:
+                    px_ = min(px_, (960 - r["x1"]) * sc)           # 상자 왼변 ≥ 캡션 오른변
+                else:
+                    px_ = max(px_, (960 - r["x0"]) * sc + 1080)     # 상자 오른변 ≤ 캡션 왼변
+                px_ = clamp(px_, 1080 - 960 * sc, 960 * sc)
+                picture[i]["box"]["pos"] = f"{px_ / 1080:.6f}:{cyn:.6f}"
     잔존 = [i + 1 for i in range(len(picture))
             if not (segs[i].get("원문화면") or segs[i].get("전체화면")) and i not in 안쪽컷 and 컷잔존(i)]
+    기하전부 = [g for i in range(len(picture)) for g in 기하걸림(i)]
+    기하잔존 = 관.멈춤(기하전부)                       # 글자·화면 캡션만 멈춘다 — 상자 윗단(띠)은 주의(사장님 2026-09-27 23:50)
     print(("  [OK] " if not 잔존 else "  [X] ") + f"컷 하단 잔존 번인 자막 0  걸린 컷 {잔존}")
+    print(("  [OK] " if not 기하잔존 else "  [X] ") + f"박힌 자막 관문(카드 {len(박스들)}장 · 컷 상자 기하) 글자 겹침 0"
+          + (f" — {관.글(기하잔존)}" if 기하잔존 else "")
+          + (f" · 주의 상자 윗단만 {len(기하전부) - len(기하잔존)}건" if len(기하전부) > len(기하잔존) else ""))
     assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대 후에도 남는다"
+    assert not 기하잔존, f"컷 상자 안에 박힌 자막 글자가 든다 — {관.글(기하잔존)} (s2pipe/번인관문.py)"
+    # 납품 mp4 쪽(굽기 beats.json 의 crop 전부)도 같은 함수로 — 예전 코드로 구운 편(2026-09-27 수리 전)이 여기서 멈춘다
+    _bj = os.path.join(wdir, "beats.json")
+    if 박스들 and os.path.exists(_bj):
+        _log = json.load(open(_bj, encoding="utf-8"))
+        _crops, _미 = 관.beats_crops(_log, 1920, 1080)
+        _전 = 관.걸림(박스들, _crops, 관.가림목록(segs))
+        _걸 = 관.멈춤(_전)                              # 옛 편 재조립이 상자 띠만으로 막히지 않게(글자만 멈춤)
+        print(("  [OK] " if not _걸 else "  [X] ") + f"박힌 자막 관문(완성본 crop {len(_crops)}개) 글자 겹침 0"
+              + (f" — {관.글(_걸)}" if _걸 else "") + (f" · 주의 상자 윗단만 {len(_전) - len(_걸)}건" if len(_전) > len(_걸) else "")
+              + (f" · 한 장 구도 crop 미기록 조각 {_미}" if _미 else ""))
+        assert not _걸, (f"완성본(굽기) crop 안에 박힌 자막 글자가 든다 {len(_걸)}건 — {관.글(_걸)}. "
+                         f"수리 전 코드로 구운 편이면 FROM=6 으로 다시 구워라 (s2pipe/번인관문.py)")
     미리보기생성()          # 승격된 컷의 미리보기 갱신
     scale = round(box_h / 1080 * 100, 3)
     cy = round((b["y0"] + b["y1"]) / 2 / CFG["video"]["h"], 6)

@@ -156,15 +156,31 @@ def cut_and_join(src, segs, dst, work, fps):
     b = L["video_box"]                           # ★1080x908 상자 (sketch 껍데기)
     W, H = probe_wh(src)
     usable_h = H
+    # ★박힌 자막 한계는 «카드마다 잰 상자 윗변»으로 «조각마다» 정한다 (2026-09-27 싱글266·188 글자 노출 · 85편 상자 띠 ·
+    #   187 두 줄 카드 — 예전엔 원본 10장 표본의 «글자» 윗선 중앙값 하나(find_burned_subs)로 편 전체를 잘라 소수 카드
+    #   (두 줄·높이 뜬 카드·날짜 캡션)와 글자 20px 위의 반투명 상자가 샜다). 규칙과 관문은 s2pipe/번인관문.py 한 곳.
+    #   카드 없는 조각은 기본값(sub_zone_top − 여유)보다 더 자르지 않는다(인물 과도 크롭 방지 — 예전 802 같은 과잉).
+    from . import 번인관문 as 관
+    pad = b.get("safe_pad_px", 8)
+    박스들 = []
+    기본h = H
     if b.get("avoid_burned_subs"):
-        top = find_burned_subs(src, W, H, max(s["t1"] for s in segs))
-        if top:
-            usable_h = top - b.get("safe_pad_px", 8)
-            print(f"    원본 자막 감지: y={top} ({top/H*100:.1f}%) →"
-                  f" 세로 {usable_h}px 만 쓴다", flush=True)
+        박스들 = 관.카드상자들(src, log=lambda m: print(m, flush=True))
+        기본h = int(H * b.get("sub_zone_top", 0.872)) - pad
+        if 박스들:
+            usable_h = 기본h
+            print(f"    원본 자막 카드 {len(박스들)}장 — 조각마다 겹친 카드의 가장 높은 상자 윗변 − {pad} 까지 쓴다"
+                  f" (카드 없는 조각 {기본h})", flush=True)
         else:
-            usable_h = int(H * b.get("sub_zone_top", 0.872)) - b.get("safe_pad_px", 8)
-            print(f"    원본 자막 못 찾음 → 기본값으로 세로 {usable_h}px", flush=True)
+            # 카드가 하나도 없는 원본(박힌 자막 없음·띠 밖 자막) — 예전 방식 그대로
+            top = find_burned_subs(src, W, H, max(s["t1"] for s in segs))
+            if top:
+                usable_h = top - pad
+                print(f"    원본 자막 카드 없음 · 밝은 줄 감지: y={top} ({top/H*100:.1f}%) →"
+                      f" 세로 {usable_h}px 만 쓴다", flush=True)
+            else:
+                usable_h = 기본h
+                print(f"    원본 자막 못 찾음 → 기본값으로 세로 {usable_h}px", flush=True)
 
     cuts = sp.scene_cuts(src) if b.get("follow_face") else []
 
@@ -231,7 +247,7 @@ def cut_and_join(src, segs, dst, work, fps):
             f"마지막 조각 끝({막['t1']:.2f}s)이 정지 카드다 — 엔드카드 검출/트림이 카드를 놓쳤다. "
             f"엔드카드시작({막['t0']+2.0:.1f}~) 반환값과 원본 카드 시작을 대조하라(싱글349 클래스).")
 
-    parts, log = [], {"segments": [], "beats": []}
+    parts, log = [], {"segments": [], "beats": [], "frames": []}
 
     def bake_beats(a, bnd, plan):
         legs, tags = [], []
@@ -305,6 +321,9 @@ def cut_and_join(src, segs, dst, work, fps):
             prev = None
             log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
                                     "phase": s.get("phase"), "part": p, "beats": 0})
+            _vw = min(w, int(1080 * h / 908))                     # 가운데 1080 폭만 보인다
+            log["frames"].append({"seg": i, "t0": s["t0"], "t1": s["t1"], "kind": "프레임-인-프레임",
+                                  "crop": [_vw, h, x + (w - _vw) // 2, y]})
             print(f"    P{s.get('phase')} 조각 {i} {s['t1']-s['t0']:5.1f}초 → 프레임-인-프레임"
                   f" 감지({w}x{h}@{x},{y}) — 안쪽만 잘라 확대", flush=True)
             continue
@@ -336,15 +355,26 @@ def cut_and_join(src, segs, dst, work, fps):
             prev = None
             log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
                                     "phase": s.get("phase"), "part": p, "beats": 0})
+            log["frames"].append({"seg": i, "t0": s["t0"], "t1": s["t1"],
+                                  "kind": "원문화면" if s.get("원문화면") else "전체화면", "crop": [W, H, 0, 0]})
             print(f"    P{s.get('phase')} 조각 {i} {s['t1']-s['t0']:5.1f}초 → 원문화면"
                   f" fit-width(흐림 배경) — 얼굴 추적 없음", flush=True)
             continue
         # ★조각별 «자막띠무시» (2026-09-27 싱글246 — 결말 반전 그림(바닥을 지나가는 바퀴벌레)이 원본 자막띠 자리
         #   y≈1000~1060 에 있어 자막띠 자르기로 통째 잘렸다). 사람이 «이 조각엔 박힌 자막이 없다» 를 프레임으로 확인한
         #   조각만 세로 전체를 쓴다. 틀리면 ⑦ 준비의 «컷 하단 잔존 번인 자막» 검사가 잡는다.
-        uh = H if s.get("자막띠무시") else usable_h
-        if uh != usable_h:
-            print(f"    조각 {i}: 자막띠무시 — 세로 {H}px 전체를 쓴다(박힌 자막 없음 확인된 조각)", flush=True)
+        uh = usable_h
+        if 박스들:
+            uh, 높은 = 관.조각한계(박스들, s["t0"], s["t1"], 기본h, pad)
+            if 높은 and uh < 기본h:
+                print(f"    조각 {i}: 높은 박힌 자막 카드({높은['t0']:.1f}초 · 상자 윗변 {높은['top']}) → 세로 {uh}px 까지", flush=True)
+        if s.get("자막띠무시"):
+            # 사람 선언보다 측정이 먼저다 — 카드가 겹치면 선언을 무시하고 카드 한계를 쓴다
+            if 박스들 and 관.겹친카드(박스들, s["t0"], s["t1"]):
+                print(f"    ★조각 {i}: 자막띠무시 표식인데 박힌 자막 카드가 겹친다 — 표식을 무시하고 세로 {uh}px", flush=True)
+            else:
+                uh = H
+                print(f"    조각 {i}: 자막띠무시 — 세로 {H}px 전체를 쓴다(박힌 자막 카드 없음)", flush=True)
         plan = framing.plan_beats(src, s, i, W, H, uh, b, work, cuts, prev)
         if not plan:
             vf, info = framing.plan_frame(src, s, i, W, H, uh, b, work, prev=prev)
@@ -358,6 +388,8 @@ def cut_and_join(src, segs, dst, work, fps):
             prev = info["crop"]
             log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
                                     "phase": s.get("phase"), "part": p, "beats": 0})
+            log["frames"].append({"seg": i, "t0": s["t0"], "t1": s["t1"], "kind": "한장구도",
+                                  "crop": list(info["crop"][:4])})
             continue
         bake_beats(s["t0"], s["t1"], plan)
         prev = plan[-1][3]["crop"]
@@ -410,6 +442,15 @@ def cut_and_join(src, segs, dst, work, fps):
     log["out_dur"] = round(off, 3)
     json.dump(log, open(os.path.join(work, "beats.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=1)
+    # ★최종 관문 (2026-09-27 싱글266·188 글자 노출 · 85편 상자 띠) — 구운 crop 전부(비트·한 장 구도·전체/원문화면·
+    #   프레임-인-프레임)를 카드 상자·사람이 잰 화면 캡션(조각 «가림»)과 위치로 비교한다. 준비(프리미어 컷 상자)도 같은
+    #   함수를 부른다. 예전엔 납품 mp4 의 crop 을 보는 관문이 없었다(준비는 프리미어 상자만 봤다).
+    if b.get("avoid_burned_subs"):
+        crops, _ = 관.beats_crops(log, W, H)
+        걸 = 관.걸림(박스들, crops, 관.가림목록(segs))
+        if 걸:
+            raise AssertionError(f"박힌 자막이 crop 안에 든다 {len(걸)}건 — {관.글(걸)} (s2pipe/번인관문.py)")
+        print(f"    [OK] 박힌 자막 관문 — crop {len(crops)}개 · 카드 {len(박스들)}장 겹침 0", flush=True)
     return dst
 
 

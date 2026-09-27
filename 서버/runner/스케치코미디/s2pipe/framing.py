@@ -222,6 +222,31 @@ def 그림경계(rgb, W, H):
     return (_띠(x0, W), _띠(y0, H), W - _띠(W - x1, W), H - _띠(H - y1, H))
 
 
+def 가림경계(경계, seg, a, e, usable_h, ratio):
+    """조각 표식 «가림» [[x0,y0,x1,y1(,t0,t1)], …] — 원본 화면 속에 박힌 캡션(자막띠 밖 · 카드 검출 밖) 자리.
+    ★2026-09-27 싱글268 — 좌상단 캡션 «2524년 대한민국»(x136~690·y749~827 · 원본 138.9~141.1초)이 완성본 상자
+      왼쪽에 비쳤다. 자막띠 자르기(세로 한계)로는 못 막는 자리라, 그 시간 동안 그림경계를 캡션 바깥쪽으로 줄인다 —
+      왼쪽·오른쪽·위·아래 중 crop(비율 ratio)을 가장 크게 둘 수 있는 쪽. 관문은 번인관문.걸림 이 같은 사각형으로 본다."""
+    vx0, vy0, vx1, vy1 = 경계
+    for r in seg.get("가림") or []:
+        t0, t1 = (r[4], r[5]) if len(r) >= 6 else (seg["t0"], seg["t1"])
+        if not (t0 < e and t1 > a):
+            continue
+        x0, y0, x1, y1 = r[:4]
+        if x1 <= vx0 or x0 >= vx1 or y1 <= vy0 or y0 >= min(vy1, usable_h):
+            continue
+        후보 = [(max(vx0, x1), vy0, vx1, vy1), (vx0, vy0, min(vx1, x0), vy1),
+                (vx0, max(vy0, y1), vx1, vy1), (vx0, vy0, vx1, min(vy1, y0))]
+
+        def 넓이(b):
+            w, h = b[2] - b[0], min(b[3], usable_h) - b[1]
+            if w <= 0 or h <= 0:
+                return 0
+            return min(h, w / ratio) * min(w, h * ratio)
+        vx0, vy0, vx1, vy1 = max(후보, key=넓이)
+    return (vx0, vy0, vx1, vy1)
+
+
 def 담기(bw, bh, tx, ty, face, 경계, usable_h, ratio):
     """★구도의 «최종 관문» — 어느 경로(plan_beats·plan_frame)로 정했든 crop 은 여기를 지난다.
 
@@ -396,7 +421,8 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
     for k in range(len(bs) - 1):
         a, e = bs[k], bs[k + 1]
         rgb = frame_at(src, (a + e) / 2, work, f"{idx:02d}b{k:02d}")
-        경계들.append(그림경계(rgb, W, H))          # ★비트(샷)마다 — 레터박스는 샷 단위로 나타난다
+        경계들.append(가림경계(그림경계(rgb, W, H), seg, a, e, usable_h,   # ★비트(샷)마다 — 레터박스는 샷 단위로 나타난다
+                               box["w"] / box["h"]))
         f, many = None, False
         if rgb is not None and HAS_YN:
             fs = [q for q in _faces_yunet(rgb, box.get("face_score", 0.45))
@@ -648,6 +674,7 @@ def plan_frame(src, seg, idx, W, H, usable_h, box, work, prev=None):
             #   엉뚱한 데를 짚어 튄다 — 못 찾은 것이 화면을 옮길 이유가 되지는 않는다.
             if prev:
                 pw, ph, px, py = prev[:4]
+                경계 = 가림경계(경계, seg, seg["t0"], seg["t1"], usable_h, box["w"] / box["h"])
                 pw, ph, px, py, _ = 담기(pw, ph, px, py, None, 경계, usable_h, box["w"] / box["h"])
                 vf = (f"crop={pw}:{ph}:{px}:{py},"
                       f"scale={box['w']}:{box['h']}:flags=lanczos")
@@ -738,6 +765,7 @@ def plan_frame(src, seg, idx, W, H, usable_h, box, work, prev=None):
             how += f" · {'같은 장면' if cont else '앞 구도'} 유지({new_hold:.1f}초)"
 
     # ★최종 관문 — 그림경계 안 · 얼굴 담기 («잔무늬» 자리표는 얼굴이 아니라서 담기 대상이 아니다)
+    경계 = 가림경계(경계, seg, seg["t0"], seg["t1"], usable_h, box["w"] / box["h"])
     base_w, base_h, x, y, 담김 = 담기(base_w, base_h, x, y,
                                      face if how.startswith("얼굴") else None,
                                      경계, usable_h, box["w"] / box["h"])
