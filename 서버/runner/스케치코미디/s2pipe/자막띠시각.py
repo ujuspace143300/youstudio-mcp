@@ -24,6 +24,7 @@ import sys
 import numpy as np
 
 FPS = 10
+띠위, 띠아래 = 0.80, 0.90   # 78~95% 로 넓혀 봤으나 편마다 카드 수가 엇갈려(207 −12 · 277 +12) 되돌림 — 2026-09-27
 W, H = 960, 540
 
 
@@ -33,7 +34,7 @@ def 카드들(src):
       매번 다시 풀었다(동시 5~6편 · 부하 40~50). 원본 크기·수정 시각이 같으면 저장해 둔 값을 쓴다."""
     src = os.path.abspath(os.path.expanduser(src))
     st = os.stat(src)
-    key = f"{st.st_size}:{int(st.st_mtime)}:{FPS}:{W}x{H}"
+    key = f"{st.st_size}:{int(st.st_mtime)}:{FPS}:{W}x{H}:{띠위}-{띠아래}"
     cache = src + ".카드.json"
     try:
         c = json.load(open(cache, encoding="utf-8"))
@@ -60,7 +61,8 @@ def _카드재기(src):
                        capture_output=True, check=True)
     fr = np.frombuffer(r.stdout, dtype=np.uint8)
     n = len(fr) // (W * H)
-    y0, y1 = int(H * 0.80), int(H * 0.90)
+    # 띠 높이는 위 띠위·띠아래 (싱글207 은 자막이 93% 높이라 놓친 카드가 있다 — 알려진 한계)
+    y0, y1 = int(H * 띠위), int(H * 띠아래)
     x0, x1 = int(W * 0.2), int(W * 0.8)
     띠 = fr[:n * W * H].reshape(n, H, W)[:, y0:y1, x0:x1]
     밝 = 띠 > 190
@@ -106,8 +108,9 @@ def _전체배율(t, cs):
 
     전 = 점수(1.0, 0.0)
     best = (전, 1.0, 0.0)
-    for a in np.arange(0.80, 1.2001, 0.002):
-        for b in np.arange(-12, 12.01, 0.1):
+    # ★범위 0.70~1.30 (2026-09-27 싱글207 — 실제 0.79~0.82 가 필요했는데 0.80 끝에 걸려 25초 어긋남)
+    for a in np.arange(0.70, 1.3001, 0.002):
+        for b in np.arange(-15, 15.01, 0.1):
             sc = 점수(a, b)
             if sc > best[0] + 1e-9:
                 best = (sc, a, b)
