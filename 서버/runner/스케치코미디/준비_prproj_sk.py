@@ -1137,7 +1137,8 @@ def main():
             p = os.path.join(wdir, "_gatechk.png")
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
                             "-frames:v", "1", "-vf",
-                            f"crop={1080/sc:.0f}:{box_h/sc:.0f}:{x0:.0f}:{y0:.0f}", p],
+                            # 전체화면(fit-width) 컷은 상자가 원본보다 커진다 — 원본 안으로 잘라 넣는다(2026-09-27 싱글246)
+                            f"crop={min(1080/sc, 1920):.0f}:{min(box_h/sc, 1080):.0f}:{max(x0, 0):.0f}:{max(y0, 0):.0f}", p],
                            check=True, capture_output=True)
             a = np.asarray(Image.open(p).convert("RGB"))
             if 텍스트검출(a[int(a.shape[0] * 0.60):, :, :]):
