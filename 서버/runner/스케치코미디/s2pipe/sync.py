@@ -568,6 +568,20 @@ def main():
                   if d["t"] - 0.4 <= 핀tf <= d.get("t1", d["t"] + 2.0) + 0.4]
         if 후보줄:
             d = min(후보줄, key=lambda x: abs(x["t"] - 핀tf))
+            if 핀글 and not 핀글.startswith("+") and 핀tf - d["t"] > 0.6:
+                # ★핀이 줄 «가운데»를 가리킨다 = 대조표에서 본 14자 쪼갠 뒷반이다 (2026-09-27 싱글224 — 핀은 쪼개기
+                #   전 줄에 걸리는데 대조표는 쪼갠 뒤 줄을 보여 준다. «=» 핀이 앞반까지 통째로 바꿔 앞말이 사라졌다).
+                #   핀 시각 앞의 말(낱말 실측)은 앞줄로 남기고, 핀 시각부터를 새 줄로 떼어 그 줄에 핀을 건다.
+                앞낱 = [w for w in words if w.get("type") != "punctuation" and d["t"] - 0.05 <= w["t"] < 핀tf - 0.1]
+                토막 = d["text"].split()
+                if 앞낱 and len(토막) > len(앞낱):
+                    뒷줄 = {"t": round(핀tf, 2), "t1": d.get("t1", 핀tf + 1.5), "text": " ".join(토막[len(앞낱):])}
+                    d["text"] = " ".join(토막[:len(앞낱)])
+                    d["t1"] = round(max(d["t"] + 0.2, 핀tf - 0.03), 2)
+                    dlg.append(뒷줄)
+                    dlg.sort(key=lambda x: x["t"])
+                    print(f"  ★핀이 줄 가운데({핀tf:.1f}s) — 앞 「{d['text']}」 은 남기고 뒤 「{뒷줄['text']}」 에 핀")
+                    d = 뒷줄
             if 핀글.startswith("="):
                 # ★정확 핀 «=문구» (2026-09-26 싱글285 — 7차 배치 남은 수리 5번 «포함 판정 탓에 줄을 줄이는
                 #   교정 불가»). «흰 쌀밥에» 핀이 «흰 쌀밥에 도루묵조림» 안에 들어 있어 통과돼 다음 줄과 겹쳤다.
