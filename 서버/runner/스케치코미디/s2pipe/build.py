@@ -771,7 +771,9 @@ def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
     fontsdir = CFG["assets"]["fonts_dir"].replace("\\", "/").replace(":", "\\:")
     ass_p = ass.replace("\\", "/").replace(":", "\\:")
 
-    ins = ["-loop", "1", "-i", frame, "-i", cut]
+    # ★정지 그림 입력은 디코더 스레드 1개 (2026-09-28 04시 100편 배치 — 댓글 카드 12장이 입력마다 코어 수만큼
+    #   스레드를 띄워 합성 ffmpeg 하나가 418 스레드, 12편 동시에 부하 142·CPU 유휴 0% 로 한 편 합성이 16분 걸렸다).
+    ins = ["-threads", "1", "-loop", "1", "-i", frame, "-i", cut]
     amix = [f"[1:a]volume=1.0{duck}[a0]"]
     labels = ["[a0]"]
     for k, (at, wav) in enumerate(narrs):
@@ -794,7 +796,7 @@ def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
     base2 = 2 + len(narrs) + len(sfx_at)
     vch, cur = "", "o"
     for j, (cp, a0, a1, x, y) in enumerate(cmts):
-        ins += ["-loop", "1", "-i", cp]
+        ins += ["-threads", "1", "-loop", "1", "-i", cp]
         nxt = f"oc{j}"
         vch += (f"[{cur}][{base2 + j}:v]overlay={x}:{y}"
                 f":enable='between(t,{a0:.2f},{a1:.2f})'[{nxt}];")
@@ -805,8 +807,8 @@ def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
           + f";{''.join(labels)}amix=inputs={len(labels)}:normalize=0[am];"
           + f"[am]loudnorm=I={a['target_lufs']}:TP={a['true_peak_db']}:LRA={a['lra']}[ao]")
     run(["ffmpeg", "-hide_banner", "-loglevel", "error"] + ins
-        + ["-filter_complex", fc, "-map", "[v]", "-map", "[ao]",
-           "-c:v", "libx264", "-preset", CFG["ffmpeg"]["preset"],
+        + ["-filter_complex_threads", "2", "-filter_complex", fc, "-map", "[v]", "-map", "[ao]",
+           "-c:v", "libx264", "-threads", "4", "-preset", CFG["ffmpeg"]["preset"],
            "-crf", str(CFG["ffmpeg"]["crf"]), "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", CFG["ffmpeg"]["audio_bitrate"],
            "-shortest", "-y", dst])
