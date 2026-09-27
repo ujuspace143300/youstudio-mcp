@@ -261,6 +261,14 @@ def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미�
                     "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-ac", "1", whole],
                    check=True)
     got = _구간전사(whole, 0.0, dur, dur, vocab, model, log, caller, work, 나눠=나눠)
+    # ★줄 수 관문 (2026-09-28 싱글116 — agy 가 «...» 1줄만 준 전사를 통과시켰고, 끝 확인도 «아웃트로 말 없음» 으로 넘어갔다).
+    #   스케치는 대사가 빽빽하다(실측 1줄/1.5~2.5초) — 10초에 1줄도 안 되면 잘못 받은 답이다. 나눠서 한 번 다시, 그래도면 멈춘다.
+    최소 = max(5, int(dur / 10))
+    if len(got) < 최소:
+        log(f"  ★전사가 {len(got)}줄뿐이다(원본 {dur:.0f}초 · 최소 {최소}) — 절반씩 나눠 다시 전사한다")
+        got = _구간전사(whole, 0.0, dur, dur, vocab, model, log, caller, work, 나눠=True)
+        if len(got) < 최소:
+            raise RuntimeError(f"agy 전사가 {len(got)}줄뿐이다(원본 {dur:.0f}초) — 잘못 받은 답. 준비.sh NNN --다시")
     기억 = {}
     got, 판정 = _끝확인(whole, dur, got, vocab, model, log, caller, work, 기억)
     if 판정 == "다시" and not 나눠:
