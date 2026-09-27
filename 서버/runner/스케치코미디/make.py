@@ -223,6 +223,23 @@ def check(proj, path):
                     break
                 _t += 1.0
 
+    # ★원문화면·전체화면 조각에 박힌 자막이 있으면 반려 (2026-09-27 싱글235 — 얼굴을 살리려 대사 샷 5곳을 원문화면으로
+    #   바꿨더니 원본 박힌 자막이 그대로 보이고, 원문화면 규칙이 우리 자막까지 뺐다. 사장님 «자막만 안 나오면 돼»).
+    #   가로 전체를 보이는 조각은 박힌 자막 카드가 없는 샷이어야 한다(겹침 0.3초까지 봐준다).
+    if os.path.exists(_src암) and any(s.get("원문화면") or s.get("전체화면") for s in segs):
+        try:
+            from s2pipe import 자막띠시각 as _띠
+            _카드 = _띠.카드들(_src암)
+            for _k, _s in enumerate(segs):
+                if not (_s.get("원문화면") or _s.get("전체화면")):
+                    continue
+                _겹 = sum(max(0.0, min(b, _s["t1"]) - max(a, _s["t0"])) for a, b in _카드)
+                if _겹 > 0.3:
+                    bad.append(f"★조각 {_k}({_s['t0']:.1f}~{_s['t1']:.1f}) 이 원문화면·전체화면인데 박힌 자막이 {_겹:.1f}초 보인다"
+                               f" — 가로 전체를 보이면 원본 자막이 그대로 나간다. 박힌 자막 없는 샷만 쓰거나 표식을 빼라")
+        except Exception as _e:                            # noqa: BLE001
+            warn.append(f"원문화면 박힌 자막 검사 못 함: {str(_e)[:60]}")
+
     if segs[-1].get("phase") != 5:
         bad.append(f"마지막 조각이 Phase 5(Punchline)가 아니다 — P{segs[-1].get('phase')}")
     elif segs[-1].get("punch", 0) < PHASES[5]["min_punch"]:

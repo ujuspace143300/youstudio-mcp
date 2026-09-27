@@ -450,7 +450,7 @@ def main():
     for s in (x for x in proj.get("segments", []) if x.get("keep", True)):
         a0, a1 = 누c, 누c + s["t1"] - s["t0"]
         누c = a1
-        if not s.get("원문화면"):
+        if not (s.get("원문화면") or s.get("전체화면")):
             continue
         if 띠png is None:
             띠png = os.path.join(sdir, "_원문띠.png")
@@ -1073,7 +1073,7 @@ def main():
             print(f"  컷{i+1:02d}: 레터박스 감지({w}x{h}@{x},{y}) → 테두리·자막밴드(윗변 {자막탑})"
                   f" 제외 확대 {s_f*100:.0f}% · 잔존 검사 유지")
             continue
-        if seg.get("원문화면"):
+        if seg.get("원문화면") or seg.get("전체화면"):
             # ★fit-width — 원본 가로 전체가 박스 폭에 들어간다 (굽기의 원문화면 화면꼴과 동일)
             pic["box"] = {"scale": round(1080 / 1920 * 100, 3),
                           "pos": f"0.5:{(b['y0'] + b['y1']) / 2 / CFG['video']['h']:.6f}"}
