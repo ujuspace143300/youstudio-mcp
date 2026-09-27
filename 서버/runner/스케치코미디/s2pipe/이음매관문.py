@@ -68,6 +68,10 @@ def _원본조용(proj, 원t, 폭=0.2, 쪽="뒤"):
         c = int((원t - a0) / 0.02)
         k = int(폭 / 0.02)
         구간 = E[max(0, c - k):c] if 쪽 == "앞" else E[c:c + k]
+        if len(구간) == 0:
+            # 원본 맨 앞(0초) 앞쪽이나 맨 끝 뒤쪽 — 잘려 나간 소리가 아예 없다 = 조용함과 같다
+            #   (2026-09-27 싱글230: 뒤 조각이 원본 0.0초에서 시작해 빈 구간 평균이 NaN → «조용하지 않음» 가짜 반려)
+            return True
         return bool((구간 < 문).mean() >= 0.5)
     except Exception:
         return None
