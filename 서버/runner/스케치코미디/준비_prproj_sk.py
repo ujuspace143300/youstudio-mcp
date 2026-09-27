@@ -366,8 +366,15 @@ def main():
     # ★나레 wav 이름은 나레가 붙은 조각 번호를 따른다(narr01·narr02…) — 하드코딩 금지
     #   (2026-09-03 Deep04: 나레가 2번째 조각이라 narr02.wav 였는데 narr01 을 찾다 죽었다)
     import glob as _gl
-    나레들 = sorted(_gl.glob(os.path.join(wdir, "narr*.wav")))
-    assert 나레들, f"나레 wav 가 없다: {wdir}/narr*.wav — make 굽기를 먼저 돌려라"
+    # ★나레가 붙은 조각이 둘 이상이면 멈춘다 — 아래 prproj 조립은 나레 한 줄만 싣는다. 예전엔 첫째만 싣고 둘째를
+    #   조용히 버려 완성본 mp4(나레 2)와 프리미어(나레 1)가 달랐는데 체인은 «통과» 였다 (2026-09-27 싱글186).
+    #   이름도 glob 첫째가 아니라 «나레 조각 번호» 로 정확히 집는다 — 나레를 다른 조각으로 옮겨 다시 구우면
+    #   옛 narrNN.wav 가 남아 glob 첫째가 낡은 나레일 수 있다.
+    _나레조각 = [i for i, s_ in enumerate(proj["segments"]) if (s_.get("narration") or "").strip()]
+    assert len(_나레조각) == 1, (f"나레가 붙은 조각이 {len(_나레조각)}개({_나레조각}) — 프리미어는 나레 1줄만 싣는다. "
+                                 "plan 에서 나레를 한 조각에만 남기고 다시 구워라")
+    나레들 = [os.path.join(wdir, f"narr{_나레조각[0]:02d}.wav")]
+    assert os.path.isfile(나레들[0]), f"나레 wav 가 없다: {나레들[0]} — make 굽기를 먼저 돌려라"
     run(["ffmpeg", "-y", "-v", "error", "-i", 나레들[0],
          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dst_nar])
     # ★나레도 내용 지문 이름 — 같은 이름 제자리 교체는 프리미어 캐시와 섞인다
