@@ -110,7 +110,7 @@ def focus_block(focus, win=70):
 """
 
 
-def prompt(dur, fps, sub_text, hot=(), focus=None, cands=()):
+def prompt(dur, fps, sub_text, hot=(), focus=None, cands=(), 원제=""):
     e, n, t = CFG["edit"], CFG["narration"], CFG["title_formula"]
     lo, hi = e["target_sec"]
     tf0, tf1 = e["tail_margin_frames"]
@@ -118,9 +118,14 @@ def prompt(dur, fps, sub_text, hot=(), focus=None, cands=()):
     br0, br1 = e["breathing_room_sec"]
     pd0, pd1 = n["padding_sec"]
     tb = CFG["layout"]["title"]      # ★껍데기를 sketch 것으로 바꾼 뒤 키가 title 이다
+    # ★원제 = 이 편의 핵심 사연·반전 (2026-09-27 100편 배치 — plan 이 원제의 줄거리·결말을 통째로 빼고 곁가지만
+    #   고른 편이 절반 넘게 나왔다: 싱글266·267·241·248 등. 원제를 몰랐다.)
+    원제줄 = (f"\n## ★★원제 «{원제}» — 이 편이 무엇에 관한 것인지다\n"
+             "원제가 말하는 사연·반전이 들어 있는 대목과, 원본 끝(아웃트로 직전)의 진짜 결말을 **반드시** 담아라. "
+             "곁가지 장면만으로 짜지 마라. 원제를 그대로 제목(titles)으로 쓰지는 마라.\n") if 원제 else ""
     return f"""이 한국 스케치 코미디 롱폼({dur:.0f}초 · {fps:.3f}fps)을 숏폼 한 편으로 자르려 한다.
 「마스터 지침서 3.11」의 규칙을 그대로 따라라.
-
+{원제줄}
 ## ★★기승전결은 5-Phase 다 — 이것이 이 채널의 뼈대다
 
 {phase_block()}
@@ -476,12 +481,12 @@ def origin_of(info_path):
         return {"channel": "", "title": ""}
 
 
-def call(mp4, dur, fps, sub_text, hot, focus=None, cands=()):
+def call(mp4, dur, fps, sub_text, hot, focus=None, cands=(), 원제=""):
     b64 = base64.b64encode(open(mp4, "rb").read()).decode()
     payload = {
         "contents": [{"role": "user", "parts": [
             {"inline_data": {"mime_type": "video/mp4", "data": b64}},
-            {"text": prompt(dur, fps, sub_text, hot, focus, cands)},
+            {"text": prompt(dur, fps, sub_text, hot, focus, cands, 원제)},
         ]}],
         "generationConfig": {"maxOutputTokens": 32000,
                              "responseMimeType": "application/json",
@@ -534,7 +539,8 @@ def main():
     cands = pick_comments(info, 9999)
     if cands:
         print(f"댓글 후보 {len(cands)}개 — 어울리는 것을 모델이 고른다", flush=True)
-    plan = call(gem.shrink_for_inline(mp4), dur, fps, vtt_text(vtt), hot, focus, cands)
+    plan = call(gem.shrink_for_inline(mp4), dur, fps, vtt_text(vtt), hot, focus, cands,
+                origin_of(info).get("title", ""))
 
     # ★모델이 원본 길이를 넘는 타임코드를 낸다. 그런데 **일정한 비율로 늘어난다** —
     #   274→412(1.50배) · 416→656(1.58배). 그냥 버리면 뒤쪽 좋은 대목이 통째로
