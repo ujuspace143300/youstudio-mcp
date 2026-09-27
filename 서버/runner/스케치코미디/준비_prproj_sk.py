@@ -162,9 +162,12 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
         with _TPE(max_workers=회수) as _ex:
             답들 = list(_ex.map(_한번, range(회수)))
     for n회, (txt, 오류) in enumerate(답들):
+        if 오류 is not None:
+            # ★AgyStop 은 BaseException 이라 아래 except Exception 을 빠져나가 한 회차 거절에 체인 전체가 멈췄다
+            #   (2026-09-27 싱글197 — 3회 중 1회만 안전 필터 거절, 2회는 성공). 회차 실패로만 센다; 전부 실패면 아래 «if not 표» 가 멈춘다.
+            print(f"화자 판정 {n회 + 1}회차 실패:", str(오류)[:60])
+            continue
         try:
-            if 오류 is not None:
-                raise 오류
             try:
                 j = json.loads(txt)
                 if isinstance(j, list):
