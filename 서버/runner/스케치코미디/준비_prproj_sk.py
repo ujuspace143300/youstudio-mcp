@@ -250,6 +250,11 @@ def 댓글선별(pngs, logline, want=(10, 15)):
     payload = {"contents": [{"role": "user", "parts": parts}],
                "generationConfig": {"maxOutputTokens": 1000, "responseMimeType": "application/json"}}
     import re as _re
+    try:
+        from agy_gemini import AgyStop as gem_AgyStop
+    except Exception:                                    # noqa: BLE001
+        class gem_AgyStop(Exception):
+            pass
     for 시도 in range(2):                      # ★빈 응답이 잦다(2026-09-03 실측) — 한 번 더 준다
         try:
             txt, _r, _m = gem.ask(payload, models, timeout=300)
@@ -258,7 +263,7 @@ def 댓글선별(pngs, logline, want=(10, 15)):
             picks = list(dict.fromkeys(int(i) for i in picks))
             assert len(picks) >= want[0]
             return [pngs[i] for i in picks[:want[1]]]
-        except Exception as e:
+        except (Exception, gem_AgyStop) as e:           # ★안전 필터 거절(AgyStop)도 «앞에서 12장» 폴백으로(2026-09-27)
             print(f"댓글 선별 {시도 + 1}차 실패:", str(e)[:60])
     print("댓글 선별 실패 — 앞 12장 사용")
     return pngs[:12]
