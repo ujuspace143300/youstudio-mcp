@@ -135,13 +135,25 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
               f"\"cast\":{{\"1\":\"겉모습\",...}}}} — who 는 줄 수 {len(lines)}개와 같아야 한다.\n\n{목록}")
     표, cast = [], {}
     import re as _re2
-    for n회 in range(회수):
+    # ★회차를 동시에 부른다 (2026-09-27 100편 배치 — 3회 표결을 차례로 불러 ⑦ 준비가 편당 42~50분, 편 전체의 약 45%.
+    #   agy 는 동시 호출이 한 번과 같은 시간에 끝난다(2026-09-26 실측 10개 동시). 판정·표결 규칙은 그대로.)
+    payload = {"contents": [{"role": "user", "parts": [
+        {"inline_data": {"mime_type": "video/mp4", "data": vid}},
+        {"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 6000, "responseMimeType": "application/json"}}
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    def _한번(_n):
         try:
-            payload = {"contents": [{"role": "user", "parts": [
-                {"inline_data": {"mime_type": "video/mp4", "data": vid}},
-                {"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 6000, "responseMimeType": "application/json"}}
-            txt, _r, _m = gem.ask(payload, models, timeout=600)
+            return gem.ask(payload, models, timeout=600)[0], None
+        except BaseException as _e:                     # noqa: BLE001 — AgyStop 도 회차 실패로 센다
+            return None, _e
+    with _TPE(max_workers=회수) as _ex:
+        답들 = list(_ex.map(_한번, range(회수)))
+    for n회, (txt, 오류) in enumerate(답들):
+        try:
+            if 오류 is not None:
+                raise 오류
             try:
                 j = json.loads(txt)
                 who = [str(w) for w in j["who"]]
@@ -161,6 +173,11 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
         except Exception as e:
             print(f"화자 판정 {n회 + 1}회차 실패:", str(e)[:60])
     if not 표:
+        # 회차가 전부 agy 실패(AgyStop — EvoLink 금지로 멈춤)면 예전처럼 멈춘다 — 동시 호출로 바꾸며 «색 없이 진행» 으로
+        #   조용히 품질이 떨어지지 않게(2026-09-27).
+        멈춤 = [e for _t, e in 답들 if e is not None and not isinstance(e, Exception)]
+        if 멈춤:
+            raise 멈춤[0]
         print("화자 판정 전부 실패 — 색 구분 없이 간다")
         return [None] * len(lines), [], {}
     # 회차마다 번호 체계가 다를 수 있다 — 1회차 기준으로 겹침 최대 매칭(그리디)으로 재명명
