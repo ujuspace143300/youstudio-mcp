@@ -11,6 +11,7 @@
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -201,6 +202,26 @@ def check(proj, path):
         if _fp and not os.path.exists(_fp):
             bad.append(f"★규격 글꼴 없음({_k}): {_fp} — 자산스테이징.sh 로 복원하라"
                        f" (조용한 폴백 금지)")
+
+    # ★조각 안 통암전 — 굽기 전에 잡는다 (2026-09-27 싱글236: 원본 화면 전환용 검은 화면이 조각에 들어가
+    #   ⑦ 준비의 같은 관문에서야 걸려 유료 굽기를 한 번 더 했다). 준비_prproj_sk.py 통암전 게이트와 같은 기준 —
+    #   1초 간격 표본 2개 연속 «평균<12 이고 밝은 픽셀(>60) 거의 없음»(글자 카드는 통암전 아님).
+    _src암 = os.path.join(HERE, CFG["paths"]["work"], f"{proj['source']['id']}.mp4")
+    if os.path.exists(_src암):
+        for _k, _s in enumerate(segs):
+            _연, _t = 0, _s["t0"] + 0.5
+            while _t < _s["t1"]:
+                _r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{_t:.2f}", "-i", _src암, "-frames:v", "1",
+                                     "-vf", "scale=320:-2", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                                    capture_output=True)
+                _b = _r.stdout
+                _어 = len(_b) > 0 and sum(_b) / len(_b) < 12 and sum(1 for _x in _b if _x > 60) < len(_b) * 0.0008
+                _연 = _연 + 1 if _어 else 0
+                if _연 >= 2:
+                    bad.append(f"★조각 {_k} 안에 통암전(검은 화면) — 원본 {_t - 1.0:.1f}초쯤. 조각에서 빼라"
+                               f" (⑦ 준비에서 걸려 재굽기가 된다)")
+                    break
+                _t += 1.0
 
     if segs[-1].get("phase") != 5:
         bad.append(f"마지막 조각이 Phase 5(Punchline)가 아니다 — P{segs[-1].get('phase')}")
