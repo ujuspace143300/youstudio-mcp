@@ -19,6 +19,30 @@ $PY 검수도구/검은띠재기.py "$M" 2>&1 | tail -1
 $PY -m s2pipe.이음매관문 "$PJ" | tail -1
 $PY make.py "$PJ" --check 2>&1 | grep -E "상단 제목|통과|반려 [0-9]" | tail -1
 echo "마스터 효과 항목 수: $($PY ~/Desktop/유스튜디오-규격서/스크립트/린박스/키트/도구/마스터효과심기.py ~/Desktop/스케치코미디/프리미어_$S/스케치_$S.prproj --확인만 2>&1 | grep -cE '멀티밴드|선택적 제한')"
-D="/Volumes/galaxy/영화자료/3. 스캐치코미디/싱글벙글/완성본/${S}_$ORIG"
+BASE="/Volumes/galaxy/영화자료/3. 스캐치코미디/싱글벙글/완성본"
+# ★같은 편 폴더가 이미 있으면 그 폴더에 덮어쓴다 (2026-09-28 싱글369 — 옛 납품(09-10)은 옛 제목으로 폴더 이름이 붙어 있어
+#   credit.title 로 새로 만들면 폴더가 둘이 됐다: 옛 폴더 = 글자 보이는 옛 판, 새 폴더 = 수리본, 확인.py 는 옛 폴더를 봤다).
+#   «싱글NNN_» 으로 시작하는 폴더를 NFC 로 찾고(맥 SMB 는 NFD 로 준다) 디스크의 실제 이름을 그대로 쓴다.
+#   여럿이면 가장 최근 것. 없을 때만 credit.title 로 새로 만든다. 옛 폴더를 지우지는 않는다(NAS 삭제는 사장님 결정).
+D=$(python3 - "$BASE" "$S" <<'PYEOF'
+import os, sys, unicodedata as u
+b, s = sys.argv[1], sys.argv[2]
+hit = [n for n in os.listdir(b) if u.normalize("NFC", n).startswith(u.normalize("NFC", s) + "_") and os.path.isdir(os.path.join(b, n))]
+hit.sort(key=lambda n: os.path.getmtime(os.path.join(b, n)), reverse=True)
+if len(hit) > 1:
+    print(f"★{s} 납품 폴더 {len(hit)}개 — 가장 최근 «{u.normalize('NFC', hit[0])}» 에 덮어쓴다", file=sys.stderr)
+print(os.path.join(b, hit[0]) if hit else "")
+PYEOF
+)
+[ -z "$D" ] && D="$BASE/${S}_$ORIG"
+# 완성본 mp4 도 폴더 안에 하나뿐이면 그 이름 그대로 덮어쓴다(제목이 바뀐 편에서 mp4 가 둘 되지 않게)
+MP=$(python3 - "$D" <<'PYEOF'
+import os, sys
+d = sys.argv[1]
+m = [n for n in os.listdir(d) if n.endswith(".mp4") and not n.startswith("._")] if os.path.isdir(d) else []
+print(m[0] if len(m) == 1 else "")
+PYEOF
+)
+[ -z "$MP" ] && MP="완성본_$ORIG.mp4"
 $PY NAS이관_sk.py ~/Desktop/스케치코미디/프리미어_$S/스케치_$S.prproj "$D" 2>&1 | head -1
-cp "$M" "$D/완성본_$ORIG.mp4" && [ "$(md5 -q "$M")" = "$(md5 -q "$D/완성본_$ORIG.mp4")" ] && echo "완성본 납품 대조 일치 → $D"
+cp "$M" "$D/$MP" && [ "$(md5 -q "$M")" = "$(md5 -q "$D/$MP")" ] && echo "완성본 납품 대조 일치 → $D"

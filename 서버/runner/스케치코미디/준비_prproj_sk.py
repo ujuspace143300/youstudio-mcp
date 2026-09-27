@@ -1224,6 +1224,55 @@ def main():
     def 기하걸림(i):
         return 관.걸림(박스들, [컷사각(i)], 관.가림목록([segs[i]]))
 
+    가림여유 = 6     # 가림 사각형 둘레 여유(px) — 컷 상자는 정수로 반올림돼 경계에 1px 걸칠 수 있다
+
+    def 얼굴상자(i, t0, t1):
+        """컷 전체의 얼굴을 합친 상자 (x, y, w, h). 프리미어 컷 상자는 컷 내내 한 자리라, 가림을 피해 crop 이 작아지면
+        컷 안 «모든» 샷의 말하는 얼굴이 들어가야 한다(295 실측: 가림 시각 얼굴만 재면 컷 끝 125초 여자 얼굴이 오른쪽에
+        반쯤 잘렸다). 9장에서 장마다 가장 큰 얼굴 넓이의 60% 넘는 얼굴만(가장자리에 작게 걸친 얼굴·오검출 제외 — 295 118초 왼끝 안경 남자 0.37배) 합친다. 합친 상자가 쓸 수 있는
+        자리보다 크면 담기가 그 가운데에 둔다(얼굴담김=None 으로 알린다)."""
+        fs = []
+        for k in range(9):
+            try:
+                rgb = grab(t0 + (t1 - t0) * (0.1 + 0.1 * k), f"g{i}_{k}")
+                faces = [f[:4] for f in FR._faces_yunet(rgb, score=b.get("face_score", 0.45))]
+            except Exception:
+                faces = []
+            if faces:
+                큰 = max(f[2] * f[3] for f in faces)
+                fs += [f for f in faces if f[2] * f[3] >= 큰 * 0.6]
+        if not fs:
+            return None
+        x0, y0 = min(f[0] for f in fs), min(f[1] for f in fs)
+        return (x0, y0, max(f[0] + f[2] for f in fs) - x0, max(f[1] + f[3] for f in fs) - y0)
+
+    def 가림피하기(i, usable_h):
+        """★2026-09-28 싱글295 — TV 화면 속 가운데 캡션 «보통 수컷이 1,500회…»(원본 x600~1320·y770~915·121.9~123.4초).
+        굽기(framing.가림경계)는 네 쪽(왼·오른·위·아래) 중 crop 을 가장 크게 둘 수 있는 쪽으로 피해 완성본에서 사라졌는데,
+        준비는 가림을 «가로로만» 피해(09-27 싱글268 좌상단 캡션 때 넣은 식) 화면 가운데 캡션은 1080 폭 상자로 비킬 자리가
+        없어 ⑦ 에서 멈췄다(컷04 밑변 902 > 가림 윗변 770). 가운데·넓은 캡션 전체가 같은 구멍이다.
+        → 규칙을 한 곳으로: 굽기와 «같은 함수» framing.가림경계 로 피할 쪽(세로 포함)을 고르고, framing.담기 로 그 안에
+          얼굴을 담아 crop 을 정한 뒤 프리미어 상자(scale·pos)로 바꾼다. 세로로 피하면 crop 이 작아지니 확대가 커진다.
+          관문은 번인관문.걸림 이 원래 사각형으로 다시 본다(여기서 못 피하면 그대로 멈춘다)."""
+        c = 컷사각(i)
+        ratio = 1080 / box_h
+        s0 = picture[i]["box"]["scale"] / 100.0
+        pxn, cyn = (float(v) for v in picture[i]["box"]["pos"].split(":"))
+        x0 = 960 - pxn * 1080 / s0
+        y0 = 540 + (b["y0"] - cyn * 1920) / s0
+        넓힌 = dict(segs[i], 가림=[[r[0] - 가림여유, r[1] - 가림여유, r[2] + 가림여유, r[3] + 가림여유] + list(r[4:])
+                                  for r in segs[i].get("가림") or []])
+        경계 = FR.가림경계((0, 0, 1920, 1080), 넓힌, c["t0"], c["t1"], usable_h, ratio)
+        # 컷 상자 좌표 = 원본(dst_src) 기준 — grab 도 dst_src 를 본다(picture 의 src_in 과 같은 축).
+        face = 얼굴상자(i, c["t0"], c["t1"])
+        bw, bh, tx, ty, 담김 = FR.담기(1080 / s0, box_h / s0, x0, y0, face, 경계, usable_h, ratio)
+        s = 1080.0 / bw
+        px = (960 - tx) * s
+        cy = b["y0"] + (540 - ty) * s
+        picture[i]["box"] = {"scale": round(s * 100, 3), "pos": f"{px / 1080:.6f}:{cy / 1920:.6f}"}
+        print(f"  컷{i+1:02d}: 화면 캡션(가림) 피함 — 경계 {tuple(int(v) for v in 경계)} · crop {bw}x{bh}@{tx},{ty}"
+              f" · 확대 {s0*100:.0f}%→{s*100:.0f}% · 얼굴 {face} 담김 {담김}")
+
     # 전체화면 컷은 make ① 이 «박힌 자막 카드 겹침 0» 을 이미 보장한다 — 픽셀 글자 검출은 옷·소품 글씨를 자막으로
     #   오인한다(2026-09-27 싱글226 축구 유니폼 «EA7»). 원문화면처럼 픽셀 검사에서 뺀다(기하 관문은 본다).
     for round_ in range(3):
@@ -1243,19 +1292,10 @@ def main():
                 유효탑[i] = min(유효탑.get(i, 9999), min(카드윗) - 2)
             elif i not in 기하:
                 유효탑[i] = 유효탑.get(i, sub_top or int(1080 * 0.872)) - 45
-            상자잡기(i, 유효탑.get(i, sub_top or int(1080 * 0.872)))
-            # 화면 캡션(가림)은 세로가 아니라 가로로 피한다 — 상자를 캡션 반대쪽으로 민다
-            for g in 관.걸림([], [컷사각(i)], 관.가림목록([segs[i]])):
-                r = next(x for x in 관.가림목록([segs[i]]) if x["y0"] == g["상자윗변"])
-                sc = picture[i]["box"]["scale"] / 100.0
-                pxn, cyn = (float(v) for v in picture[i]["box"]["pos"].split(":"))
-                px_ = pxn * 1080
-                if (r["x0"] + r["x1"]) / 2 < 960:
-                    px_ = min(px_, (960 - r["x1"]) * sc)           # 상자 왼변 ≥ 캡션 오른변
-                else:
-                    px_ = max(px_, (960 - r["x0"]) * sc + 1080)     # 상자 오른변 ≤ 캡션 왼변
-                px_ = clamp(px_, 1080 - 960 * sc, 960 * sc)
-                picture[i]["box"]["pos"] = f"{px_ / 1080:.6f}:{cyn:.6f}"
+            _탑 = 유효탑.get(i, sub_top or int(1080 * 0.872))
+            상자잡기(i, _탑)
+            if 관.걸림([], [컷사각(i)], 관.가림목록([segs[i]])):
+                가림피하기(i, max(560, _탑) - 12)
     잔존 = [i + 1 for i in range(len(picture))
             if not (segs[i].get("원문화면") or segs[i].get("전체화면")) and i not in 안쪽컷 and 컷잔존(i)]
     기하전부 = [g for i in range(len(picture)) for g in 기하걸림(i)]
