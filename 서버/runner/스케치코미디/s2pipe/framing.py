@@ -53,6 +53,11 @@ def _faces_yunet(rgb, score=0.45):
     """★임계 0.6 은 너무 보수적이다 — 2인 씬이 많은 소재에서 **비트의 37% 가
     「얼굴 0개」**로 나왔다(실측 2026-08-19). 0.45 로 낮추면 12%, 0.3 이면 6% 다.
     0.3 은 오탐이 늘어 배경 무늬까지 잡으므로 **0.45 를 기본**으로 한다."""
+    global MODEL_PATH
+    # ★임시 폴더 모델이 도중에 지워지면 다시 복사한다 (2026-09-28 03:44 100편 배치 — 누군가 $TMPDIR/sketch_models 를
+    #   지워 그 시각에 돌던 굽기들이 onnx 읽기 실패로 죽었다(싱글128). 시작 때 한 번만 복사하던 구멍).
+    if MODEL_PATH and not os.path.exists(MODEL_PATH):
+        MODEL_PATH = _ascii_copy(MODEL) or MODEL_PATH
     det = cv2.FaceDetectorYN.create(MODEL_PATH, "", (rgb.shape[1], rgb.shape[0]),
                                     score_threshold=score, nms_threshold=0.3, top_k=50)
     bgr = rgb[:, :, ::-1].copy()
