@@ -35,6 +35,12 @@ def _ascii_copy(src):
 
 try:
     import cv2
+    # ★OpenCV 는 기본으로 코어 수만큼 스레드를 쓴다 — 굽기 6~12편이 동시에 돌면 스레드가 수백 개로 불어
+    #   부하 188·CPU 유휴 0% 가 됐다(2026-09-28 07시 100편 배치). 한 프로세스 2개로 묶는다.
+    try:
+        cv2.setNumThreads(2)
+    except Exception:
+        pass
     MODEL_PATH = _ascii_copy(MODEL)
     HAS_YN = hasattr(cv2, "FaceDetectorYN") and bool(MODEL_PATH)
 except Exception:
