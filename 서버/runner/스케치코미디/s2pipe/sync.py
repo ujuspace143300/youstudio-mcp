@@ -582,6 +582,11 @@ def main():
                     dlg.sort(key=lambda x: x["t"])
                     print(f"  ★핀이 줄 가운데({핀tf:.1f}s) — 앞 「{d['text']}」 은 남기고 뒤 「{뒷줄['text']}」 에 핀")
                     d = 뒷줄
+            if d.get("_핀") and 핀글 and not 핀글.startswith("+"):
+                # 한 줄에 핀 두 개가 걸리면 뒤 핀이 앞 핀을 덮는다(2026-09-27 싱글205) — 알리고 둘을 잇는다
+                print(f"  ★핀 두 개가 한 줄에 걸림 [{d['t']:.1f}s] 「{d['_핀']}」 + 「{핀글}」 — 이어 붙인다. 대조표로 확인")
+                핀글 = "=" + d["_핀"].lstrip("=") + " " + 핀글.lstrip("=")
+            d["_핀"] = 핀글
             if 핀글.startswith("="):
                 # ★정확 핀 «=문구» (2026-09-26 싱글285 — 7차 배치 남은 수리 5번 «포함 판정 탓에 줄을 줄이는
                 #   교정 불가»). «흰 쌀밥에» 핀이 «흰 쌀밥에 도루묵조림» 안에 들어 있어 통과돼 다음 줄과 겹쳤다.
@@ -799,6 +804,8 @@ def main():
         정 = 정돈(x.get("text", ""))
         if 정:
             x["text"] = 정
+    for x in dlg:
+        x.pop("_핀", None)
     proj["subs"] = sorted(dlg + narr, key=lambda x: x["t"])
     json.dump(proj, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     print(f"\n저장: {pj}\n★대본이 바뀌었으니 다시 검사해야 제작할 수 있다.")
