@@ -509,10 +509,14 @@ def main():
     if os.path.exists(cut_mp4):
         import numpy as _np
         def _조각소리(path, t0, d):
+            # ★t0 가 0 보다 앞이면 그만큼 앞을 무음으로 채운다 — 0 으로 끌어올리면 창이 밀려 어긋남이 가짜로
+            #   나온다(2026-09-27 싱글244: 조각 시작 0.3초 · 창 −0.65 → 가짜 −0.35초로 ⑦ 이 멈췄다).
+            앞 = max(0.0, -t0)
             r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t0,0):.3f}", "-i", path,
-                                "-t", f"{d:.3f}", "-vn", "-ac", "1", "-ar", "16000",
+                                "-t", f"{max(d - 앞, 0.01):.3f}", "-vn", "-ac", "1", "-ar", "16000",
                                 "-f", "s16le", "-"], capture_output=True)
-            return _np.frombuffer(r.stdout, dtype=_np.int16).astype(float)
+            x = _np.frombuffer(r.stdout, dtype=_np.int16).astype(float)
+            return _np.concatenate([_np.zeros(int(round(앞 * 16000))), x]) if 앞 else x
         어긋난컷 = []
         for k, pc in enumerate(picture):
             # ★다점 표본 + 일관성 판정 (2026-09-07 Deep13 실측 — 전화 장면처럼 같은 대사가
