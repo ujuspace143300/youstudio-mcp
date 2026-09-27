@@ -1145,9 +1145,11 @@ def main():
                 return True
         return False
 
+    # 전체화면 컷은 make ① 이 «박힌 자막 카드 겹침 0» 을 이미 보장한다 — 픽셀 글자 검출은 옷·소품 글씨를 자막으로
+    #   오인한다(2026-09-27 싱글226 축구 유니폼 «EA7»). 원문화면처럼 이 검사에서 뺀다.
     for round_ in range(3):
         걸림 = [i for i in range(len(picture))
-                if not segs[i].get("원문화면") and i not in 안쪽컷 and 컷잔존(i)]
+                if not (segs[i].get("원문화면") or segs[i].get("전체화면")) and i not in 안쪽컷 and 컷잔존(i)]
         if not 걸림:
             break
         print(f"  잔존 게이트 {round_+1}회차 — 컷 {[i+1 for i in 걸림]} 윗변을 45px 올려 다시 잡는다")
@@ -1155,7 +1157,7 @@ def main():
             유효탑[i] = 유효탑.get(i, sub_top or int(1080 * 0.872)) - 45
             상자잡기(i, 유효탑[i])
     잔존 = [i + 1 for i in range(len(picture))
-            if not segs[i].get("원문화면") and i not in 안쪽컷 and 컷잔존(i)]
+            if not (segs[i].get("원문화면") or segs[i].get("전체화면")) and i not in 안쪽컷 and 컷잔존(i)]
     print(("  [OK] " if not 잔존 else "  [X] ") + f"컷 하단 잔존 번인 자막 0  걸린 컷 {잔존}")
     assert not 잔존, f"컷 {잔존} 하단에 번인 자막이 남아 있다 — 확대 후에도 남는다"
     미리보기생성()          # 승격된 컷의 미리보기 갱신
