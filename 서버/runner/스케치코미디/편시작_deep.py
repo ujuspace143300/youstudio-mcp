@@ -37,6 +37,8 @@ def main():
     ap.add_argument("--채널", default="띱 Deep", help="하단 크레딧 채널명(예: 싱글벙글). 기본 띱 Deep")
     ap.add_argument("--전사", choices=["agy", "speechmatics"], default="agy",
                     help="원본 전사 엔진 — 기본 agy(구독). speechmatics 는 유료(사전 승인)")
+    ap.add_argument("--다시전사", action="store_true",
+                    help="work 의 원본 전사(.ko.vtt·.맞춤전·.맞춤.json)를 버리고 새로 묻는다 — 준비.sh --다시 가 준다")
     a = ap.parse_args()
     d = a.folder
     assert os.path.isdir(d), "소재 폴더 없음: " + d
@@ -90,6 +92,13 @@ def main():
     #   고유명사를 미리 일러 준다. 편 중간에 확정된 이름은 work/<슬러그>_사전.json 에.
     for _사 in glob.glob(os.path.join(d, "*사전*.json")):
         shutil.copy2(_사, os.path.join(work, f"{vid}_사전.json"))
+    # ★--다시전사 (2026-09-28 싱글146): 준비.sh --다시 가 편시작을 다시 돌려도 이 vtt 가 있으면 전사를 건너뛰어,
+    #   끝 146~157초가 빠진 전사를 그대로 다시 썼다. 자막띠시각의 .맞춤전(«없을 때만» 씀)도 옛 전사로 남는다 — 셋 다 버린다.
+    if a.다시전사:
+        for _p in (vtt, vtt + ".맞춤전", vtt + ".맞춤.json"):
+            if os.path.exists(_p):
+                os.remove(_p)
+                print(f"  --다시전사: {os.path.basename(_p)} 버림")
     if not os.path.exists(vtt) and a.전사 == "agy":
         from s2pipe import agy_asr
         vocab = asr.load_vocab(vid, channel=a.채널)

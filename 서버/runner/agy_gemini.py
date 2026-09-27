@@ -60,6 +60,14 @@ class AgyStop(BaseException):
     준비·댓글 선별 등 3곳이 except Exception 으로 실패를 삼킨다). Ctrl-C 처럼 끝까지 올라가 체인을 멈춘다."""
 
 
+class AgyOutputLimit(AgyStop):
+    """agy 답이 출력 토큰 한도를 넘어 잘렸다 — 같은 질문을 되풀이해도 또 넘는다(부르는 쪽이 질문을 줄여야 한다).
+    ★2026-09-28 싱글126(원본 214초 통째 전사): 6번 모두 «exceeded the output token limit». agy 기록(brain/…/transcript_full)
+      실측 — 잘린 답 14건의 본문은 4.0~4.5천 자(74~94줄)뿐이고 생각(thinking)이 2.5~3.8만 자로 출력의 85~90% 를 먹었다.
+      반복 폭주가 아니다(같은 줄 되풀이 0~4개 — 짧은 감탄사). 같은 질문 3번 = 약 11분을 버리고 멈췄다.
+    AgyStop 의 하위라 이 예외를 따로 안 잡는 곳에서는 예전처럼 멈춘다. 영상 전사(agy_asr)는 잡아서 구간을 나눠 다시 묻는다."""
+
+
 class _Fail(Exception):
     def __init__(self, reason, retry=False):
         super().__init__(reason)
@@ -277,6 +285,11 @@ def _build(body, work):
     return prompt, n, has_url
 
 
+def 출력한도(reason):
+    """agy 실패 사유가 «출력 토큰 한도 초과» 인가 (agy status=ERROR 문구 — 2026-09-28 싱글126 실측)."""
+    return "exceeded the output token limit" in (reason or "")
+
+
 def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print):
     """agy 로 generateContent 를 흉내 낸다. 실패하면 None — 호출하는 쪽이 EvoLink 로 간다.
     ★단, 영상·소리 첨부 요청은 끝내 실패하면 None 대신 AgyStop 을 던진다 — EvoLink 금지(사장님 결정 2번).
@@ -312,6 +325,11 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
             return _once(body, caller, limit_min, model, log, t0, exe)
         except _Fail as e:
             last = e.reason
+            if media and 출력한도(e.reason):
+                # ★출력 한도 초과는 되묻지 않는다 — AgyOutputLimit 참고(2026-09-28 싱글126)
+                _record(caller, "stop", time.time() - t0, e.reason, model)
+                log(f"  agy 답이 출력 한도를 넘어 잘렸다 — 같은 질문을 되풀이하지 않는다({caller})")
+                raise AgyOutputLimit(f"agy 출력 토큰 한도 초과 · 부른 곳 {caller}: {e.reason[:160]}")
             if not e.retry or 시도 == FORMAT_TRIES - 1:
                 break
             log(f"  agy 실패({e.reason[:100]}) — agy 로 다시 묻는다 ({시도 + 1}/{FORMAT_TRIES})")

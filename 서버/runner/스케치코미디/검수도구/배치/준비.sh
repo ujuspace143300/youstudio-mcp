@@ -8,8 +8,10 @@ S="/Volumes/galaxy/영화자료/3. 스캐치코미디/싱글벙글"; F="$S/$(ls 
 [ -d "$F" ] || { echo "★소재 폴더 없음: $n"; exit 1; }
 cd "$R"
 st=$(date +%s)
+# ★--다시 는 원본 전사 캐시(work/싱글NNN.ko.vtt)도 버린다 (2026-09-28 싱글146 — 끝이 빠진 전사를 그대로 다시 씀)
+REDO=""; [ "$2" = "--다시" ] && REDO="--다시전사"
 if [ ! -f ~/Desktop/스케치코미디/projects/싱글$n.json ] || [ "$2" = "--다시" ]; then
-  $PY 편시작_deep.py "$F" --slug 싱글$n --채널 싱글벙글 \
+  $PY 편시작_deep.py "$F" --slug 싱글$n --채널 싱글벙글 $REDO \
       --로고 ~/Desktop/youstudio-mcp/자산/스케치코미디/channel_icon_숨은기록.png > "$L/싱글${n}_1편시작.txt" 2>&1 \
     || { echo "★편시작 실패 — $L/싱글${n}_1편시작.txt"; tail -5 "$L/싱글${n}_1편시작.txt"; exit 1; }
 fi
