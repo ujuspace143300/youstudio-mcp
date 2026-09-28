@@ -219,10 +219,14 @@ def 판정조각(segs):
     return [dict(s, t1=s.get("_여운전t1", s["t1"])) for s in segs]
 
 
-def 색칠(큐, proj, wdir, 조각, 옛키조각=None, cut_mp4=None, log=print):
+def 색칠(큐, proj, wdir, 조각, 옛키조각=None, cut_mp4=None, log=print, 실패다시=False):
     """큐(dlg)마다 color 를 채운다 — 저장본(같은 키)이 있으면 쓰고, 없으면 판정해 저장한다.
     옛키조각: ⑦ 이 2026-09-28 전에 저장한 키(여운 늘인 조각)도 찾아본다 — 옛 납품편을 다시 판정하지 않게.
     판정이 전부 agy 멈춤(AgyStop)이면 멈춘다(예외가 그대로 나간다) · 일부 실패는 계속 · 전부 일반 실패면 색 없이.
+    ★전부 일반 실패도 «실패 기록» 으로 저장한다 (2026-09-28 실패 주입 시험 — 기록이 없으면 ⑥ 은 흰 자막으로 굽고
+      ⑦ 이 저장본을 못 찾아 새로 판정해 프리미어만 색이 들어갔다: 싱글84 복제본 ⑥ 색 0줄 · ⑦ 32/49큐).
+      ⑦(실패다시=False)은 실패 기록을 그대로 따라 색 없이 간다 = mp4 와 같다. ⑥(실패다시=True)은 다시 구울 때
+      실패 기록을 믿지 않고 새로 판정한다 — 색을 넣으려면 FROM=6 으로 다시 돌리면 된다.
     반환 판정 결과가 있었는가(bool)."""
     logline, 화자수 = proj.get("logline", ""), proj.get("화자수")
     sid = proj["source"].get("id")
@@ -233,7 +237,11 @@ def 색칠(큐, proj, wdir, 조각, 옛키조각=None, cut_mp4=None, log=print):
     except Exception:                                    # noqa: BLE001
         저장 = {}
     옛키 = 판정키(sid, 옛키조각, 큐, logline, 화자수) if 옛키조각 is not None else None
-    if 키 in 저장:
+    실패기록 = 키 in 저장 and "_실패" in (저장[키][2] or {})
+    if 실패기록 and not 실패다시:
+        who, 불안정, cast = [None] * len(큐), [], {}
+        log(f"화자 판정 — ⑥ 판정 실패 기록 사용 · 색 없이(완성본 mp4 와 같게) · {len(who)}줄")
+    elif 키 in 저장 and not 실패기록:
         who, 불안정, cast = 저장[키]
         log(f"화자 판정 — 저장본 사용(조각·자막 그대로) · {len(who)}줄")
     elif 옛키 and 옛키 in 저장:
@@ -244,6 +252,10 @@ def 색칠(큐, proj, wdir, 조각, 옛키조각=None, cut_mp4=None, log=print):
                                     logline, times=[c["t0"] for c in 큐], 예상화자수=화자수)
         if any(w for w in who):
             json.dump({키: [who, 불안정, cast]}, open(캐, "w", encoding="utf-8"), ensure_ascii=False)
+        else:                                            # 전부 일반 실패 — ⑦ 이 따로 판정하지 않게 기록한다
+            json.dump({키: [[None] * len(큐), [], {"_실패": "화자 판정 전부 실패 — 색 없이"}]},
+                      open(캐, "w", encoding="utf-8"), ensure_ascii=False)
+            log("화자 판정 실패 기록 저장 — ⑦ 도 색 없이 간다(색을 넣으려면 FROM=6 으로 다시)")
     if any(w for w in who):
         # 가장 많이 말한 화자 = 1번(기본색) 로 정규화 — 모델이 번호를 어떤 순서로 매겨도 주인공은 기본색
         말수 = Counter(w for w in who if w and w != "효과")
@@ -301,6 +313,30 @@ def 나레창(proj, wdir):
     return round(t0, 3), round(t0 + dur, 3), total
 
 
+def 프리미어색(dlg_cues, 번호, proj, wdir, pad, 조각, 옛키조각=None, log=print):
+    """⑦ 용 — 판정 입력은 ⑥ 과 «똑같은» 큐(나레창·여운 뺀 총길이)로 만들고, 색은 줄 번호로 ⑦ 큐에 옮긴다.
+
+    ★2026-09-28 조건 시험 — ⑦ 은 끝맺음 여운만큼 총길이가 길어, 나레가 영상 맨 끝(0.3초 안)까지 걸리면
+      ⑥ 에서 감춘(0.3초 미만) 마지막 대사가 ⑦ 에서는 살아남는다(모의: 나레 78.5~79.6 · 영상 80.0 · 여운 0.5 → ⑥ 큐 1 · ⑦ 큐 2).
+      그러면 판정키가 달라 ⑦ 이 새로 판정해 mp4 와 다른 색이 나올 수 있다. 판정 큐를 ⑥ 과 같게 만들면 키가 같고,
+      ⑦ 에만 있는 줄은 기본색(mp4 에서는 나레와 겹쳐 build 가 감춘다)."""
+    창 = 나레창(proj, wdir)
+    if 창 is None:
+        return 색칠(dlg_cues, proj, wdir, 조각, 옛키조각=옛키조각, log=log)
+    subs = sorted(proj["subs"], key=lambda x: x["t"])
+    판정큐, 판정번호, *_ = 대사큐(subs, *창, pad)
+    같음 = [(c["text"], round(c["t0"], 2)) for c in 판정큐] == [(c["text"], round(c["t0"], 2)) for c in dlg_cues]
+    if 같음:
+        return 색칠(dlg_cues, proj, wdir, 조각, 옛키조각=옛키조각, log=log)
+    log(f"  주의  ⑦ 대사 큐 {len(dlg_cues)}줄 ≠ ⑥ 판정 큐 {len(판정큐)}줄 (여운·나레 끝 차이) — ⑥ 큐로 판정·저장본을 찾고 줄 번호로 옮긴다")
+    r = 색칠(판정큐, proj, wdir, 조각, 옛키조각=옛키조각, log=log)
+    색of = {i: c.get("color") for c, i in zip(판정큐, 판정번호)}
+    for c, i in zip(dlg_cues, 번호):
+        c["color"] = 색of.get(i)
+    화자교정적용(dlg_cues, proj.get("화자교정"), 팔레트)
+    return r
+
+
 def 굽기색(proj, wdir, pad, log=print):
     """⑥ 굽기용 — ⑦ 과 같은 대사 큐를 만들어 판정·저장하고, {(원래 줄 시각, 글): (r,g,b) | None} 을 준다.
     mp4 자막(write_ass)은 이 표로 «글·시각» 짝을 찾아 칠한다. 짝 없는 줄(나레 근처에서 ⑦ 이 감춘 줄 등)은 기본색."""
@@ -314,7 +350,7 @@ def 굽기색(proj, wdir, pad, log=print):
     if not 큐:
         return {}
     segs = [s for s in proj["segments"] if s.get("keep")]
-    색칠(큐, proj, wdir, 판정조각(segs), log=log)
+    색칠(큐, proj, wdir, 판정조각(segs), log=log, 실패다시=True)
     lines = [x for x in subs if x.get("kind") != "narr"]
     return {(round(lines[i]["t"], 3), lines[i]["text"]): (tuple(c["color"]) if c.get("color") else None)
             for c, i in zip(큐, 번호)}
