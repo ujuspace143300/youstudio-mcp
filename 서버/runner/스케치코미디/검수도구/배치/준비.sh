@@ -4,8 +4,10 @@
 n=$1; R=~/Desktop/youstudio-mcp/서버/runner/스케치코미디; PY=~/.volcano/venv/bin/python3
 export S2_CONFIG=~/Desktop/스케치코미디/config_숨은기록.json
 L=~/Desktop/스케치코미디/배치로그; mkdir -p "$L"
-S="/Volumes/galaxy/영화자료/3. 스캐치코미디/싱글벙글"; F="$S/$(ls "$S" | grep "^$n\." | head -1)"
-[ -d "$F" ] || { echo "★소재 폴더 없음: $n"; exit 1; }
+# ★번호 앞 0 허용 (2026-09-28 — 1~9편 폴더는 «01.»~«09.» 라 «^1\.» 로는 못 찾았다. 못 찾으면 F 가 «$S/» 가 돼
+#   -d 검사까지 통과해 버렸다). 이름이 비면 멈춘다.
+S="/Volumes/galaxy/영화자료/3. 스캐치코미디/싱글벙글"; D="$(ls "$S" | grep -E "^0*$n\." | head -1)"; F="$S/$D"
+[ -n "$D" ] && [ -d "$F" ] || { echo "★소재 폴더 없음: $n"; exit 1; }
 cd "$R"
 st=$(date +%s)
 # ★--다시 는 원본 전사 캐시(work/싱글NNN.ko.vtt)도 버린다 (2026-09-28 싱글146 — 끝이 빠진 전사를 그대로 다시 씀)
