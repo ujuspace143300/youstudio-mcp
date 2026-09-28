@@ -165,17 +165,27 @@ def 화자교정적용(dlg_cues, 교정, 팔레트):
     return n
 
 
-def 대사큐(subs, nar_t0, nar_t1, total, pad):
-    """⑦ 프리미어 대사 큐 규칙(옛 준비_prproj_sk 776~807행 그대로).
+나레덕킹여유 = 0.2      # 두 산출물 가운데 큰 원음 덕킹 여유(초) — 완성본 build.compose duck_pad_sec 0.15(−30dB) ·
+                        # 프리미어 조립_prproj_sk nar_pad 0.2(−15dB). 나레 머리 앞 말끝이 이보다 가까우면 덕킹이 말끝을 먹는다.
+                        # make «나레 곁 대사» 관문과 검수도구/경계제안.py 가 같이 쓴다(2026-09-28 저녁 싱글287·43·44·46·55).
+나레초당글자 = 0.108    # 굽기 전(TTS 캐시에 문구가 없을 때) 나레 길이 어림 = 글자 수(공백 포함) × 이 값.
+                        # 2026-09-28 납품 415편 narrNN.wav 실측 중앙값(p10 0.098 · p90 0.120 · 어림 오차 중앙 0.07초).
+                        # 설정 narration.sec_per_char 0.161 은 실측보다 약 49% 길어 나레 창을 부풀린다(패딩 관문은 그 값을 그대로 쓴다).
 
-    subs = 시각순 자막 전부(kind=narr 포함 — 여기서 뺀다). 60fps 격자에서 끝 = min(말 끝+0.25, 다음 시작, 총길이).
-    ★나레이션이 뜨는 동안 대사 자막은 감춘다(규격 narration.hide_line_subs — 2026-09-01 사장님 재확인).
-      겹치면 자르고, 0.3초도 안 남으면 뺀다.
-    반환 (큐목록, 큐별 원래 줄 번호(대사 줄 목록 기준), 감춘 수, 늘어짐 목록, 끝없음 수)."""
-    n0f, n1f = round((nar_t0 - pad) * F), round((nar_t1 + pad) * F)
-    lines = [x for x in subs if x.get("kind") != "narr"]
-    큐, 번호, 숨김 = [], [], 0
-    늘어짐, 끝없음 = [], 0
+
+def 나레곁(lines, 창들, total, pad):
+    """대사 줄(시각순, kind!=narr) → 줄마다 보이는 구간 (t0f, t1f)(60fps 프레임) 또는 None(감춤). 나레 창 여럿 가능.
+
+    ★완성본 mp4(⑥ build.write_ass)와 프리미어(⑦ 준비 → 대사큐)가 «이 함수 하나» 로 나레 곁 대사를 정한다 (2026-09-28 저녁).
+      예전엔 굽기가 따로 «나레 창 ±0.2초와 조금이라도 겹치면 줄 통째 감춤», 프리미어는 «겹치면 자르고 0.3초 미만만 감춤» 이라
+      나레 바로 앞·뒤 대사가 mp4 에서만 사라졌다(싱글287 «숨겨놓으면 웃기겠다» — 나레가 말끝 0.02초 뒤. 2026-09-28 저녁 재기:
+      납품 420편 중 325편 mp4 에 프리미어엔 있는 대사 431줄이 없다 — 납품 mp4 4편 프레임으로 확인, 옛 편은 다시 굽지 않는다).
+    규칙(옛 ⑦ 준비_prproj_sk 776~807행 그대로 — 2026-09-01 사장님 «나레이션 중에는 본편 대사 자막이 안 나오는 게 맞다»):
+      끝 = min(max(말끝+0.25, 시작+1.0), 다음 줄 시작, 총길이) — 말끝(t1)이 없는 옛 줄만 시작+6초.
+      창 [나레 시작 − pad, 나레 끝 + pad] 과 겹치면 — 창 안(또는 창 머리)에서 시작하면 창 끝으로 밀고, 창 앞에서 시작하면
+      창 앞에서 끊는다. 0.3초도 안 남으면 감춘다. 창이 여럿이면 시각순으로 차례로 적용한다."""
+    창f = sorted((round((a - pad) * F), round((b + pad) * F)) for a, b in 창들)
+    out = []
     for i, x in enumerate(lines):
         t0f = round(x["t"] * F)
         nxtf = round((lines[i + 1]["t"] if i + 1 < len(lines) else total) * F)
@@ -189,14 +199,35 @@ def 대사큐(subs, nar_t0, nar_t1, total, pad):
         t1f = min(끝f, nxtf, round(total * F))
         if t1f <= t0f:
             t1f = t0f + 1
-        if t0f < n1f and t1f > n0f:                  # 나레이션 창과 겹침
-            if t0f >= n0f:
-                t0f = n1f                            # 나레 중 시작 → 나레 끝으로 민다
-            else:
-                t1f = n0f                            # 나레 전 시작 → 나레 앞에서 끊는다
-            if t1f - t0f < round(0.3 * F):
-                숨김 += 1
-                continue
+        보임 = True
+        for n0f, n1f in 창f:
+            if t0f < n1f and t1f > n0f:              # 나레이션 창과 겹침
+                if t0f >= n0f:
+                    t0f = n1f                        # 나레 중 시작 → 나레 끝으로 민다
+                else:
+                    t1f = n0f                        # 나레 전 시작 → 나레 앞에서 끊는다
+                if t1f - t0f < round(0.3 * F):
+                    보임 = False
+                    break
+        out.append((t0f, t1f) if 보임 else None)
+    return out
+
+
+def 대사큐(subs, nar_t0, nar_t1, total, pad):
+    """⑦ 프리미어 대사 큐 규칙(옛 준비_prproj_sk 776~807행 그대로) — 나레 곁 판정은 나레곁() 하나(⑥ mp4 와 같은 함수).
+
+    subs = 시각순 자막 전부(kind=narr 포함 — 여기서 뺀다). 60fps 격자에서 끝 = min(말 끝+0.25, 다음 시작, 총길이).
+    ★나레이션이 뜨는 동안 대사 자막은 감춘다(규격 narration.hide_line_subs — 2026-09-01 사장님 재확인).
+      겹치면 자르고, 0.3초도 안 남으면 뺀다.
+    반환 (큐목록, 큐별 원래 줄 번호(대사 줄 목록 기준), 감춘 수, 늘어짐 목록, 끝없음 수)."""
+    lines = [x for x in subs if x.get("kind") != "narr"]
+    큐, 번호, 숨김 = [], [], 0
+    늘어짐, 끝없음 = [], 0
+    for i, (x, v) in enumerate(zip(lines, 나레곁(lines, [(nar_t0, nar_t1)], total, pad))):
+        if v is None:
+            숨김 += 1
+            continue
+        t0f, t1f = v
         큐.append({"lane": "dlg", "t0": round(t0f / F, 4), "t1": round(t1f / F, 4), "text": x["text"]})
         번호.append(i)
         if x.get("t1"):
@@ -281,18 +312,28 @@ def 색칠(큐, proj, wdir, 조각, 옛키조각=None, cut_mp4=None, log=print, 
     return any(w for w in who)
 
 
-def 나레창(proj, wdir):
-    """굽기 쪽에서 ⑦ 과 같은 나레 창(t0, t1)·총길이를 구한다 — ⑦ 준비_prproj_sk 의 규칙 그대로:
-    조각 머리는 beats.json 실측(out_dur 누적 · 조각 수·t0 가 계획과 같을 때만, 아니면 계획 길이),
-    나레 길이는 narrNN.wav 의 표본 수. ⑦ 의 여운(마지막 조각 연장)은 대사 시작 시각에 영향이 없어 뺀다.
-    나레 조각이 하나가 아니면 None(⑦ 이 그 자리에서 멈춘다)."""
-    나레조각 = [i for i, s in enumerate(proj["segments"]) if (s.get("narration") or "").strip()]
-    if len(나레조각) != 1:
-        return None
+def 나레자리(proj):
+    """나레 조각 [(proj["segments"] 안 번호, 완성본 시작초(계획 길이 누적), 문구)] — keep 조각만 이어 붙인 완성본 시간축.
+    ⑥ 굽기(build.narrate·write_ass)와 make --check «나레 곁 대사» 관문이 같이 쓴다.
+    ★2026-09-28 저녁: 예전 build.narrate·write_ass 는 keep 이 아닌 조각 길이까지 더해 나레 자리를 셌다 — keep:false 조각이
+      나레보다 앞에 있던 Deep07 은 나레가 컷의 조각 머리 2.63초가 아니라 7.70초에 얹혔다(Deep04·06 도 keep:false 있음).
+      컷(build.cut_and_join)·프리미어(준비 picture)는 keep 조각만 붙이므로 나레 자리도 keep 조각만 더한다.
+      wav 이름(narrNN)의 NN 은 예전처럼 segments 안 번호 — 준비·나레창 이 그 이름으로 찾는다."""
+    out, at = [], 0.0
+    for i, s in enumerate(proj["segments"]):
+        if not s.get("keep", True):
+            continue
+        t = (s.get("narration") or "").strip()
+        if t:
+            out.append((i, round(at, 3), t))
+        at += s["t1"] - s["t0"]
+    return out
+
+
+def 조각머리(proj, wdir):
+    """keep 조각마다 완성본 시작초 목록·총길이·실측 여부 — 굽기 실측(beats.json 이 keep 조각 수·t0 와 맞을 때 out_dur 누적),
+    아니면 계획 길이 누적. ⑦ 준비의 picture 머리와 같은 규칙(나레창·make 나레 곁 관문이 같이 쓴다)."""
     segs = [s for s in proj["segments"] if s.get("keep")]
-    nar_seg = next((s for s in segs if s.get("narration")), None)
-    if nar_seg is None:
-        return None
     실측 = None
     try:
         bj = json.load(open(os.path.join(wdir, "beats.json"), encoding="utf-8"))
@@ -305,7 +346,22 @@ def 나레창(proj, wdir):
     for i, s in enumerate(segs):
         머리.append(round(cum, 4))
         cum += 실측[i]["out_dur"] if 실측 else (s["t1"] - s["t0"])
-    total = round(cum, 4)
+    return 머리, round(cum, 4), 실측 is not None
+
+
+def 나레창(proj, wdir):
+    """굽기 쪽에서 ⑦ 과 같은 나레 창(t0, t1)·총길이를 구한다 — ⑦ 준비_prproj_sk 의 규칙 그대로:
+    조각 머리는 beats.json 실측(out_dur 누적 · 조각 수·t0 가 계획과 같을 때만, 아니면 계획 길이),
+    나레 길이는 narrNN.wav 의 표본 수. ⑦ 의 여운(마지막 조각 연장)은 대사 시작 시각에 영향이 없어 뺀다.
+    나레 조각이 하나가 아니면 None(⑦ 이 그 자리에서 멈춘다)."""
+    나레조각 = [i for i, s in enumerate(proj["segments"]) if (s.get("narration") or "").strip()]
+    if len(나레조각) != 1:
+        return None
+    segs = [s for s in proj["segments"] if s.get("keep")]
+    nar_seg = next((s for s in segs if s.get("narration")), None)
+    if nar_seg is None:
+        return None
+    머리, total, _실측 = 조각머리(proj, wdir)
     w = wave.open(os.path.join(wdir, f"narr{나레조각[0]:02d}.wav"))
     dur = w.getnframes() / w.getframerate()
     w.close()

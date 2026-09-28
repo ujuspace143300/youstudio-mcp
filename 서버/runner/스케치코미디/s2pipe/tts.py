@@ -45,9 +45,8 @@ def wav_seconds(path):
     return float(o.strip())
 
 
-def synth(text, narr, out_wav, cache_dir, retry=4):
-    """문구 하나를 굽고 (경로, 길이)를 준다. `narr` 는 config.narration."""
-    body = {
+def _본문(text, narr):
+    return {
         "voice_id": narr["voice_id"],
         "text": text,
         "model": narr.get("model", "ssfm-v30"),
@@ -64,10 +63,52 @@ def synth(text, narr, out_wav, cache_dir, retry=4):
             "audio_format": "wav",
         },
     }
+
+
+def _캐시자리(body, cache_dir):
     sig = hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True)
                          .encode()).hexdigest()[:16]
+    return os.path.join(cache_dir, f"{sig}.raw.wav")
+
+
+def _후처리(raw, out_wav):
+    """원음(raw) → 나레 wav — 두 단계 후처리(위 «후처리를 왜 두 단계로 하나»). synth 와 캐시길이 가 같이 쓴다."""
+    os.makedirs(os.path.dirname(out_wav) or ".", exist_ok=True)
+    mid = out_wav + ".norm.wav"
+    _run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
+          "-af", "loudnorm=I=-23.0:TP=-3:LRA=9", "-ar", "48000", "-ac", "1", mid],
+         "narr loudnorm")
+    _run(["ffmpeg", "-y", "-loglevel", "error", "-i", mid,
+          "-af", "silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.02:"
+                 "stop_periods=-1:stop_threshold=-38dB:stop_duration=0.20:stop_silence=0.02,"
+                 "loudnorm=I=-23:TP=-3:LRA=9",
+          "-ar", "48000", "-ac", "2", out_wav], "narr trim")
+    os.remove(mid)
+
+
+def 캐시길이(text, narr, cache_dir):
+    """이 문구를 구웠을 때 나레 wav 길이(초) — TTS 캐시에 원음이 있으면 synth 와 같은 후처리로 임시 파일에 만들어 잰다
+    (요금 없음). 캐시에 없으면 None(아직 한 번도 안 구운 문구 — 부르는 쪽이 글자 수로 어림한다).
+    ★2026-09-28 저녁: make --check 의 «나레 곁 대사» 관문이 굽기 전에 나레 창 길이를 실측으로 쓰려고 만들었다."""
+    import tempfile
+    raw = _캐시자리(_본문(text, narr), cache_dir)
+    if not (os.path.exists(raw) and os.path.getsize(raw) > 2000):
+        return None
+    d = tempfile.mkdtemp(prefix="나레길이_")
+    try:
+        out = os.path.join(d, "n.wav")
+        _후처리(raw, out)
+        return round(wav_seconds(out), 3)
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def synth(text, narr, out_wav, cache_dir, retry=4):
+    """문구 하나를 굽고 (경로, 길이)를 준다. `narr` 는 config.narration."""
+    body = _본문(text, narr)
     os.makedirs(cache_dir, exist_ok=True)
-    raw = os.path.join(cache_dir, f"{sig}.raw.wav")
+    raw = _캐시자리(body, cache_dir)
 
     if not (os.path.exists(raw) and os.path.getsize(raw) > 2000):
         data = json.dumps(body, ensure_ascii=False).encode()
@@ -98,15 +139,5 @@ def synth(text, narr, out_wav, cache_dir, retry=4):
         else:
             raise SystemExit(f"음성 합성 실패: {type(last).__name__} {str(last)[:200]}")
 
-    os.makedirs(os.path.dirname(out_wav) or ".", exist_ok=True)
-    mid = out_wav + ".norm.wav"
-    _run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
-          "-af", "loudnorm=I=-23.0:TP=-3:LRA=9", "-ar", "48000", "-ac", "1", mid],
-         "narr loudnorm")
-    _run(["ffmpeg", "-y", "-loglevel", "error", "-i", mid,
-          "-af", "silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.02:"
-                 "stop_periods=-1:stop_threshold=-38dB:stop_duration=0.20:stop_silence=0.02,"
-                 "loudnorm=I=-23:TP=-3:LRA=9",
-          "-ar", "48000", "-ac", "2", out_wav], "narr trim")
-    os.remove(mid)
+    _후처리(raw, out_wav)
     return out_wav, round(wav_seconds(out_wav), 3)

@@ -15,6 +15,9 @@
 import json, os, re, subprocess, sys
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from s2pipe import 화자색  # noqa: E402  나레 덕킹 여유(나레덕킹여유) — make «나레 곁 대사» 관문과 같은 값
+
 slug = sys.argv[1]
 쓰기 = "--쓰기" in sys.argv
 W = os.path.expanduser("~/Desktop/스케치코미디")
@@ -72,8 +75,12 @@ def 안의줄(t):
     return next((l for l in 줄 if l[0] + 0.05 < t < l[1] - 0.05), None)
 
 
-def 맞춤(t, 끝인가):
-    """경계 t 를 대사 밖 조용한 자리로. (새 값, 까닭)"""
+def 맞춤(t, 끝인가, 나레앞=False):
+    """경계 t 를 대사 밖 조용한 자리로. (새 값, 까닭)
+    나레앞 — 이 끝(t1) 바로 뒤 조각에 나레가 얹힌다(나레는 조각 머리 = 이 이음매에서 시작). 그러면 끝을 앞 말끝에서
+    화자색.나레덕킹여유(0.2초) 넘게 떨어뜨린다 — 더 가까우면 원음 덕킹(완성본 0.15 · 프리미어 0.2초 앞부터)이 말끝을 먹는다.
+    ★2026-09-28 저녁 싱글44: 훅 «나 감옥 가는 거 아니야?» 말끝 0.23초 뒤에서 끝나는 훅 꼬리를 이 도구가 45.07 로 더
+      당기자고 제안했다(나레 앞 규칙을 몰랐다). make «나레 곁 대사» 관문과 같은 값(화자색.나레덕킹여유)을 쓴다."""
     l = 안의줄(t)
     까닭 = ""
     if l:
@@ -86,6 +93,13 @@ def 맞춤(t, 끝인가):
         창a = max(창a, t - 0.3)                  # 끝을 줄 안쪽으로 되당기지 않는다
     else:
         창b = min(창b, t + 0.3)                  # 시작을 줄 안쪽으로 밀지 않는다
+    if 나레앞:
+        말끝 = max([l_[1] for l_ in 줄 if l_[0] < t and l_[1] <= t + 0.6] + [앞 if 앞 <= t + 0.05 else t - 0.6])
+        창a = max(창a, 말끝 + 화자색.나레덕킹여유)
+        if 창a > 창b:                             # 다음 말이 너무 가까워 여유를 둘 자리가 없다 — 옮기지 않고 알린다
+            return t, (까닭 + " · " if 까닭 else "") + (f"★나레 앞 말끝 {말끝:.2f} 뒤 {화자색.나레덕킹여유}초 여유를 둘 조용한 자리가 없다"
+                                                        " — 나레 조각을 나눠 나레를 늦춰라")
+        까닭 = (까닭 + " · " if 까닭 else "") + f"나레 앞 — 말끝 {말끝:.2f} 뒤 {화자색.나레덕킹여유}초 넘게"
     return 조용한곳(창a, 창b), 까닭
 
 
@@ -98,12 +112,18 @@ for a, b in zip(살린, 살린[1:]):
     if abs(segs[b]["t0"] - segs[a]["t1"]) < 0.05:
         맞닿음 |= {(a, "t1"), (b, "t0")}
 
+# 나레 조각 바로 앞(완성본 순서) 조각 — 그 끝(t1)이 나레 머리 이음매다
+나레앞조각 = {a for a, b in zip(살린, 살린[1:]) if (segs[b].get("narration") or "").strip()}
+
 바뀜 = []
 for i, s in enumerate(segs):
     for k in ("t0", "t1"):
         if (i, k) in 맞닿음:
             continue
-        새, 까닭 = 맞춤(s[k], k == "t1")
+        새, 까닭 = 맞춤(s[k], k == "t1", 나레앞=(k == "t1" and i in 나레앞조각))
+        if 까닭.startswith("★") or " · ★" in 까닭:
+            print(f"  조각 {i} {k}: {s[k]:.2f} 그대로 — {까닭}")
+            continue
         if abs(새 - s[k]) >= 0.05:
             바뀜.append((i, k, s[k], 새, 까닭 or "틈 안 더 조용한 자리"))
             if 쓰기:

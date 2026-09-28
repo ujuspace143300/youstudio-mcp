@@ -566,6 +566,30 @@ def _ts(t):
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
+def _나레곁창(proj, work, narrs, total):
+    """대사 자막을 가를 나레 창 [(시작, 끝)] 과 총길이 — ⑦ 프리미어(준비 → 화자색.대사큐)와 «같은 입력» 을 쓴다:
+    나레가 하나면 화자색.나레창(조각 머리 = 굽기 실측 beats.json · 길이 = narrNN.wav 표본 수 · 총길이 = 실측 합).
+    나레가 여럿이거나(⑦ 이 멈출 편) 실측이 굽는 자리와 0.1초 넘게 다르면 굽는 자리(narrs)·total 로.
+    규격 narration.hide_line_subs 가 꺼져 있으면 창 없음(대사를 가리지 않는다)."""
+    if not narrs or not CFG["narration"].get("hide_line_subs", True):
+        return [], total
+    from . import 화자색 as _HS
+    try:
+        창 = _HS.나레창(proj, work)
+    except Exception:                                    # noqa: BLE001 — beats·wav 를 못 읽으면 굽는 자리로
+        창 = None
+    if 창 is not None and len(narrs) == 1 and abs(창[0] - narrs[0][0]) < 0.1:
+        return [(창[0], 창[1])], 창[2]
+    out = []
+    for a, wav in narrs:
+        try:
+            d = probe_dur(wav)
+        except Exception:                                # noqa: BLE001
+            d = 3.0
+        out.append((a, a + d))
+    return out, total
+
+
 def write_ass(proj, dst, total, narrs=(), 색표=None):
     """대사와 나레이션을 **색으로 가른다**(지침서 3장).
 
@@ -616,14 +640,23 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
     #   검수가 어긋난다): 아모르 팝(86→104→100 튀기)과 말 끝 종료 시각을 같이 넣는다.
     팝 = "{\\fscx86\\fscy86\\t(0,120,\\fscx104\\fscy104)\\t(120,182,\\fscx100\\fscy100)}"
     칠함 = [0, 0, 0]                                     # 화자 색 · 기본색(화자1) · 짝 없음(기본색)
+    # ★★나레 곁 대사는 프리미어(⑦ 화자색.대사큐)와 «같은 함수·같은 입력» 으로 정한다 (2026-09-28 저녁 싱글287).
+    #   예전 굽기는 여기서 끝을 따로 재고, 아래에서 «나레 창 ±0.2초와 조금이라도 겹치면 줄 통째 감춤» 을 해
+    #   나레 바로 앞 대사(«숨겨놓으면 웃기겠다» — 말끝 4.97 · 나레 4.99)가 mp4 에서만 사라졌다. 프리미어는 같은 줄을
+    #   나레 앞에서 끊어 보여 줬다(두 산출물 불일치 — 납품 편 대부분이 그랬다: 한편_완주_지침 «도구 주의»).
+    #   이제 두 곳 다 화자색.나레곁: 겹치면 자르고(나레 전 시작 → 나레 앞에서 끊음 · 나레 중 시작 → 나레 뒤로 밂),
+    #   0.3초도 안 남으면 감춘다. 나레가 뜨는 동안 대사 자막이 안 나오는 것(2026-08-19·09-01)은 그대로다.
+    from . import 화자색 as _HS
+    창들, 총 = _나레곁창(proj, os.path.dirname(dst), narrs, total)
+    pad = float(CFG["narration"].get("duck_pad_sec", 0.15))
+    보임 = _HS.나레곁(subs, 창들, 총, pad)
+    그대로 = _HS.나레곁(subs, [], 총, pad)                # 나레가 없을 때의 구간 — 잘리거나 밀린 줄을 세려고
+    감춤 = sum(1 for v in 보임 if v is None)
+    잘림 = sum(1 for v, w in zip(보임, 그대로) if v is not None and v != w)
     for i, cur in enumerate(subs):
-        다음t = subs[i + 1]["t"] if i + 1 < len(subs) else total
-        if cur.get("t1"):
-            end = min(max(cur["t1"] + 0.25, cur["t"] + 1.0), 다음t, total)
-        else:
-            end = min(다음t, cur["t"] + 3.0, total)
-        if end <= cur["t"]:
+        if 보임[i] is None:
             continue
+        st, end = round(보임[i][0] / _HS.F, 4), round(보임[i][1] / _HS.F, 4)
         txt = (cur.get("text") or "").replace("\n", " ")
         if len(txt) > hi:                                # 넘치면 화면 밖으로 나간다
             txt = txt[:hi - 1] + "…"
@@ -632,20 +665,18 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         if 색표 is not None:
             칠함[0 if 색 else (1 if (round(cur["t"], 3), cur.get("text")) in 색표 else 2)] += 1
         색태그 = "{\\1c&H%02X%02X%02X&}" % (색[2], 색[1], 색[0]) if 색 else ""
-        body.append(f"Dialogue: 0,{_ts(cur['t'])},{_ts(end)},main,,0,0,0,,{색태그}{팝}{txt}")
+        body.append(f"Dialogue: 0,{_ts(st)},{_ts(end)},main,,0,0,0,,{색태그}{팝}{txt}")
 
     if 색표 is not None:
         print(f"    대사 색 — 화자 색 {칠함[0]}줄 · 기본색(화자1) {칠함[1]}줄 · 짝 없음(기본색) {칠함[2]}줄", flush=True)
+    # ★★나레이션이 뜨는 동안 **대사 자막은 안 나온다** — 둘이 겹치면 자막이 2줄로 뭉친다(2026-08-19). 겹치는 줄은
+    #   위 화자색.나레곁 이 나레 앞에서 끊거나 나레 뒤로 밀고, 0.3초도 안 남으면 감춘다(프리미어와 같은 줄).
+    if 감춤 or 잘림:
+        print(f"    나레이션 곁 대사 자막 — 감춤 {감춤}줄 · 나레 앞에서 끊거나 뒤로 밀어 보인 줄 {잘림}줄 (프리미어와 같은 규칙)",
+              flush=True)
 
     # 나레이션 — 실제로 구운 음성과 **같은 문구·같은 길이**로 얹는다
-    seg_narr = {}
-    at = 0.0
-    for sg in proj["segments"]:
-        t = (sg.get("narration") or "").strip()
-        if t:
-            seg_narr[round(at, 3)] = t
-        at += sg["t1"] - sg["t0"]
-    spans = []
+    seg_narr = {round(a, 3): t for _i, a, t in _HS.나레자리(proj)}
     for a, wav in narrs:
         t = seg_narr.get(round(a, 3))
         if not t:
@@ -654,33 +685,8 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
             d = probe_dur(wav)
         except Exception:                                # noqa: BLE001
             d = 3.0
-        spans.append((a, a + d))
         body.append(f"Dialogue: 0,{_ts(a)},{_ts(a + d)},narr,,0,0,0,,"
                     "{\\fscx86\\fscy86\\t(0,120,\\fscx104\\fscy104)\\t(120,182,\\fscx100\\fscy100)}" + t)
-
-    # ★★나레이션이 뜨는 동안 **대사 자막을 감춘다.** 둘이 겹쳐 자막이 2줄로 뭉쳐
-    #   나왔다. 그 구간은 원음도 죽였으니 읽을 대사가 없다.
-    if spans and CFG["narration"].get("hide_line_subs", True):
-        def _sec(v):
-            return sum(float(x) * m for x, m in zip(v.split(":"), (3600, 60, 1)))
-
-        keep, cut_n = [], 0
-        for ln in body:
-            if ",main," not in ln:
-                keep.append(ln)
-                continue
-            p = ln.split(",")
-            st, en = _sec(p[1]), _sec(p[2])
-            # ★★**구간이 겹치면 감춘다 — 시작 시각만 보면 안 된다.**
-            #   나레이션 **전에 시작해서** 그 위로 흘러 들어오는 자막이 그대로
-            #   남아 두 줄이 겹쳤다(실측 2026-08-19).
-            if any(st < b + 0.2 and en > a - 0.2 for a, b in spans):
-                cut_n += 1
-                continue
-            keep.append(ln)
-        if cut_n:
-            print(f"    나레이션과 겹쳐 감춘 대사 자막 {cut_n}줄", flush=True)
-        body = keep
 
     # 댓글 — 편 전체에 균등 배치한다. **읽을 게 계속 바뀌어야 지루하지 않다**
     cmts = proj.get("comments", [])
@@ -735,19 +741,18 @@ def narrate(proj, work, total):
     n = CFG["narration"]
     if not n.get("enabled") or not n.get("voice_id"):
         return []
-    out, at = [], 0.0
-    for i, s in enumerate(proj["segments"]):
+    from . import 화자색 as _HS
+    out = []
+    for i, at, text in _HS.나레자리(proj):
+        s = proj["segments"][i]
         span = s["t1"] - s["t0"]
-        text = (s.get("narration") or "").strip()
-        if text:
-            wav = os.path.join(work, f"narr{i:02d}.wav")
-            _p, d = tts.synth(text, n, wav, os.path.join(work, "_tts"))
-            if d > span:
-                print(f"    ★나레 {i} 가 조각보다 길다 ({d:.1f}초 > {span:.1f}초)"
-                      f" — 다음 대사와 겹친다", flush=True)
-            print(f"    나레 {i}: {d:.2f}초  {text[:30]}", flush=True)
-            out.append((round(at, 3), wav))
-        at += span
+        wav = os.path.join(work, f"narr{i:02d}.wav")
+        _p, d = tts.synth(text, n, wav, os.path.join(work, "_tts"))
+        if d > span:
+            print(f"    ★나레 {i} 가 조각보다 길다 ({d:.1f}초 > {span:.1f}초)"
+                  f" — 다음 대사와 겹친다", flush=True)
+        print(f"    나레 {i}: {d:.2f}초  {text[:30]}", flush=True)
+        out.append((at, wav))
     return out
 
 
