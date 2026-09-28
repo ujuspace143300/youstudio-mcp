@@ -145,11 +145,96 @@ def 엔드카드시작(src, dur, 하한=0.0):
             hi = mid
         else:
             lo = mid
-    return round(hi, 3)
+    # ★격자 경계값으로 (2026-09-28 싱글51 1프레임 튐 클래스) — hi 는 «ffmpeg 이 -ss hi(0.01초 반올림)로 준 프레임이 카드»
+    #   라는 뜻이다. 그 프레임 번호의 경계값을 돌려야 «가장 가까운 프레임» 규칙(프레임격자.번호)으로 읽어도 카드 첫
+    #   프레임 바로 앞에서 끝난다(133.805 를 그대로 두면 가장 가까운 프레임이 카드 앞 한 장이라 내용 한 장을 잃는다).
+    from . import 프레임격자 as _G
+    _g = _G.얻기(src)
+    return _g.경계값(_g.첫프레임(float(f"{max(hi, 0):.2f}")))
 
 
-def cut_and_join(src, segs, dst, work, fps):
-    """구간을 잘라 **여백 없이** 붙인다. crop 은 비트마다 조금씩 움직인다."""
+def 조각틀(src, s, 호환=False, 앞이어짐=False, 뒤이어짐=False):
+    """조각 하나의 «프레임 창» — 굽기(mp4)·준비(프리미어)·관문이 모두 이 값을 쓴다 (2026-09-28 싱글51·47 1프레임 튐).
+
+    돌려주는 값 {"모드", "f0": ffmpeg 이 처음 주는 프레임 번호, "앞멈춤": 첫 실제 프레임을 앞에 더 보여 줄 수,
+                 "M": 원본에서 쓰는 실제 프레임 수(f0+앞멈춤 부터), "뒤멈춤": 끝 실제 프레임을 더 보여 줄 수,
+                 "N": 총 프레임 수(앞멈춤 + M + 뒤멈춤), "ss": ffmpeg 입력 -ss, "a0": 소리 시작(원본 초), "dur": 조각 길이(초)}
+      새  : 경계 = 프레임 격자. f0 = 번호(t0) · N = M = 번호(t1) − f0 — 시각 차 × fps 를 반올림하지 않는다.
+            소리는 p_f0 부터(영상 첫 프레임과 같은 순간 — 프리미어 in 점과 같다). 자투리는 cut_and_join 이 경계를
+            전환 프레임으로 옮겨 없앤다.
+      호환: ④ 가 옛 굽기 시간축으로 자막을 맞춘 편(옛 코드 ② 뒤 새 코드 ⑥). 조각 길이·소리 시작을 옛 값 그대로 둔다
+            (N = round((t1−t0)·fps), 소리 t0 부터) — 그래야 자막이 안 밀린다. 영상만 고른다: 가장 가까운 프레임에서
+            시작하고(가장 가까운 프레임이 앞 샷 마지막 장이면 옛 굽기처럼 다음 장), 점프 컷 머리 1~2장이 앞 샷이면 그
+            자리를 새 샷 첫 장으로 채우고(앞멈춤), 끝 1~2장·t1 너머가 다음 샷이면 끝 장으로 채운다(뒤멈춤) — 1~2프레임
+            멈춤은 점프 컷에 가려 안 보이고, 다음·앞 샷 번쩍임은 보인다. 옛 코드는 여기서 다른 샷 장을 넣었다.
+    """
+    from . import 프레임격자 as G
+    g = G.얻기(src)
+    t0, t1 = float(s["t0"]), float(s["t1"])
+    k0, k1 = g.번호(t0), g.번호(t1)
+    if not 호환:
+        N = max(1, k1 - k0)
+        return {"모드": "새", "f0": k0, "앞멈춤": 0, "M": N, "뒤멈춤": 0, "N": N,
+                "ss": g.경계값(k0), "a0": g.시작(k0), "dur": g.길이(k0, k0 + N)}
+    N = max(1, int(round((t1 - t0) * g.fps)))
+    f0 = k0
+    if g.첫프레임(t0) == k0 + 1 and G.전환인가(src, g, k0 + 1):
+        f0 = k0 + 1                   # 가장 가까운 프레임이 앞 샷 마지막 장 — 옛 굽기처럼 전환 프레임에서 시작
+    A = 0
+    if not 앞이어짐:
+        c = [x for x in G.전환들(src, g, f0, (1, 2)) if x - f0 < N - 2]
+        if c:
+            A = max(c) - f0            # 머리 A 장이 앞 샷 — 새 샷 첫 장으로 채운다
+    M = N - A
+    끝 = f0 + N                        # 실제 프레임 [f0+A, 끝)
+    if not 뒤이어짐:
+        살필 = sorted(set(range(max(f0 + A + 1, 끝 - 2), 끝)) | set(range(max(f0 + A + 1, k1), 끝)))
+        전 = [x for x in G.전환들(src, g, 끝, tuple(x - 끝 for x in 살필))] if 살필 else []
+        if 전:
+            M = max(1, min(전) - (f0 + A))
+    return {"모드": "호환", "f0": f0, "앞멈춤": A, "M": M, "뒤멈춤": N - A - M, "N": N,
+            "ss": min(t0, g.경계값(f0)), "a0": t0, "dur": N / g.fps}
+
+
+def _틀기록(틀, 머리):
+    """beats.json 조각 칸에 남길 프레임 창 — 준비(프리미어 in 점)·튐 관문·재기가 같은 값을 읽는다."""
+    return {"f0": 틀["f0"], "앞멈춤": 틀["앞멈춤"], "M": 틀["M"], "뒤멈춤": 틀["뒤멈춤"], "N": 틀["N"],
+            "a0": round(float(틀["a0"]), 6), "머리": 머리}
+
+
+def _틀굽기(src, 틀, 영상, p, 겹=False):
+    """조각 하나를 «프레임 창» 그대로 굽는다 — 영상 [f0, f0+M) (+끝 멈춤) · 소리 a0 부터 dur. 네 갈래(비트·한 장 구도·
+    원문화면·프레임-인-프레임)가 모두 이 길을 지난다(2026-09-28 — 예전엔 갈래마다 -ss/-to/-t 와 round 프레임 수를
+    따로 써서 한 갈래만 고쳐도 나머지가 샜다).
+      영상 = "[0:v]…[vx]" 꼴 필터(첫 프레임 = f0). 겹=True 면 이미 filter_complex 조각이다."""
+    A, M, H, N = 틀["앞멈춤"], 틀["M"], 틀["뒤멈춤"], 틀["N"]
+    if A and "[vx]" in 영상 and not 겹:
+        # 한 갈래 필터 — ffmpeg 첫 프레임은 f0 라 앞 A 장(앞 샷)을 먼저 버린다(비트 갈래는 비트 창이 이미 f0+A 부터다)
+        영상 = 영상.replace("[0:v]", f"[0:v]trim=start_frame={A},setpts=PTS-STARTPTS,", 1)
+    끝 = (f"[vx]trim=end_frame={M}" + (f",tpad=start={A}:start_mode=clone" if A else "")
+          + (f",tpad=stop={H}:stop_mode=clone" if H else "") + ",setpts=PTS-STARTPTS[vo]")
+    소리 = (f"[0:a]atrim=start={max(0.0, 틀['a0'] - 틀['ss']):.6f}:duration={틀['dur']:.6f},"
+            f"asetpts=PTS-STARTPTS[ao]")
+    fc = f"{영상};{끝};{소리}"
+    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", repr(float(틀["ss"])),
+         "-t", f"{max(0.0, 틀['a0'] - 틀['ss']) + 틀['dur'] + 0.5:.4f}", "-i", src,
+         "-filter_complex", fc, "-map", "[vo]", "-map", "[ao]", "-t", f"{틀['dur']:.6f}",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
+         "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
+    # ★게이트: 구운 조각의 영상 프레임 수 = N (소리와 프레임 일치 · 2026-09-09 립싱크 실측에서 비트 조각에만 있던 것을 모든 갈래로)
+    _nf = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                          "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", p],
+                         capture_output=True, text=True).stdout.strip()
+    assert _nf and int(_nf) == N, f"조각 프레임 {_nf} ≠ 틀 {N} — 영상·소리 프레임 어긋남(립싱크) · {p}"
+    return p
+
+
+def cut_and_join(src, segs, dst, work, fps, 호환=False):
+    """구간을 잘라 **여백 없이** 붙인다. crop 은 비트마다 조금씩 움직인다.
+
+    ★경계는 원본 프레임 번호다(s2pipe/프레임격자.py · 2026-09-28 싱글51·47·48). 조각 창은 조각틀() 한 곳이 정하고
+      네 갈래 굽기·비트 구도·관문·준비(프리미어)가 같은 값을 쓴다. 호환=True 는 옛 코드 시간축으로 자막을 맞춘 편 —
+      조각 길이·소리 시작을 옛 값 그대로 두고 영상만 다음 샷이 안 섞이게 고른다(run_build 가 정한다)."""
     from . import framing
     from . import split as sp
 
@@ -247,38 +332,84 @@ def cut_and_join(src, segs, dst, work, fps):
             f"마지막 조각 끝({막['t1']:.2f}s)이 정지 카드다 — 엔드카드 검출/트림이 카드를 놓쳤다. "
             f"엔드카드시작({막['t0']+2.0:.1f}~) 반환값과 원본 카드 시작을 대조하라(싱글349 클래스).")
 
-    parts, log = [], {"segments": [], "beats": [], "frames": []}
+    # ★조각 경계 = 프레임 격자 (2026-09-28 «화면 전환 자리 1프레임 튐» 클래스 수리)
+    #   새 굽기는 경계를 격자 경계값으로 맞추고(계획에 되쓴다 — run_build), 원본에서 이어지지 않는 이음매(점프 컷)는
+    #   조각 첫 1~2프레임·끝 1~2프레임에 다른 샷이 끼지 않게 전환 프레임으로 붙인다(자투리 = 1~2프레임 번쩍임 —
+    #   싱글126 실측 조각 8 끝 2프레임). 소리 이음매가 최대 2프레임(83ms) 옮겨지므로 ④ 이음매 관문이 다시 본다.
+    #   호환 편은 경계·길이를 건드리지 않는다(자막 시간축 보존) — 자투리는 아래 튐 관문이 잡아 알린다.
+    from . import 프레임격자 as G
+    g = G.얻기(src)
+    붙임 = []
+    # ★원본에서 이어진 이음매(앞 조각 끝 = 이 조각 시작)가 화면 전환에서 2장 안이면 이음매를 전환으로 옮긴다 — 완성본
+    #   내용·소리는 그대로이고(원본에서 이어져 있다) 조각 구분만 바뀐다. 안 옮기면 새 샷 첫 1~2장이 앞 조각 구도로 나가거나
+    #   (싱글51 128.545 전환 · 이음매 128.58), 전환 1장 뒤에 다음 조각 구도가 한 번 더 바뀐다. 호환 편은 정확히 프레임
+    #   간격의 정수배로 옮겨 두 조각 프레임 수의 합과 소리 이음을 그대로 둔다(자막 시간축 보존).
+    for i in range(len(segs) - 1):
+        a_, b_ = segs[i], segs[i + 1]
+        k = g.번호(a_["t1"])
+        if g.번호(b_["t0"]) != k or abs(a_["t1"] - b_["t0"]) > g.T / 2:
+            continue
+        c = G.전환들(src, g, k, (-2, -1, 1, 2))
+        if not c or G.전환인가(src, g, k):
+            continue
+        c = min(c, key=lambda x: abs(x - k))
+        if not (g.번호(a_["t0"]) + 2 < c < g.번호(b_["t1"]) - 2):
+            continue
+        if 호환:
+            a_["t1"] = b_["t0"] = round(a_["t1"] + (c - k) / g.fps, 6)
+        else:
+            a_["t1"] = b_["t0"] = g.경계값(c)
+        붙임.append(f"이어진 이음매 {i}/{i + 1} {c - k:+d}프레임")
+    if not 호환:
+        for i, s in enumerate(segs):
+            k0, k1 = g.번호(s["t0"]), g.번호(s["t1"])
+            앞이어짐 = i > 0 and g.번호(segs[i - 1]["t1"]) == k0
+            뒤이어짐 = i + 1 < len(segs) and g.번호(segs[i + 1]["t0"]) == k1
+            최소 = int(round(0.5 * g.fps))
+            if not 앞이어짐:
+                c = G.전환들(src, g, k0, (1, 2))
+                if c and k1 - max(c) >= 최소:
+                    붙임.append(f"조각 {i} 시작 +{max(c) - k0}프레임")
+                    k0 = max(c)
+            if not 뒤이어짐:
+                c = G.전환들(src, g, k1, (-2, -1))
+                if c and min(c) - k0 >= 최소:
+                    붙임.append(f"조각 {i} 끝 −{k1 - min(c)}프레임")
+                    k1 = min(c)
+            s["t0"], s["t1"] = g.경계값(k0), g.경계값(k1)
+    if 붙임:
+        print(f"    조각 경계를 원본 화면 전환 프레임에 붙임 {len(붙임)}곳 — " + " · ".join(붙임), flush=True)
+    이음 = [i > 0 and g.번호(segs[i - 1]["t1"]) == g.번호(segs[i]["t0"]) for i in range(len(segs))]
+    틀들 = [조각틀(src, s, 호환, 앞이어짐=이음[i], 뒤이어짐=i + 1 < len(segs) and 이음[i + 1])
+           for i, s in enumerate(segs)]
+    print(f"    조각 창 {'호환(옛 자막 시간축 보존)' if 호환 else '격자'} — 프레임 {sum(t['N'] for t in 틀들)}장"
+          + (f" · 멈춤 앞 {sum(t['앞멈춤'] for t in 틀들)}장·끝 {sum(t['뒤멈춤'] for t in 틀들)}장(다른 샷 번쩍임 대신)"
+             if any(t['앞멈춤'] or t['뒤멈춤'] for t in 틀들) else ""),
+          flush=True)
 
-    def bake_beats(a, bnd, plan):
+    parts, log = [], {"segments": [], "beats": [], "frames": [],
+                      "격자": {"판": 1, "모드": "호환" if 호환 else "새", "fps": g.fps}}
+
+    def bake_beats(틀, plan):
+        """비트마다 다른 crop 을 «프레임 번호» 로 이어 붙인다 — 비트 [f0, f1) 은 조각 첫 프레임에서 센 trim start_frame/
+        end_frame 이다(2026-09-28 — 예전 trim=start=초 .3f 는 경계가 프레임 사이에 걸리면 한 장 어긋날 수 있었다)."""
         legs, tags = [], []
-        for j, (bt0, bt1, vf, _) in enumerate(plan):
-            cut = (f"trim=start={bt0-a:.3f}"
-                   + ("" if j == len(plan) - 1 else f":end={bt1-a:.3f}"))
-            legs.append(f"[0:v]{cut},setpts=PTS-STARTPTS,{vf},setsar=1[v{j}]")
+        lo_, hi_ = 틀["앞멈춤"], 틀["앞멈춤"] + 틀["M"]         # 실제 프레임 = ffmpeg 첫 프레임(f0)에서 센 [lo_, hi_)
+        for j, (bt0, bt1, vf, info) in enumerate(plan):
+            s0 = max(lo_, min(hi_, info["f0"] - 틀["f0"]))
+            s1 = max(lo_, min(hi_, info["f1"] - 틀["f0"]))
+            if j == len(plan) - 1:
+                s1 = hi_
+            if s1 <= s0:
+                continue
+            legs.append(f"[0:v]trim=start_frame={s0}:end_frame={s1},setpts=PTS-STARTPTS,{vf},setsar=1[v{j}]")
             tags.append(f"[v{j}]")
-        # ★비트 영상을 소리와 «정확히 같은 프레임 수»로 못 박는다 (2026-09-09 립싱크 실측:
-        #   비트 concat 이 마지막 비트에서 1프레임 넘쳐 영상이 소리보다 1프레임 길었다.
-        #   조각마다 쌓여 8조각 편 끝에서 ~0.3s 소리가 입보다 앞섰다 — trim=end_frame 으로 자른다.
-        #   -t 는 소리에만 걸리고, 영상은 concat 이 -t 를 안 지켜(200프레임 vs 199) 어긋났었다.)
-        N = round((bnd - a) * fps)                       # 이 조각의 목표 프레임 수
-        fc = ";".join(legs) + f";{''.join(tags)}concat=n={len(plan)}:v=1:a=0,trim=end_frame={N},setpts=PTS-STARTPTS[vo]"
-        p = os.path.join(work, f"seg{len(parts):03d}.mov")
-        # ★PCM + 프레임 정확 길이(2026-09-03 «순간 배속» 사건) — AAC 꼬리 패딩이 조각마다
-        #   +40~60ms 붙어 경계에서 말이 겹쳐 들렸다(46ms 실측). PCM 은 패딩이 없고
-        #   -t 로 프레임 단위 길이를 못 박는다. AAC 인코딩은 최종 합칠 때 한 번만.
-        d_q = N / fps
-        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(a),
-             "-to", str(bnd), "-i", src, "-filter_complex", fc,
-             "-map", "[vo]", "-map", "0:a", "-t", f"{d_q:.5f}",
-             "-c:v", "libx264", "-preset", "veryfast",
-             "-crf", str(CFG["ffmpeg"]["crf"]), "-c:a", "pcm_s16le",
-             "-avoid_negative_ts", "make_zero", "-y", p])
-        # ★게이트: 구운 조각의 영상 프레임 수 = 목표 N (소리와 프레임 일치). 어긋나면 립싱크가 밀린다.
-        _nf = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
-                              "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", p],
-                             capture_output=True, text=True).stdout.strip()
-        assert _nf and abs(int(_nf) - N) <= 0, f"비트 조각 프레임 {_nf} ≠ 목표 {N} — 영상·소리 프레임 어긋남(립싱크)"
-        parts.append(p)
+        # ★비트 영상을 소리와 «정확히 같은 프레임 수»로 못 박는다 (2026-09-09 립싱크 실측: 비트 concat 이 마지막 비트에서
+        #   1프레임 넘쳐 영상이 소리보다 1프레임 길었다) — 이제 _틀굽기 가 trim=end_frame=M(+끝 멈춤)·프레임 수 관문을 건다.
+        #   ★PCM + 프레임 정확 길이(2026-09-03 «순간 배속» 사건) — AAC 꼬리 패딩이 조각마다 +40~60ms 붙어 경계에서 말이
+        #   겹쳐 들렸다(46ms 실측). AAC 인코딩은 최종 합칠 때 한 번만.
+        영상 = ";".join(legs) + f";{''.join(tags)}concat=n={len(tags)}:v=1:a=0[vx]"
+        parts.append(_틀굽기(src, 틀, 영상, os.path.join(work, f"seg{len(parts):03d}.mov"), 겹=True))
 
     def _안쪽경계(t):
         """프레임-인-프레임(원본 아웃트로가 화면을 절반으로 줄이고 검은 테두리) 감지 —
@@ -306,21 +437,23 @@ def cut_and_join(src, segs, dst, work, fps):
 
     prev = None
     for i, s in enumerate(segs):
+        틀 = 틀들[i]
+        # 조각 머리(이음매) — 원본에서 이어지지 않으면 점프 컷(새샷), 이어지면 그 자리가 화면 전환인지(전환) 아닌지(이어짐)
+        #   (2026-09-28 싱글48 — 예전엔 모든 조각이 앞 조각 마지막 구도를 끌고 와 점프 컷 뒤 얼굴이 1.2초 가장자리에 걸렸다)
+        실0 = 틀["f0"] + 틀["앞멈춤"]                    # 실제 첫 프레임
+        앞 = 틀들[i - 1] if i else None
+        이어짐 = bool(앞) and 앞["f0"] + 앞["앞멈춤"] + 앞["M"] == 실0 and not 앞["뒤멈춤"] and not 틀["앞멈춤"]
+        머리 = ("전환" if G.전환인가(src, g, 실0) else "이어짐") if 이어짐 else "새샷"
         박들 = [_안쪽경계(s["t0"] + (s["t1"] - s["t0"]) * f) for f in (0.25, 0.5, 0.75)]
         if all(박들) and max(abs(박들[0][k] - 박들[j][k]) for j in (1, 2) for k in range(4)) <= 8:
             x, y, w, h = 박들[1]
             vf = (f"crop={w}:{h}:{x}:{y},scale=-2:908,"
                   f"crop=1080:908:(iw-1080)/2:0,setsar=1")
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
-            d_q = round((s["t1"] - s["t0"]) * fps) / fps
-            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
-                 "-to", str(s["t1"]), "-i", src, "-vf", vf, "-t", f"{d_q:.5f}",
-                 "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
-                 "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
-            parts.append(p)
+            parts.append(_틀굽기(src, 틀, f"[0:v]{vf}[vx]", p))
             prev = None
             log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
-                                    "phase": s.get("phase"), "part": p, "beats": 0})
+                                    "phase": s.get("phase"), "part": p, "beats": 0, **_틀기록(틀, 머리)})
             _vw = min(w, int(1080 * h / 908))                     # 가운데 1080 폭만 보인다
             log["frames"].append({"seg": i, "t0": s["t0"], "t1": s["t1"], "kind": "프레임-인-프레임",
                                   "crop": [_vw, h, x + (w - _vw) // 2, y]})
@@ -346,15 +479,10 @@ def cut_and_join(src, segs, dst, work, fps):
             vf = (f"[0:v]scale={_bw}:-2,setsar=1,"
                   f"pad={_bw}:{_bh}:(ow-iw)/2:(oh-ih)/2:color=0x{_bg},setsar=1")
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
-            d_q = round((s["t1"] - s["t0"]) * fps) / fps
-            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
-                 "-to", str(s["t1"]), "-i", src, "-filter_complex", vf, "-t", f"{d_q:.5f}",
-                 "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
-                 "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
-            parts.append(p)
+            parts.append(_틀굽기(src, 틀, vf + "[vx]", p))
             prev = None
             log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
-                                    "phase": s.get("phase"), "part": p, "beats": 0})
+                                    "phase": s.get("phase"), "part": p, "beats": 0, **_틀기록(틀, 머리)})
             log["frames"].append({"seg": i, "t0": s["t0"], "t1": s["t1"],
                                   "kind": "원문화면" if s.get("원문화면") else "전체화면", "crop": [W, H, 0, 0]})
             print(f"    P{s.get('phase')} 조각 {i} {s['t1']-s['t0']:5.1f}초 → 원문화면"
@@ -375,30 +503,28 @@ def cut_and_join(src, segs, dst, work, fps):
             else:
                 uh = H
                 print(f"    조각 {i}: 자막띠무시 — 세로 {H}px 전체를 쓴다(박힌 자막 카드 없음)", flush=True)
-        plan = framing.plan_beats(src, s, i, W, H, uh, b, work, cuts, prev)
+        plan = framing.plan_beats(src, s, i, W, H, uh, b, work, cuts, prev,
+                                  머리=머리, 틀={"k0": 실0, "k1": 실0 + 틀["M"]})
         if not plan:
-            vf, info = framing.plan_frame(src, s, i, W, H, uh, b, work, prev=prev)
+            vf, info = framing.plan_frame(src, s, i, W, H, uh, b, work, prev=None if 머리 == "새샷" else prev)
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
-            d_q = round((s["t1"] - s["t0"]) * fps) / fps
-            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(s["t0"]),
-                 "-to", str(s["t1"]), "-i", src, "-vf", vf, "-t", f"{d_q:.5f}",
-                 "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
-                 "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
-            parts.append(p)
+            parts.append(_틀굽기(src, 틀, f"[0:v]{vf}[vx]", p))
             prev = info["crop"]
             log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
-                                    "phase": s.get("phase"), "part": p, "beats": 0})
+                                    "phase": s.get("phase"), "part": p, "beats": 0, **_틀기록(틀, 머리)})
             log["frames"].append({"seg": i, "t0": s["t0"], "t1": s["t1"], "kind": "한장구도",
                                   "crop": list(info["crop"][:4])})
             continue
-        bake_beats(s["t0"], s["t1"], plan)
+        bake_beats(틀, plan)
         prev = plan[-1][3]["crop"]
         log["segments"].append({"i": i, "t0": s["t0"], "t1": s["t1"],
                                 "phase": s.get("phase"), "part": parts[-1],
-                                "beats": len(plan)})
+                                "beats": len(plan), **_틀기록(틀, 머리)})
         for a, e, _vf, info in plan:
             log["beats"].append({"seg": i, "t0": a, "t1": e,
                                  "crop": list(info["crop"]),
+                                 "시작crop": list(info.get("시작crop") or info["crop"]),
+                                 "f0": info.get("f0"), "f1": info.get("f1"),
                                  "at_cut": bool(info["at_cut"])})
         zs = [x[3]["zoom"] for x in plan]
         nf = sum(1 for x in plan if x[3]["face"])
@@ -442,6 +568,15 @@ def cut_and_join(src, segs, dst, work, fps):
     log["out_dur"] = round(off, 3)
     json.dump(log, open(os.path.join(work, "beats.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=1)
+    # ★최종 관문 — 경계 1프레임 튐 (2026-09-28 싱글51 72.16초·28.16초 · 싱글47 번쩍임 3곳 · 납품 22편 표본 편마다 4~40곳).
+    #   구운 cut.mp4 에서 조각·비트 경계마다 «화면이 두 걸음에 바뀌는가»(겹봉우리)와, 계획 경계가 원본 화면 전환 프레임과
+    #   맞는가(자투리·구도 어긋남)를 잰다. ⑦ 컷별 원음 대조는 소리만 봐서 1프레임(42ms) 영상 튐을 원리상 못 잡았고,
+    #   위 «조각 프레임 수 = N» 관문은 장 수만 봤지 어느 장인지를 안 봤다. 규칙·지표는 s2pipe/튐관문.py 한 곳.
+    from . import 튐관문 as _튐
+    _걸, _요 = _튐.재기(work, src, 로그=log)
+    if _걸:
+        raise AssertionError(f"경계 1프레임 튐 {len(_걸)}곳 — {_요}\n" + _튐.지침(_걸, 호환))
+    print(f"    [OK] 경계 튐 관문 — {_요}", flush=True)
     # ★최종 관문 (2026-09-27 싱글266·188 글자 노출 · 85편 상자 띠) — 구운 crop 전부(비트·한 장 구도·전체/원문화면·
     #   프레임-인-프레임)를 카드 상자·사람이 잰 화면 캡션(조각 «가림»)과 위치로 비교한다. 준비(프리미어 컷 상자)도 같은
     #   함수를 부른다. 예전엔 납품 mp4 의 crop 을 보는 관문이 없었다(준비는 프리미어 상자만 봤다).
@@ -793,7 +928,12 @@ def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
 
     # ★정지 그림 입력은 디코더 스레드 1개 (2026-09-28 04시 100편 배치 — 댓글 카드 12장이 입력마다 코어 수만큼
     #   스레드를 띄워 합성 ffmpeg 하나가 418 스레드, 12편 동시에 부하 142·CPU 유휴 0% 로 한 편 합성이 16분 걸렸다).
-    ins = ["-threads", "1", "-loop", "1", "-i", frame, "-i", cut]
+    # ★배경 그림을 영상과 같은 프레임 속도로 돌린다 (2026-09-28 «시각 양자화» 클래스) — overlay 는 첫 입력(배경)의 시각표로
+    #   프레임을 내는데 -loop 1 그림의 기본값은 25fps 라, 23.976 원본이 25fps 로 다시 떠 약 1초마다 한 장이 두 번 나갔다
+    #   (싱글51 완성본 1937장/77.48초 · cut.mp4 1856장 실측). 원본 프레임레이트를 그대로 따른다(config video.fps «source»).
+    _r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                         "-of", "csv=p=0", cut], capture_output=True, text=True).stdout.strip() or "30/1"
+    ins = ["-threads", "1", "-framerate", _r, "-loop", "1", "-i", frame, "-i", cut]
     amix = [f"[1:a]volume=1.0{duck}[a0]"]
     labels = ["[a0]"]
     for k, (at, wav) in enumerate(narrs):
@@ -892,13 +1032,21 @@ def run_build(proj, path, 화자색켬=False):
     print(f"구간 {len(segs)}개 · {total:.1f}초 · {fps:.3f}fps", flush=True)
 
     print("1/5 구간 자르고 붙이기", flush=True)
-    cut = cut_and_join(src, segs, os.path.join(work, "cut.mp4"), work, fps)
+    # ★호환 판정 (2026-09-28 프레임 격자 수리) — 완성본 재전사(③)·작표(④)가 «옛 코드로 구운» cut.mp4 시간축으로 자막을
+    #   맞춘 편은 조각 길이·소리 시작을 옛 값 그대로 굽는다(자막이 안 밀리게). 재전사가 새 격자 굽기 위에서 됐으면
+    #   (asr.py 가 «asr_격자» 를 남긴다) 또는 아직 재전사 전이면 격자 굽기.
+    호환 = bool(proj.get("asr_words") or proj.get("subs_before_sync")) and not proj.get("asr_격자")
+    전경계 = [(s["t0"], s["t1"]) for s in segs]
+    cut = cut_and_join(src, segs, os.path.join(work, "cut.mp4"), work, fps, 호환=호환)
     # ★검은 꼬리 절단이 마지막 조각 t1 을 고쳤으면 계획(proj)에도 되쓴다 (2026-09-07
     #   Deep09 실측: -6.7s 절단이 파일에 안 남아 «완성본 ≠ 계획» 게이트에 걸렸고,
     #   자막·나레 총길이도 절단 전 값으로 구워졌다). 계획 = 실물, 근원은 하나다.
+    #   ★격자 굽기가 경계를 프레임 격자에 맞췄으면 그것도 되쓴다(2026-09-28) — 작표·이음매 관문·준비가 계획 길이로
+    #   완성본 시각을 셈하므로 계획 = 실제 프레임 수여야 한다.
     새총 = sum(s["t1"] - s["t0"] for s in segs)
-    if abs(새총 - total) > 0.01:
-        print(f"    절단 반영 — 총길이 {total:.1f}s → {새총:.1f}s (계획 저장)", flush=True)
+    바뀐경계 = sum(1 for s, (a, b) in zip(segs, 전경계) if abs(s["t0"] - a) > 1e-6 or abs(s["t1"] - b) > 1e-6)
+    if abs(새총 - total) > 0.01 or 바뀐경계:
+        print(f"    절단·격자 반영 — 총길이 {total:.2f}s → {새총:.2f}s · 경계 바뀐 조각 {바뀐경계}개 (계획 저장)", flush=True)
         total = 새총
         json.dump(proj, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("2/5 층 그리기", flush=True)

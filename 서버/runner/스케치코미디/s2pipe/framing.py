@@ -139,10 +139,13 @@ def same_scene(a, b, thr=0.93):
 
 
 def frame_at(src, sec, work, tag):
-    p = os.path.join(work, f"_s_{tag}.png")
+    # ★캐시 이름에 시각을 넣는다 (2026-09-28) — 예전엔 조각·비트 번호(tag)만으로 캐시해, 경계를 고쳐 다시 구우면
+    #   같은 번호의 «옛 시각» 프레임으로 구도를 정했다(준비의 grab 이 같은 함정을 피해 따로 뽑는 이유).
+    #   시각은 소수 4자리로 넘긴다 — 격자 경계값(p−0.002)을 0.01초로 반올림하면 이웃 프레임이 뽑힌다.
+    p = os.path.join(work, f"_s_{tag}_{max(0, sec):.4f}.png")
     if not os.path.exists(p):
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
-                        "-ss", f"{max(0, sec):.2f}", "-i", src, "-frames:v", "1",
+                        "-ss", f"{max(0, sec):.4f}", "-i", src, "-frames:v", "1",
                         "-y", p], capture_output=True)
     return _read_rgb(p)
 
@@ -152,7 +155,7 @@ def frames_of(src, seg, work, tag, n=5):
     t0, t1 = seg["t0"], seg["t1"]
     for k in range(n):
         sec = t0 + (t1 - t0) * (k + 1) / (n + 1)
-        p = os.path.join(work, f"_f_{tag}_{k}.png")
+        p = os.path.join(work, f"_f_{tag}_{k}_{sec:.2f}.png")    # 시각을 이름에(경계 고친 재굽기에 옛 프레임 금지)
         if not os.path.exists(p):
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
                             "-ss", f"{sec:.2f}", "-i", src, "-frames:v", "1", "-y", p],
@@ -170,7 +173,7 @@ def face_track(src, seg, W, usable_h, work, tag, step=0.8):
     pts = []
     for k in range(n + 1):
         sec = t0 + (t1 - t0) * k / n
-        p = os.path.join(work, f"_t_{tag}_{k}.png")
+        p = os.path.join(work, f"_t_{tag}_{k}_{sec:.2f}.png")    # 시각을 이름에(경계 고친 재굽기에 옛 프레임 금지)
         if not os.path.exists(p):
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
                             "-ss", f"{sec:.2f}", "-i", src, "-frames:v", "1", "-y", p],
@@ -359,7 +362,7 @@ def plan_pan(src, seg, idx, W, H, usable_h, box, work):
                 "crop": (bw, bh, int(xs[0]), int(ys[0])), "run": 0, "hold": 0.0}
 
 
-def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
+def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머리="이어짐", 틀=None):
     """조각을 짧은 **비트**로 나누고, 비트마다 구도를 **조금씩만** 바꾼다.
 
     ★레퍼런스 실측(ref/cut_zoom.py · beat.py):
@@ -369,7 +372,21 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
 
     ★원본 컷 경계에서는 제한을 풀어 준다. 원본이 이미 앵글을 바꿨으니 우리가
       같이 바꿔도 튀지 않는다 — 오히려 안 바꾸면 컷이 지워진다(팬 모드의 병).
+
+    ★2026-09-28 «경계 구도» 클래스 수리 (싱글51 1프레임 튐 · 싱글48 이음매 뒤 얼굴이 1.2초 가장자리):
+      · 비트 경계는 «프레임 번호» 로 정한다(s2pipe/프레임격자.py). 원본 화면 전환은 그 전환 프레임 «바로 거기»가
+        경계다 — 0.01초 반올림·0.05초 이분 탐색으로 1~2프레임 늦게 구도가 바뀌면 새 샷 첫 프레임이 앞 구도로 나간다.
+      · 전환은 이웃 프레임 차이의 날카로운 봉우리로 확인한다. scene_cuts 가 놓친 전환(51편 4곳)도 비트 경계가 되고,
+        same_scene 이 «다르다» 해도 봉우리가 없으면 전환이 아니다(51편 25.99초 가짜 컷 → 0.23초 비트에 큰 이동 = 3프레임 휙).
+      · 궤적 다듬기(smooth)·빈 얼굴 채우기는 샷 안에서만 — 앞 샷 얼굴 자리가 새 샷 구도로 끌려오지 않게.
+      · 머리 = 조각 첫 비트가 무엇인가 (build 가 정한다):
+          "새샷"   원본에서 이어지지 않는 이음매(점프 컷) — 앞 조각 구도를 끌고 오지 않는다(prev 무시, 새 샷 얼굴로 바로).
+                   싱글48 38.05초: 첫 비트가 앞 조각 마지막 구도에서 비트당 몇 %씩만 움직여 얼굴이 1.2초 왼쪽 끝에 걸렸다.
+          "전환"   원본에서 이어지지만 이음매가 화면 전환 프레임 — 컷처럼 푼다(at_cut).
+          "이어짐" 원본에서 끊김 없이 이어진 이음매 — 앞 구도에서 이어 간다(여기서 튀면 안 된다).
+      · 틀 = build 가 정한 조각 프레임 창 {"k0","k1"} — 없으면 t0·t1 을 격자에 맞춰 쓴다.
     """
+    from . import 프레임격자 as G
     beat = box.get("beat_sec", 0.85)
     dz_max = box.get("beat_zoom", 0.045)
     dp_max = box.get("beat_shift", 0.045)
@@ -377,51 +394,92 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
     face_ratio = box.get("face_ratio", 0.61)
     face_y = box.get("face_y", 0.40)
     zmin, zmax = box.get("zoom_range", [1.10, 1.80])
-    t0, t1 = seg["t0"], seg["t1"]
+    g = G.얻기(src)
+    k0, k1 = (틀["k0"], 틀["k1"]) if 틀 else (g.번호(seg["t0"]), g.번호(seg["t1"]))
+    fps = g.fps
+    if 머리 == "새샷":
+        prev = None                                     # 점프 컷 — 앞 조각 구도를 끌고 오지 않는다
 
-    # 비트 경계 — 원본 컷은 전부 살리고, 그 사이가 벌어지면 격자를 끼운다
-    marks = [c for c in cuts if t0 + 0.3 < c < t1 - 0.3]
-    bs, at_cut = [t0], [False]
-    for m in marks + [t1]:
-        while m - bs[-1] > beat * 1.5:
-            bs.append(bs[-1] + beat); at_cut.append(False)
-        if m - bs[-1] >= 0.35:
-            bs.append(m); at_cut.append(m is not t1 and m in marks)
-    bs[-1] = t1
+    # 원본 프레임 차이(조각 전체 · 64x36) — 전환 위치를 프레임 단위로 잰다
+    _기점 = max(0, k0 - 3)
+    _D = G.차이열(G.프레임들(src, g, _기점, k1 + 3))
+
+    def _전환(k, 느슨=False):
+        j = k - _기점
+        if not (0 < j < len(_D)):
+            return False
+        return G.날카로운(_D, j) or (느슨 and G.날카로운(_D, j, 최소=4.0, 배=3.0))
+
+    # 비트 경계 — 원본 전환은 전부 살리고(짧아도 경계), 그 사이가 벌어지면 격자를 끼운다
+    전환들 = sorted({g.번호(c) for c in cuts if k0 < g.번호(c) < k1}
+                  | {k for k in range(k0 + 1, k1) if _전환(k)})
+    # scene_cuts 값이 봉우리 옆(±2)이면 봉우리로 — 격자 반올림이 어긋났을 때의 받침
+    for i_, k in enumerate(전환들):
+        if not _전환(k):
+            옆 = [k + d for d in (-1, 1, -2, 2) if k0 < k + d < k1 and _전환(k + d)]
+            if 옆:
+                전환들[i_] = 옆[0]
+    전환들 = sorted(set(전환들))
+    박자 = max(1, int(round(beat * fps)))
+    최소 = max(1, int(round(0.35 * fps)))
+    bs, at_cut = [k0], [머리 in ("새샷", "전환")]
+    for m in 전환들 + [k1]:
+        컷 = m != k1
+        while m - bs[-1] > int(round(beat * 1.5 * fps)):
+            bs.append(bs[-1] + 박자); at_cut.append(False)
+        if m - bs[-1] >= 최소 or (컷 and m > bs[-1]):
+            if 컷 and m - bs[-1] < 최소 and len(bs) > 1 and not at_cut[-1]:
+                bs[-1], at_cut[-1] = m, True               # 격자 경계가 전환 바로 앞 — 격자를 전환으로 옮긴다
+            else:
+                bs.append(m); at_cut.append(컷)
+    if bs[-1] != k1:
+        if k1 - bs[-1] < 최소 and len(bs) > 1 and not at_cut[-1]:
+            bs[-1] = k1                                 # 끝 격자 조각이 짧으면 합친다(옛 규칙과 같다)
+        else:
+            bs.append(k1); at_cut.append(False)
+    at_cut[-1] = False
 
     # ★비트가 «놓친 원본 컷»에 걸치면 그 자리에서 쪼갠다 (2026-09-21 Deep87 실측: 어두운 술집
     #   장면의 298.9s 컷을 scene_cuts 가 놓쳐 비트 298.30~299.15 가 두 샷에 걸쳤고, 구도는 비트
     #   한가운데(앞 샷) 프레임으로 정해져 뒤 0.2초가 앞 샷 구도로 나갔다 — 이마만 보임).
-    #   비트의 머리·꼬리 프레임이 다른 장면이면 이분법으로 컷을 찾아 경계로 삼는다.
-    #   컷이 비트 머리·꼬리 0.2초 안이면 새 비트를 만들지 않고 이웃 경계를 그 자리로 옮긴다.
+    #   비트의 머리·꼬리 프레임이 다른 장면이면 그 사이 «이웃 프레임 차이가 가장 큰 프레임»이 전환이다(2026-09-28 —
+    #   예전 0.05초 이분 탐색·round(,2)는 1~2프레임 늦었다). 그 봉우리가 전환 모양(어두운 장면도 잡히게 느슨하게)이
+    #   아니면 서서히 바뀐 것 — 쪼개지 않는다(51편 25.99초 가짜 컷).
     _thr = box.get("same_scene_thr", 0.93)
 
     def _같은(u, v):
-        return same_scene(frame_at(src, u, work, f"{idx:02d}c{int(round(u * 100))}"),
-                          frame_at(src, v, work, f"{idx:02d}c{int(round(v * 100))}"), _thr)
+        return same_scene(frame_at(src, g.경계값(u), work, f"{idx:02d}k{u}"),
+                          frame_at(src, g.경계값(v), work, f"{idx:02d}k{v}"), _thr)
 
     nb, nc = [bs[0]], [at_cut[0]]
     for k in range(len(bs) - 1):
         a, e = nb[-1], bs[k + 1]
-        끝, 끝컷 = e, at_cut[k + 1]
-        if e - a >= 0.45 and not _같은(a + 0.04, e - 0.04):
-            lo, hi = a + 0.04, e - 0.04
-            for _ in range(4):
-                mid = (lo + hi) / 2
-                if _같은(lo, mid):
-                    lo = mid
+        if e - a >= int(round(0.45 * fps)) and not _같은(a + 1, e - 1):
+            안 = [c for c in range(a + 1, e) if 0 < c - _기점 < len(_D)]
+            c = max(안, key=lambda x: _D[x - _기점]) if 안 else None
+            if c is not None and _전환(c, 느슨=True):
+                최소2 = max(1, int(round(0.2 * fps)))
+                if c - a >= 최소2 and e - c >= 최소2:
+                    nb.append(c); nc.append(True)
+                elif c - a < 최소2 and len(nb) > 1:
+                    nb[-1], nc[-1] = c, True             # 컷이 머리에 붙었다 — 앞 비트를 컷까지 늘린다
+                elif e - c < 최소2 and k + 1 < len(bs) - 1:
+                    bs[k + 1], at_cut[k + 1] = c, True   # 컷이 꼬리에 붙었다 — 다음 비트가 컷에서 시작한다
                 else:
-                    hi = mid
-            c = round(hi, 2)
-            if c - a >= 0.2 and e - c >= 0.2:
-                nb.append(c); nc.append(True)
-            elif c - a < 0.2 and len(nb) > 1:
-                nb[-1], nc[-1] = c, True             # 컷이 머리에 붙었다 — 앞 비트를 컷까지 늘린다
-            elif e - c < 0.2 and k + 1 < len(bs) - 1:
-                끝, 끝컷 = c, True                   # 컷이 꼬리에 붙었다 — 다음 비트가 컷에서 시작한다
-        nb.append(끝); nc.append(끝컷)
-    nb[-1] = t1
-    bs, at_cut = nb, nc
+                    nb.append(c); nc.append(True)       # 짧아도 전환은 경계다(샷 둘이 한 구도를 나눠 쓰지 않게)
+        nb.append(bs[k + 1]); nc.append(at_cut[k + 1])
+    nb[-1], nc[-1] = k1, False
+    # 같은 번호 겹침 정리(짧은 조각에서 앞 규칙들이 같은 자리를 두 번 넣을 수 있다)
+    bk, ak = [nb[0]], [nc[0]]
+    for x, y in zip(nb[1:], nc[1:]):
+        if x > bk[-1]:
+            bk.append(x); ak.append(y)
+        elif y:
+            ak[-1] = True
+    if len(bk) < 2:
+        bk, ak = [k0, k1], [at_cut[0], False]
+    bs_k, at_cut = bk, ak
+    bs = [g.경계값(x) for x in bs_k]                   # 시각 = 격자 경계값(프레임 번호가 원본)
 
     # ★★**1패스 — 비트마다 얼굴을 먼저 다 찾아 둔다.**
     #   예전에는 찾자마자 바로 구도를 정했는데, 얼굴 검출은 프레임마다 몇 픽셀씩
@@ -431,7 +489,8 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
     raw, 경계들 = [], []
     for k in range(len(bs) - 1):
         a, e = bs[k], bs[k + 1]
-        rgb = frame_at(src, (a + e) / 2, work, f"{idx:02d}b{k:02d}")
+        km = (bs_k[k] + bs_k[k + 1]) // 2                 # 비트 가운데 프레임(번호)
+        rgb = frame_at(src, g.경계값(km), work, f"{idx:02d}m{km}")
         경계들.append(가림경계(그림경계(rgb, W, H), seg, a, e, usable_h,   # ★비트(샷)마다 — 레터박스는 샷 단위로 나타난다
                                box["w"] / box["h"]))
         f, many = None, False
@@ -493,25 +552,32 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
         return c if not (ew and f[5] is not None) else c * (1 - ew) + f[5] * ew
 
     has = any(f for f, _ in raw)
-    if not has:
-        cxs = cys = fhs = [None] * len(raw)
-    else:
-        xs = _fill([_cx(f) if f else None for f, _ in raw])
-        ys = _fill([_cy(f) if f else None for f, _ in raw])
-        hs = _fill([f[3] if f else None for f, _ in raw])
-        if globals().get("_SMOOTH_OFF"):         # 견주기용 — 평소에는 켜져 있다
-            cxs, cys, fhs = xs, ys, hs
-        else:
+    # ★샷(전환과 전환 사이)마다 따로 채우고 다듬는다 (2026-09-28 «경계 구도» 클래스) — 조각 전체를 한 줄로
+    #   이동평균하면 전환 뒤 첫 비트 목표가 앞 샷 얼굴 자리 쪽으로 끌려가 새 샷 얼굴이 가장자리에 걸렸다.
+    샷들, _s = [], 0
+    for k in range(1, len(raw) + 1):
+        if k == len(raw) or at_cut[k]:
+            샷들.append((_s, k)); _s = k
+    cxs, cys, fhs = [None] * len(raw), [None] * len(raw), [None] * len(raw)
+    _sw = box.get("smooth_win", 3)
+    for s0, s1 in 샷들:
+        조 = raw[s0:s1]
+        if not any(f for f, _ in 조):
+            continue                                     # 이 샷엔 얼굴이 없다 — 지금 구도를 지킨다(아래 cur)
+        xs = _fill([_cx(f) if f else None for f, _ in 조])
+        ys = _fill([_cy(f) if f else None for f, _ in 조])
+        hs = _fill([f[3] if f else None for f, _ in 조])
+        if not globals().get("_SMOOTH_OFF"):     # 견주기용 — 평소에는 켜져 있다
             # ★스무딩 창을 config 로 (2026-09-10 사장님 «튀는 구간 없게»): 창이 넓을수록
             #   얼굴 검출 흔들림이 더 눌려 카메라가 안정된다. 기본 3, 숨은기록은 5.
-            _sw = box.get("smooth_win", 3)
-            cxs, cys, fhs = smooth(xs, _sw), smooth(ys, _sw), smooth(hs, _sw)
+            xs, ys, hs = smooth(xs, _sw), smooth(ys, _sw), smooth(hs, _sw)
+        cxs[s0:s1], cys[s0:s1], fhs[s0:s1] = xs, ys, hs
 
     out, cur = [], prev
     for k in range(len(bs) - 1):
         a, e = bs[k], bs[k + 1]
         f, many = raw[k]
-        fh = fhs[k] if has else None
+        fh = fhs[k]
 
         if fh:
             z = usable_h / max(fh / (0.62 if many else face_ratio), 1)
@@ -613,7 +679,10 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
             f"crop 이 그림경계 밖이다 — 비트 {k} crop {bw}x{bh}@{tx},{ty} 경계 {경계들[k]} (검은 띠가 박힌다)"
 
         # 비트 안에서는 앞 구도 중심에서 이 목표로 흘러간다 — 계단이 아니라 움직임이 되게
-        if cur:
+        # ★단 원본 화면 전환(조각 머리 포함)에서는 흘러오지 않고 목표 구도로 바로 연다 (2026-09-28 «경계 구도» 클래스 —
+        #   샷이 바뀌었는데 앞 샷 crop 중심에서 출발하면 새 샷 첫 프레임들이 앞 구도를 끌고 온다. 전환이 크기·자리
+        #   바뀜을 가려 주는 것은 «바로 그 프레임» 뿐이다).
+        if cur and not at_cut[k]:
             sx = max(vx0, min(cur[2] + (cur[0] - bw) / 2, vx1 - bw))
             sy = max(vy0, min(cur[3] + (cur[1] - bh) / 2, min(vy1, usable_h) - bh))
             if 담을얼굴 and 담김:
@@ -624,6 +693,15 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
                     sx, sy = tx, ty
         else:
             sx, sy = tx, ty
+        # ★영구 관문 (2026-09-28 싱글48 38.05초 — 이음매 뒤 말하는 얼굴이 1.2초 왼쪽 끝에 반쯤 걸렸다): 전환·조각 머리
+        #   비트는 «시작 구도» 에 얼굴이 담겨야 한다. 예전 게이트는 목표 구도만 봤고, 따라가지 않기로 한 얼굴(face_in
+        #   None)은 아예 안 봤다 — 머리 비트가 «따라가지 않음» 으로 빠져 통과했다.
+        if at_cut[k] and 담을얼굴 and 담김:
+            fx, fy, fw, fh = 담을얼굴[:4]
+            assert (sy <= fy + fh * 0.15 and sy + bh >= fy + fh * 0.98
+                    and sx <= fx + fw * 0.1 and sx + bw >= fx + fw * 0.9), \
+                (f"조각 {idx} 비트 {k}(원본 프레임 {bs_k[k]}): 전환 직후 시작 구도에 얼굴이 없다 — "
+                 f"시작 crop {bw}x{bh}@{int(sx)},{int(sy)} · 얼굴 {tuple(int(v) for v in 담을얼굴[:4])} (framing.plan_beats)")
         dur = max(e - a, 0.05)
         if abs(sx - tx) < 1.5 and abs(sy - ty) < 1.5:
             vf = f"crop={bw}:{bh}:{int(tx)}:{int(ty)}"
@@ -644,7 +722,9 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None):
         out.append((a, e, vf, {"zoom": round(usable_h / max(bh, 1), 2), "at_cut": at_cut[k],
                                "face": bool(raw[k][0]), "face_in": 담김,
                                "bounds": 경계들[k],
-                               "crop": (bw, bh, int(tx), int(ty))}))
+                               "crop": (bw, bh, int(tx), int(ty)),
+                               "시작crop": (bw, bh, int(sx), int(sy)),
+                               "f0": bs_k[k], "f1": bs_k[k + 1]}))     # 원본 프레임 번호 [f0, f1)
         cur = (bw, bh, int(tx), int(ty))
     return out
 

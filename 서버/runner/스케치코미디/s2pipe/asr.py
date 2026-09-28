@@ -208,6 +208,17 @@ def main():
     #   모델 자막의 시각을 여기에 맞춘다.
     proj["asr_words"] = words
     proj["subs_asr"] = lines
+    # ★이 재전사가 어느 굽기 시간축 위인가 (2026-09-28 프레임 격자 수리) — 격자 굽기(beats.json «격자» 모드 «새») 위면
+    #   표시한다. build.run_build 는 표시 없이 재전사된 편(옛 코드 cut.mp4 로 자막을 맞춘 편)을 «호환» 으로 굽는다 —
+    #   조각 길이·소리 시작을 옛 값 그대로 둬야 자막이 안 밀린다.
+    try:
+        _bj = json.load(open(os.path.join(os.path.dirname(cut), "beats.json"), encoding="utf-8"))
+        if (_bj.get("격자") or {}).get("모드") == "새":
+            proj["asr_격자"] = 1
+        else:
+            proj.pop("asr_격자", None)
+    except Exception:                                    # noqa: BLE001
+        proj.pop("asr_격자", None)
     json.dump(proj, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
     gaps = [(lines[i-1]["t"], lines[i]["t"]) for i in range(1, len(lines))

@@ -14,18 +14,26 @@ from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFI
 
 
 def scene_cuts(src, thr=0.28):
-    """원본에서 화면이 바뀌는 시점. 한 번 재면 캐시한다."""
+    """원본에서 화면이 바뀌는 시점 — 프레임 격자 경계값(새 샷 첫 프레임 − 0.002초)으로 준다. 한 번 재면 캐시한다.
+
+    ★2026-09-28 싱글51 «화면 전환 자리 1프레임 튐»: 예전엔 전환 시각을 0.01초로 반올림해 캐시·반환했다.
+      올림된 전환(51편 28곳 중 13곳 — 128.5451→128.55, 77.3272→77.33)은 새 샷 첫 프레임이 전환 «앞» 비트에
+      들어가 앞 구도(crop)로 나갔다. 이제 캐시는 프레임 시각 그대로(소수 6자리) 쓰고, 옛 캐시(2자리)도 읽을 때
+      프레임 격자(s2pipe/프레임격자.py)에 맞춘다 — 반올림 오차 ±5ms 는 프레임 간격의 절반보다 작아 «가장 가까운
+      프레임»이 곧 전환 프레임이다(51·48 원본 실측: 캐시 120곳 전부 이웃 프레임 차이 봉우리와 정확히 일치)."""
+    from . import 프레임격자 as G
     cache = os.path.splitext(src)[0] + ".cuts.json"
     if os.path.exists(cache):
-        return json.load(open(cache, encoding="utf-8"))
-    p = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", src,
-                        "-filter_complex", f"select='gt(scene,{thr})',metadata=print:file=-",
-                        "-an", "-f", "null", "-"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    ts = sorted(set(round(float(m), 2)
-                    for m in re.findall(r"pts_time:([\d.]+)", (p.stdout or "") + (p.stderr or ""))))
-    json.dump(ts, open(cache, "w", encoding="utf-8"))
-    return ts
+        ts = json.load(open(cache, encoding="utf-8"))
+    else:
+        p = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", src,
+                            "-filter_complex", f"select='gt(scene,{thr})',metadata=print:file=-",
+                            "-an", "-f", "null", "-"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        ts = sorted(set(round(float(m), 6)
+                        for m in re.findall(r"pts_time:([\d.]+)", (p.stdout or "") + (p.stderr or ""))))
+        json.dump(ts, open(cache, "w", encoding="utf-8"))
+    return G.컷맞춤(G.얻기(src), ts)
 
 
 def to_origin(subs, segs):
@@ -76,7 +84,8 @@ def carve(seg, cuts, lo, hi, gmin=2.0):
             j -= 1
         end = marks[j]
         if end - start >= lo * 0.8:
-            out.append({**seg, "t0": round(start, 2), "t1": round(end, 2)})
+            # ★경계는 컷 격자값 그대로(소수 4자리) — 0.01초로 다시 반올림하면 전환 프레임이 어긋난다(2026-09-28 싱글51)
+            out.append({**seg, "t0": round(start, 4), "t1": round(end, 4)})
         # ★중간 컷을 버린다. 몇 초일지는 그 컷의 길이가 정한다.
         #   ★단 컷이 짧으면 **gmin 이상 벌어질 때까지 여러 개를 버린다** —
         #   0.3초 버리고 이어 붙이면 자른 게 아니라 그냥 한 조각이다.
@@ -130,7 +139,7 @@ def main():
         want = fixed[-1]["t1"] + gmin
         nc = next((c for c in cuts if c >= want and s["t1"] - c >= lo), None)
         if nc:
-            fixed.append({**s, "t0": round(nc, 2)})
+            fixed.append({**s, "t0": round(nc, 4)})          # 컷 격자값 그대로(0.01초 반올림 금지 — 2026-09-28)
             widened += 1
         else:
             # 밀 자리가 없으면 합친다 — 붙은 건 어차피 한 조각이다

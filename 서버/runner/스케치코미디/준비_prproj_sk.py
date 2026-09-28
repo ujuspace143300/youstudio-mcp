@@ -197,6 +197,57 @@ def main():
                     print(f"  여운 안 {_t:.2f}s 에 남색 로고 카드 — 여운 {ext:.2f}s 로 줄임")
                     break
             _t += 0.1
+    # ★프리미어 컷 창 = 굽기 창 (2026-09-28 «경계 1프레임 튐» 클래스) — 컷 in 점·길이·여운을 굽기와 같은 원본 프레임
+    #   번호로 정한다(s2pipe/프레임격자.py · build.조각틀). 예전엔 in 점 = 조각 t0(초) 그대로라, t0 가 프레임보다 조금
+    #   앞(p−0.002 — 배치 에이전트가 손으로 넣던 꼴)이면 컷 첫 화면이 앞 샷 마지막 프레임이었다(프리미어는 in 점이 든
+    #   프레임을 보여 준다 — 추정, 확인은 프리미어에서 컷 첫 프레임 보기).
+    from s2pipe import 프레임격자 as _G
+    _격 = _G.얻기(src_orig)
+    _bj0 = None
+    try:
+        _bj0 = json.load(open(os.path.join(wdir, "beats.json"), encoding="utf-8"))
+        if not (len(_bj0.get("segments", [])) == len(segs) and all(
+                abs(e["t0"] - s_["t0"]) < 0.01 for e, s_ in zip(_bj0["segments"], segs))):
+            _bj0 = None
+    except Exception:                                      # noqa: BLE001
+        _bj0 = None
+    컷창 = []                                              # 컷마다 (원본 첫 프레임, 프레임 수)
+    for _i, _s in enumerate(segs):
+        _e = (_bj0 or {}).get("segments", [None] * len(segs))[_i] if _bj0 else None
+        if _e and "f0" in _e:
+            _A, _M, _N = _e.get("앞멈춤", 0), _e["M"], _e["N"]
+            _r = _e["f0"] + _A                                 # 실제 첫 프레임
+            _f0 = _r - _A
+            if _N > _M:
+                # 호환 굽기가 머리·끝 장을 멈춰(같은 장을 더 보여) 다른 샷 번쩍임을 막은 컷 — 프리미어는 멈춤을 못 하니
+                #   실제 프레임 앞뒤로 «같은 샷» 프레임을 채워 N 장 창을 만든다. mp4 와 가장 가깝게(앞 x 장 · 뒤 N−M−x 장).
+                def _됨(x):
+                    앞 = all(not _G.전환인가(src_orig, _격, k) for k in range(_r - x + 1, _r + 1)) if x else True
+                    뒤 = not _G.전환들(src_orig, _격, _r + _M, tuple(range(0, _N - _M - x))) if _N - _M - x else True
+                    return 앞 and 뒤
+                _후 = sorted(range(0, _N - _M + 1), key=lambda x: abs(x - _A))
+                _x = next((x for x in _후 if _됨(x)), None)
+                assert _x is not None, (
+                    f"컷{_i + 1:02d}: 호환 굽기(옛 자막 시간축)가 앞 {_A}장·끝 {_e.get('뒤멈춤', 0)}장을 멈춰 다른 샷 번쩍임을 막은 컷인데 "
+                    f"앞뒤가 모두 화면 전환이라 프리미어에선 막을 수 없다 — 조각 t0/t1 을 전환 프레임 시각으로 고친 뒤 FROM=2 로 "
+                    f"다시 구워라(③ 재전사 유료)")
+                _f0 = _r - _x
+                print(f"  컷{_i + 1:02d}: 호환 굽기 멈춤(앞 {_A}·끝 {_e.get('뒤멈춤', 0)}장) → 프리미어는 같은 샷 {_x}장 앞부터"
+                      + (f" (mp4 보다 {_A - _x:+d}장 — 이 컷 소리·자막 {(_A - _x) * 1000 / _격.fps:+.0f}ms)" if _x != _A else ""))
+        else:
+            _f0 = _격.번호(_s["t0"])
+            _N = int(round((_e["out_dur"] if _e else (_s["t1"] - _s["t0"])) * _격.fps))
+        컷창.append((_f0, _N))
+    if ext:
+        # ★여운은 프레임 단위로, 마지막 샷 안에서만 (2026-09-28) — 여운이 화면 전환을 넘으면 «마지막 컷 연장» 이 아니라
+        #   다른 샷이 붙고, 끝 1~2장에 걸리면 번쩍임이다. 전환 프레임 앞에서 끝낸다.
+        _k1 = 컷창[-1][0] + 컷창[-1][1]
+        _n = int(ext * _격.fps + 1e-6)
+        _전 = _G.전환들(src_orig, _격, _k1, tuple(range(0, _n + 1))) if _n > 0 else []
+        if _전:
+            print(f"  여운 안 원본 {_격.시작(min(_전)):.3f}s 에 화면 전환 — 여운 {_n}장 → {min(_전) - _k1}장 (마지막 샷 안에서만)")
+            _n = min(_전) - _k1
+        ext = _격.길이(_k1, _k1 + _n) if _n > 0 else 0.0
     if ext:
         segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext, _여운전t1=segs[-1]["t1"])
         total = round(total + ext, 4)
@@ -431,7 +482,8 @@ def main():
                     print("  여운 끝이 암전 — 여운 0 처리 (검은 화면 출력 금지)")
                 else:
                     d += ext
-        picture.append({"t0": round(cum, 4), "t1": round(cum + d, 4), "src_in": s["t0"],
+        # in 점 = 컷창 첫 프레임의 표시 시각(+1µs — int(초×TPS) 내림이 한 틱 앞 = 앞 프레임으로 떨어지지 않게)
+        picture.append({"t0": round(cum, 4), "t1": round(cum + d, 4), "src_in": _격.시작(컷창[i][0]) + 1e-6,
                         "name": f'{i + 1:02d} P{s["phase"]} {s["what"][:24]}'})
         cum += d
     if 실측세그:
