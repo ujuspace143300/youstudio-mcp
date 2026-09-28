@@ -1,5 +1,10 @@
-# Gemini 호출을 한 곳에 모은다. **agy(구독) → EvoLink → 순정** 순서로 물러난다.
-#   (2026-09-26 사장님 지시로 agy 가 맨 앞 — 서버/runner/agy_gemini.py. 아래 EvoLink 기록은 비상 경로 설명이다.)
+# Gemini 호출을 한 곳에 모은다. **agy(구독) 먼저** — 서버/runner/agy_gemini.py (2026-09-26 사장님 지시).
+#   ★2026-09-26 사장님 결정 ②④ — agy 가 막히면 규칙은 서버/runner/judge_run.py 한 곳이 정한다:
+#     · 본문에 영상·소리·그림이 있으면 EvoLink 로 넘기지 않고 **멈춘다** — judge_run.판정멈춤(SystemExit 3).
+#       SystemExit 이라 호출처(sync·준비_prproj_sk·댓글선별)의 `except Exception` 에 안 잡힌다 — 한편_sk.sh 가 그 단계에서 선다.
+#     · agy 가 아예 없는 컴퓨터도 멈춘다(설치 문제 — 모든 호출이 유료로 샌다).
+#     · 글만이면 EvoLink 비상 길(아래). **순정 구글 키(~/.volcano/keys/gemini) 길은 막았다** — 키 파일은 안 지우고 안 쓴다.
+#   아래 EvoLink 기록은 그 비상 경로 설명이다.
 #
 # ★★2026-08-18 실측 — 같은 그림·같은 모델로 견줬다:
 #     EvoLink 3.4~4.6초 · 순정 24.8초. **5~7배 빠르고 503 이 없다.**
@@ -11,8 +16,8 @@
 #   것이 실은 이 헤더를 빠뜨린 탓이었다 — linbox/runner/vision.py 가 2026-08-13 에
 #   이미 짚어 둔 것을 우리가 몰랐다.
 #
-# ★**EvoLink 에는 Files API 가 없다.** 큰 미디어는 순정 키로만 올릴 수 있다.
-#   그래서 덩치가 크면 EvoLink 를 건너뛴다(BIG_MB).
+# ★**EvoLink 에는 Files API 가 없다.** 덩치가 크면(BIG_MB) EvoLink 를 건너뛴다 — 예전엔 순정 키로 갔지만
+#   그 길은 막혔다(2026-09-26 결정 ④). 큰 본문은 사실상 영상이라 agy 가 막히면 어차피 멈춘다.
 import json
 import os
 import sys
@@ -21,10 +26,10 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import judge_run   # noqa: E402  서버/runner/judge_run.py — agy 가 막힌 뒤의 규칙(멈춤·비상 길)과 PATH 빈틈 막기
 import agy_gemini  # noqa: E402  서버/runner/agy_gemini.py
 
 EVO_BASE = "https://api.evolink.ai/v1beta/models"
-GOO_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 USER_AGENT = "script-engine/1.1"        # ★정본 상수. 바꾸면 멀티모달이 403 이다
 BIG_MB = 18.0                           # 이보다 크면 EvoLink 를 건너뛴다
 
@@ -59,7 +64,7 @@ def shrink_for_inline(mp4, log=print):
                         "-preset", "veryfast", "-c:a", "aac", "-b:a", str(a_bps), "-ac", "1",
                         "-movflags", "+faststart", "-y", dst], capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(dst):
-        log("  ★판정 프록시 생성 실패 — 원본을 그대로 보낸다(순정 경로로 갈 수 있다)")
+        log("  ★판정 프록시 생성 실패 — 원본을 그대로 보낸다(agy 는 원본도 본다)")
         return mp4
     log(f"  판정 프록시 {os.path.getsize(dst)/1024/1024:.1f}MB (240p·12fps) — 인라인 한도 안")
     return dst
@@ -73,16 +78,14 @@ def _read_key(p):
 
 
 def routes(big=False):
-    """쓸 수 있는 경로를 좋은 순서로. EvoLink → 순정."""
+    """쓸 수 있는 비상 경로 — EvoLink 하나(글만일 때). 순정 구글 키 길은 막았다(2026-09-26 사장님 결정 ④ —
+    ~/.volcano/keys/gemini 는 안 지우고 안 읽는다). big 이면 EvoLink 에 못 보내므로(Files API 없음) 빈 목록."""
     out = []
     if not big:
         k = os.environ.get("EVOLINK_API_KEY", "").strip() or \
             _read_key("~/.volcano/keys/evolink")
         if k:
             out.append(("EvoLink", EVO_BASE, k))
-    g = _read_key("~/.volcano/keys/gemini")
-    if g:
-        out.append(("순정", GOO_BASE, g))
     return out
 
 
@@ -101,27 +104,33 @@ def ask(payload, models, timeout=900, tries=3, log=print):
     payload["contents"] = [{**c, "role": c.get("role", "user")}
                            for c in payload.get("contents", [])]
 
-    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저, 막히면 아래 EvoLink → 순정 길로.
-    #   단 영상·소리 첨부는 agy 가 끝내 안 되면 agy_gemini.AgyStop 으로 멈춘다(결정 2번 — EvoLink 금지).
+    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저.
+    #   영상·소리 첨부는 agy 가 끝내 안 되면 EvoLink 로 넘기지 않고 멈춘다(결정 2번) — agy_gemini.AgyStop 을
+    #   judge_run.agy_먼저 가 판정멈춤(종료코드 3)으로 바꾼다. 글만일 때만 아래 EvoLink 비상 길(비상길_검사).
     #   답 형식 오류는 agy_gemini 가 먼저 3번까지 다시 묻는다(싱글286 20:24:40 실측 누수).
     #   plan·subs·sync·댓글보충·준비_prproj_sk 가 전부 이 함수를 지나므로 여기 한 곳에서 바꾼다.
-    resp = agy_gemini.generate(payload, caller="스케치코미디/gem.ask",
-                               limit_min=max(3, min(15, timeout // 60)), log=log)
+    CALLER = "스케치코미디/gem.ask"
+    t0 = time.time()
+    resp, 까닭 = judge_run.agy_먼저(payload, CALLER, limit_min=max(3, min(15, timeout // 60)), log=log)
     if resp is not None:
         return agy_gemini.text_of(resp), "agy", resp["modelVersion"]
+    # 영상·소리·그림이 있거나 agy 가 없으면 여기서 멈춘다(판정멈춤 — 머리 주석). 글만일 때만 아래 EvoLink 로.
+    judge_run.비상길_검사(payload, CALLER, 까닭, log=log, sec=time.time() - t0, model=",".join(models))
 
     body = json.dumps(payload).encode()
     big = len(body) / 1024 / 1024 > BIG_MB
     rs = routes(big)
     if not rs:
-        log("  쓸 수 있는 키가 없다 — EVOLINK_API_KEY 나 ~/.volcano/keys/gemini")
+        log("  쓸 수 있는 키가 없다 — EVOLINK_API_KEY 나 ~/.volcano/keys/evolink"
+            + (f" (본문 {len(body)/1024/1024:.0f}MB — EvoLink 는 Files API 가 없어 못 받는다)" if big else ""))
+        judge_run.기록(CALLER, "agy_fail_stop", time.time() - t0, "EvoLink 비상 길 없음(키 없음·큰 본문) — " + 까닭)
         return None, "", ""
-    if big:
-        log(f"  {len(body)/1024/1024:.0f}MB — EvoLink 는 건너뛴다(Files API 가 없다)")
 
     for name, base, key in rs:
         for model in models:
             for t in range(tries):
+                # 보낸 요청마다 한 줄 — fallback 줄 수 = EvoLink 로 보낸 수(반박 19)
+                judge_run.기록(CALLER, "fallback", time.time() - t0, f"agy: {까닭[:160]} → {name} {model} 시도 {t + 1}", model)
                 try:
                     req = urllib.request.Request(
                         f"{base}/{model}:generateContent", data=body, method="POST",

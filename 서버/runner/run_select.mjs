@@ -1,9 +1,9 @@
-// runner 역할: select ① 지시 → do[](ffmpeg) → judge(Google: @inline_file/@file_uri 치환, auth env) → measure(gemini_json_text, 점 경로) → select ② → write_files
+// runner 역할: select ① 지시 → do[](ffmpeg) → judge(judge_run.py — agy 먼저, 막히면 멈춤) → measure(gemini_json_text, 점 경로) → select ② → write_files
 import fs from "node:fs";
 import { authHeaders } from "./기기.mjs"; // 발급 대장 인증(토큰·기기 id) — 설계/인증_이메일허가제.md 7
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { agyGenerate } from "./agy_gemini.mjs"; // 제미나이는 agy 먼저, EvoLink 는 비상용 (2026-09-26 사장님)
+import { judgeRun } from "./judge_run.mjs"; // judge 는 judge_run.py 하나로 — 영상·그림 판정은 agy 가 막히면 멈춤 (2026-09-26 사장님)
 const URL_ = "http://localhost:8787";
 const W = "C:/Users/user/Desktop/youstudio_work/fulltime";
 const briefDoc = JSON.parse(fs.readFileSync(W + "/brief/brief.json", "utf8"));
@@ -29,28 +29,7 @@ async function call(step, payload) {
   if (json.error) throw new Error(JSON.stringify(json.error));
   return json.result.structuredContent;
 }
-const key = (env) => process.env[env] || execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${env}','User')`], { encoding: "utf8" }).trim();
 const setPath = (obj, dotted, val) => { const ks = dotted.split("."); let o = obj; for (let i = 0; i < ks.length - 1; i++) { const k = ks[i]; const nk = ks[i + 1]; if (o[k] === undefined) o[k] = /^\d+$/.test(nk) ? [] : {}; o = o[k]; } o[ks.at(-1)] = val; };
-
-// Files API 업로드 (재개 가능 프로토콜) → file_uri, ACTIVE 대기
-async function uploadFile(apiKey, uploadBase, filePath, mime) {
-  const bytes = fs.readFileSync(filePath);
-  const start = await fetch(uploadBase, { method: "POST", headers: { "x-goog-api-key": apiKey, "X-Goog-Upload-Protocol": "resumable", "X-Goog-Upload-Command": "start", "X-Goog-Upload-Header-Content-Length": String(bytes.length), "X-Goog-Upload-Header-Content-Type": mime, "Content-Type": "application/json" }, body: JSON.stringify({ file: { display_name: path.basename(filePath) } }) });
-  if (!start.ok) throw new Error(`upload start ${start.status}: ${(await start.text()).slice(0, 300)}`);
-  const upUrl = start.headers.get("x-goog-upload-url");
-  const fin = await fetch(upUrl, { method: "POST", headers: { "Content-Length": String(bytes.length), "X-Goog-Upload-Offset": "0", "X-Goog-Upload-Command": "upload, finalize" }, body: bytes });
-  if (!fin.ok) throw new Error(`upload finalize ${fin.status}: ${(await fin.text()).slice(0, 300)}`);
-  let file = (await fin.json()).file;
-  const t0 = Date.now();
-  while (file.state !== "ACTIVE") {
-    if (file.state === "FAILED") throw new Error("file processing FAILED " + file.name);
-    if (Date.now() - t0 > 120000) throw new Error("file ACTIVE 대기 초과 " + file.name);
-    await new Promise((r) => setTimeout(r, 2000));
-    const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, { headers: { "x-goog-api-key": apiKey } });
-    file = await g.json();
-  }
-  return { uri: file.uri, mime: file.mimeType ?? mime };
-}
 
 // ① 지시
 const r1 = await call("select", carry);
@@ -66,58 +45,21 @@ for (const d of r1.do ?? []) {
   console.log(`do ${d.name} ok ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
-// jobs — judge (Google)
+// jobs — judge: judge_run.py 하나로 (agy 먼저 · 영상·그림 판정이라 agy 가 막히면 멈춤 — EvoLink·순정 Files API 로 안 감,
+//   사장님 결정 ②④ 2026-09-26). agy 는 @inline_file/@file_uri 자리표의 로컬 파일을 그대로 본다 — 업로드·base64 가 필요 없다.
 const visualPayload = {};
 for (const job of r1.jobs) {
-  // agy 는 @inline_file/@file_uri 자리표의 로컬 파일을 그대로 본다 — 업로드·base64 가 필요 없다
-  const t0a = Date.now();
-  const viaAgy = agyGenerate(job.request.body, "run_select/" + job.name, 15);
-  if (viaAgy) {
-    const rawA = JSON.stringify(viaAgy);
-    fs.mkdirSync(path.dirname(job.out), { recursive: true });
-    fs.writeFileSync(job.out, rawA, "utf8");
-    console.log(`judge ${job.name} agy ${((Date.now() - t0a) / 1000).toFixed(1)}s → ${path.basename(job.out)}`);
-    const parsedA = JSON.parse(viaAgy.candidates[0].content.parts.map((p) => p.text ?? "").join(""));
-    const mA = r1.measure.find((x) => x.from === "job:" + job.name);
-    setPath(visualPayload, mA.as, parsedA);
-    continue;
-  }
-  const apiKey = key(job.auth.env);
-  if (!apiKey) throw new Error(job.auth.env + " 없음");
-  const uploadBase = "https://generativelanguage.googleapis.com/upload/v1beta/files";
-  const body = JSON.parse(JSON.stringify(job.request.body));
-  let nInline = 0, nUri = 0;
-  for (const c of body.contents) {
-    for (let i = 0; i < c.parts.length; i++) {
-      const p = c.parts[i];
-      if (p["@inline_file"]) {
-        const { path: fp, mime } = p["@inline_file"];
-        c.parts[i] = { inline_data: { mime_type: mime, data: fs.readFileSync(fp).toString("base64") } };
-        nInline++;
-      } else if (p["@file_uri"]) {
-        const { path: fp, mime } = p["@file_uri"];
-        const up = await uploadFile(apiKey, uploadBase, fp, mime);
-        c.parts[i] = { file_data: { mime_type: up.mime, file_uri: up.uri } };
-        nUri++;
-        console.log(`  uploaded ${path.basename(fp)} → ACTIVE`);
-      }
-    }
-  }
   const t0 = Date.now();
-  const hName = job.auth.header.split(":")[0].trim();
-  const hVal = job.auth.header.includes("Bearer") ? "Bearer " + apiKey : apiKey;
-  const resp = await fetch(job.request.url, { method: job.request.method, headers: { ...job.request.headers, [hName]: hVal }, body: JSON.stringify(body) });
-  const rawText = await resp.text();
-  fs.mkdirSync(path.dirname(job.out), { recursive: true });
-  fs.writeFileSync(job.out, rawText, "utf8");
-  console.log(`judge ${job.name} http=${resp.status} ${((Date.now() - t0) / 1000).toFixed(1)}s inline=${nInline} uri=${nUri} → ${path.basename(job.out)}`);
-  const raw = JSON.parse(rawText);
-  if (raw.error) throw new Error(job.name + " 모델 오류: " + JSON.stringify(raw.error).slice(0, 400));
+  const jr = judgeRun(job);
+  if (jr.code !== 0) {
+    console.error(`★judge ${job.name} 종료코드 ${jr.code} — ${jr.why}. 멈춘다(EvoLink·구글로 손수 보내지 않는다).`);
+    process.exit(jr.code);
+  }
+  const raw = jr.resp;
+  console.log(`judge ${job.name} ${raw.route ?? "?"} ${((Date.now() - t0) / 1000).toFixed(1)}s → ${path.basename(job.out)}`);
   const cand = raw.candidates?.[0];
-  console.log(`  finishReason=${cand?.finishReason} usage=${JSON.stringify(raw.usageMetadata)}`);
   if (cand?.finishReason !== "STOP") throw new Error("잘림/비정상 finishReason=" + cand?.finishReason);
-  const textOut = (cand.content?.parts ?? []).map((p) => p.text ?? "").join("");
-  const parsed = JSON.parse(textOut);
+  const parsed = JSON.parse((cand.content?.parts ?? []).map((p) => p.text ?? "").join(""));
   const m = r1.measure.find((x) => x.from === "job:" + job.name);
   setPath(visualPayload, m.as, parsed);
 }

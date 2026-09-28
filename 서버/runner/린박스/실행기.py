@@ -10,7 +10,11 @@ next_step 을 따라간다. 서버가 판정하고 이것은 손발이다 (설�
   · need_input 이 오면 --answers 의 값(키 = need_input.keys 또는 payload 칸)을 실어 다시 부르고, 없으면 멈춘다(종료코드 2).
   · ★유료(jobs_kind synthesize · 전사.py · narr_align.py) 는 --approve-paid 없이는 멈춘다(종료코드 3) — 규칙: 비용 보고 → 승인 → 실행.
   · error 면 멈춘다(종료코드 1). done 이면 0.
+  · ★judge 일감(jobs_kind judge · provider evolink/google · 제미나이 요청 모양)은 run_synth(원시 request 그대로 보내기)로 가지 않고
+    같은 저장소의 서버/runner/judge_run.py 로만 간다 — agy 먼저 · 영상·그림은 막히면 멈춤(종료코드 3) · 글만 EvoLink 비상 길 ·
+    순정 구글 거절 (2026-09-26 사장님 결정 ②④ · 볼트 제미나이점검 반박 8: 서버가 judge 를 더하는 날 EvoLink 로 곧장 가던 잠재 길).
   · measure unit: json_stdout · stdout · stdout_first_line · stderr · seconds(ffprobe 길이 — job 의 out, 없으면 argv 의 마지막 .mp4/.wav) · bytes
+    · gemini_json_text(judge 의 out 에서 candidates[0] 글을 JSON 으로 — finishReason 이 STOP 아니면 멈춤)
   · argv 첫 토막 «python» 은 이 실행기의 파이썬(러너 venv)으로 바꾼다. 나머지는 한 글자도 안 고친다.
 """
 import argparse
@@ -182,6 +186,41 @@ def run_synth(job, cwd, results):
     print('    %-14s 합성 %d바이트 → %s' % (name, len(body), os.path.basename(out)))
 
 
+JUDGE_RUN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'judge_run.py')
+
+
+def is_judge(kind, job):
+    """judge 일감인가 — jobs_kind 가 judge 이거나 제미나이 요청 모양(provider evolink·google · body.contents · :generateContent)."""
+    if kind == 'judge':
+        return True
+    if str(job.get('provider', '')).lower() in ('evolink', 'google'):
+        return True
+    req = job.get('request') or {}
+    return (isinstance(req.get('body'), dict) and 'contents' in req['body']) or ':generateContent' in str(req.get('url', ''))
+
+
+def run_judge(job, cwd, results):
+    """judge 일감 → judge_run.py (머리 주석). 일감 객체를 job_file 에 그대로 쓰고 부른다. 종료코드 3(멈춤)이면 이 실행기도 3."""
+    name = job['name']
+    out = job['out']
+    if not os.path.exists(JUDGE_RUN):
+        raise SystemExit('★judge_run.py 가 없다(%s) — 저장소를 git pull 하라. 원시 request 를 대신 보내지 않는다' % JUDGE_RUN)
+    jf = job.get('job_file') or os.path.join(os.path.dirname(out) or cwd, name + '.job.json')
+    os.makedirs(os.path.dirname(jf) or '.', exist_ok=True)
+    io.open(jf, 'w', encoding='utf-8').write(json.dumps(job, ensure_ascii=False))
+    t0 = time.time()
+    r = subprocess.run([PY, JUDGE_RUN, '--job', jf, '--out', out], cwd=cwd, stdout=subprocess.PIPE, stderr=None,
+                       text=True, encoding='utf-8', errors='replace')          # 표준오류(진행·멈춤 까닭)는 그대로 화면에
+    results[name] = {'rc': r.returncode, 'stdout': r.stdout or '', 'stderr': '', 'out': out}
+    tail = [l for l in (r.stdout or '').splitlines() if l.strip()][-1:] or ['']
+    print('    %-14s judge_run rc=%d %5.1fs  %s' % (name, r.returncode, time.time() - t0, tail[0][:90]))
+    if r.returncode == 3:
+        print('★ judge 멈춤 — 사람에게 여쭌다(EvoLink 로 넘기지 않음). 확인: python ~/.claude/agy_call.py --usage')
+        raise SystemExit(3)
+    if r.returncode != 0:
+        raise SystemExit('★judge %s 실패 (judge_run rc %d — 2 일감 잘못·막힌 길 · 4 EvoLink 비상 길 실패)' % (name, r.returncode))
+
+
 def ffdur(path):
     r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], capture_output=True, text=True)
     try:
@@ -218,6 +257,18 @@ def measure(rule, results):
             cand = [x for x in res.get('argv', []) if x.endswith('.mp4') or x.endswith('.wav')]
             path = cand[-1] if cand else None
         return ffdur(path) if path and os.path.exists(path) else None
+    if u == 'gemini_json_text':
+        try:
+            d = json.load(io.open(res.get('out') or '', encoding='utf-8'))
+        except (OSError, ValueError):
+            return None
+        cand = (d.get('candidates') or [{}])[0]
+        if cand.get('finishReason') != 'STOP':
+            raise SystemExit('★%s 답이 잘렸다/비정상 finishReason=%s — 멈추고 보고' % (name, cand.get('finishReason')))
+        try:
+            return json.loads(''.join(p.get('text', '') for p in ((cand.get('content') or {}).get('parts') or [])))
+        except ValueError:
+            raise SystemExit('★%s 답이 JSON 이 아니다 — 멈추고 보고' % name)
     raise SystemExit('★measure unit 을 모른다: %s' % u)
 
 
@@ -242,7 +293,9 @@ def execute(sc):
         run_argv(j, cwd, results)
     kind = sc.get('jobs_kind')
     for j in sc.get('jobs') or []:
-        if kind == 'synthesize' or j.get('provider'):
+        if is_judge(kind, j):
+            run_judge(j, cwd, results)          # 원시 request 를 그대로 보내지 않는다 — judge_run 하나로(머리 주석)
+        elif kind == 'synthesize' or j.get('provider'):
             run_synth(j, cwd, results)
         elif 'argv' in j:
             run_argv(j, cwd, results)

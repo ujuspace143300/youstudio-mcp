@@ -4,15 +4,17 @@
  * 두 번 부른다:
  *   ① payload.brief 가 없으면 → 지시. jobs_kind:"judge". 서버가 프롬프트·바디를 조립하고
  *      전사는 inputs 로 "transcript.json 파일 내용을 이 자리에 넣어라"만 지시한다 (전사 본문은 payload 에 안 실림 — 컨텍스트 보호).
- *      키는 auth 로 "EVOLINK_API_KEY 환경변수" 위치만. 원본 응답은 brief/brief_raw.json.
+ *      받는 쪽은 일감을 judge_run.py 로 돌린다(lib/judge.ts — agy 먼저, 글만이라 막히면 EvoLink 비상 길, 2026-09-26 사장님 결정 ②).
+ *      request·auth(EVOLINK_API_KEY 위치)는 그 비상 길 재료. 원본 응답은 brief/brief_raw.json.
  *   ② payload.brief(모델 JSON) 가 있으면 → 검사. 사건 0건 / 타임코드 범위 밖이면 반려 + 수리 지침.
  *      통과하면 정리한 brief.json 을 write_files 로 쓰게 하고 metrics 를 뱉는다. next_step=select
  *
- * 설정값(backend·모델·온도·사건 수 목표)은 전부 스타일/영화롱폼/규격.json 「판정」에서 온다.
- * 호출 규약: 설계/참고_runner.md 「EvoLink 호출 규약」.
+ * 설정값(backend·모델·온도·사건 수 목표)은 전부 스타일/영화롱폼/규격.json 「판정」에서 온다(backend·모델은 비상 길 값).
+ * 비상 길 호출 규약: 설계/참고_runner.md 「EvoLink 호출 규약」.
  */
 import spec from "../../../스타일/영화롱폼/규격.json";
 import { base, reject } from "../response.js";
+import { viaJudgeRun, judgeRunInstructions, judgeRoute } from "../lib/judge.js";
 import type { StepHandler } from "./types.js";
 
 interface JudgeSpec {
@@ -130,12 +132,11 @@ export const brief: StepHandler = {
       return base("brief", preset, {
         status: "execute",
         next_step: "brief",
-        message: `판정 지시: transcript.json 을 ${T.backend}/${T.모델} 에 보내 사건 ${target}개 내외를 받아라. 결과 JSON 을 payload.brief 에 실어 brief 를 다시 부르라.`,
+        message: `판정 지시: transcript.json 을 ${judgeRoute(false, T.backend, T.모델)} 로 판정해 사건 ${target}개 내외를 받아라. 결과 JSON 을 payload.brief 에 실어 brief 를 다시 부르라.`,
         instructions: [
-          `① jobs 의 judge 를 그대로 보낸다. 먼저 inputs 대로 ${transcriptPath} 파일 내용을 바디의 ${PLACEHOLDER} 자리에 문자열로 넣는다. 전사 본문을 payload 나 대화에 옮겨 적지 않는다.`,
-          `② 키는 auth 대로 환경변수 ${T.키_환경변수} 에서 읽어 헤더에 붙인다. 키 값을 화면·파일·payload 에 쓰지 않는다. 응답 JSON 을 out 경로에 저장한다.`,
-          "③ measure 대로 응답의 candidates[0].content.parts[].text 를 이어 붙여 JSON 으로 파싱해 payload.brief 에 넣는다. finishReason 이 STOP 이 아니면(MAX_TOKENS 등) 잘린 것이다 — 멈추고 사람에게 보고한다. 응답이 {error:…} 면 그 메시지를 보여주고 멈춘다.",
-          "④ carry 값과 함께 brief 를 다시 부른다.",
+          ...judgeRunInstructions(1),
+          `⑤ measure 대로 out 의 candidates[0].content.parts[].text 를 이어 붙여 JSON 으로 파싱해 payload.brief 에 넣는다. finishReason 이 STOP 이 아니면(MAX_TOKENS 등) 잘린 것이다 — 멈추고 사람에게 보고한다. (${transcriptPath} 내용은 judge_run 이 inputs 대로 ${PLACEHOLDER} 자리에 넣는다 — 전사 본문을 payload 나 대화에 옮겨 적지 않는다.)`,
+          "⑥ carry 값과 함께 brief 를 다시 부른다.",
         ],
         then_call_with: [
           "step: 'brief'",
@@ -143,20 +144,20 @@ export const brief: StepHandler = {
         ],
         jobs_kind: "judge",
         jobs: [
-          {
+          viaJudgeRun({
             name: "brief_judge",
             provider: T.backend,
             model: T.모델,
             request: { method: "POST", url, headers: { "Content-Type": "application/json" }, body },
-            inputs: [{ placeholder: PLACEHOLDER, path: transcriptPath, note: "transcript.json 전체를 문자열로 치환. 전사는 파일→요청으로만 흐른다" }],
+            inputs: [{ placeholder: PLACEHOLDER, path: transcriptPath, note: "transcript.json 전체를 문자열로 치환(judge_run 이 한다). 전사는 파일→요청으로만 흐른다" }],
             auth: {
               env: T.키_환경변수,
               header: `Authorization: Bearer <${T.키_환경변수} 값>`,
-              note: "서버는 키를 보관하지 않는다. runner 가 로컬 환경변수에서 읽어 붙인다.",
+              note: "서버는 키를 보관하지 않는다. judge_run 이 비상 길에서만 로컬 환경변수·키 파일에서 읽어 붙인다.",
             },
             out: rawPath,
-            note: "Google-Native v1beta generateContent. JSON 강제 · thinkingBudget 0 · maxOutputTokens 명시 (참고_runner.md 「EvoLink 호출 규약」)",
-          },
+            note: "judge_run.py 가 처리 — agy 먼저, 막히면 이 request 로 EvoLink 비상 길 한 번(글만). Google-Native v1beta generateContent · JSON 강제 · thinkingBudget 0 · maxOutputTokens 명시 (참고_runner.md 「EvoLink 호출 규약」)",
+          }),
         ],
         measure: [{ as: "brief", from: "job:brief_judge", unit: "gemini_json_text" }],
         carry: ["source", "workdir", "probe_summary", "transcript_path"],
@@ -171,14 +172,14 @@ export const brief: StepHandler = {
       return reject(
         "brief", preset,
         "payload.brief 가 {logline, events[]} 모양이 아니다",
-        `${rawPath} 의 candidates[0].content.parts[].text 를 JSON 으로 파싱한 객체를 payload.brief 에 실어 다시 부르라. 파싱이 안 되면(잘림·코드펜스) 판정을 다시 보내라 — 같은 jobs 를 한 번 더 실행.`,
+        `${rawPath} 의 candidates[0].content.parts[].text 를 JSON 으로 파싱한 객체를 payload.brief 에 실어 다시 부르라. 파싱이 안 되면(잘림·코드펜스) 같은 judge 일감의 run(judge_run.py)을 한 번 더 실행한다.`,
       );
     }
     if (raw.events.length === 0) {
       return reject(
         "brief", preset,
         "hard_fail: 사건이 0건이다",
-        `① ${rawPath} 를 열어 모델이 무엇을 돌려줬는지 본다 (거절·빈 응답·형식 오류). ② transcript.json 의 발화가 실제 대사인지 확인한다 (환청·노래 가사만이면 소재 문제). ③ 같은 judge 를 한 번 더 보낸다. 그래도 0건이면 사람에게 보고하고 멈춘다.`,
+        `① ${rawPath} 를 열어 모델이 무엇을 돌려줬는지 본다 (거절·빈 응답·형식 오류). ② transcript.json 의 발화가 실제 대사인지 확인한다 (환청·노래 가사만이면 소재 문제). ③ 같은 judge 일감의 run(judge_run.py)을 한 번 더 실행한다. 그래도 0건이면 사람에게 보고하고 멈춘다.`,
       );
     }
 
@@ -207,7 +208,7 @@ export const brief: StepHandler = {
       return reject(
         "brief", preset,
         `판정 결과가 범위 밖이다 — ${bad.length}건: ${bad.slice(0, 5).join(" / ")}${bad.length > 5 ? " / …" : ""}`,
-        `사건의 start·end 는 0~${durationS}초, importance 는 ${lo}~${hi} 정수, summary 는 비면 안 된다. 같은 jobs 의 judge 를 한 번 더 보내라 (프롬프트에 원본 길이가 이미 명시돼 있다 — 온도 ${T.온도} 라 재시도로 대개 잡힌다). 두 번 연속 실패면 규격.json 판정.텍스트.온도 를 낮추거나 모델을 바꾸고 사람에게 보고하라.`,
+        `사건의 start·end 는 0~${durationS}초, importance 는 ${lo}~${hi} 정수, summary 는 비면 안 된다. 같은 judge 일감의 run(judge_run.py)을 한 번 더 실행하라 (프롬프트에 원본 길이가 이미 명시돼 있다 — 온도 ${T.온도} 라 재시도로 대개 잡힌다). 두 번 연속 실패면 규격.json 판정.텍스트.온도 를 낮추거나 모델을 바꾸고 사람에게 보고하라.`,
       );
     }
 

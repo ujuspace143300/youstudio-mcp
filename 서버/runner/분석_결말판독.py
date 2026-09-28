@@ -7,22 +7,24 @@
       **끝부분 클립을 인라인(base64)으로 올려** 그 구간만 정확히 보게 한다.
 
   방법: ffmpeg `-sseof` 로 끝에서 N초를 잘라 640x360·저비트레이트 mp4 로 만든다(인라인 상한 20MB, 규격 「판정.영상.인라인_상한_mb」).
-        EvoLink generateContent 의 inline_data 로 보내고, 답은 `분석/지무비/NN/gemini_결말.json` 에 저장한다.
+        generateContent 의 inline_data 모양으로 agy 에 보이고, 답은 `분석/지무비/NN/gemini_결말.json` 에 저장한다.
 
-  키는 환경변수에서만 읽는다(서버 무보관).
+  ★2026-09-26 사장님 결정 ②④ — 판독은 **agy(구독)만**. 영상 클립 판독이라 agy 가 막히면 EvoLink 로 넘기지 않고
+    **멈춘다**(종료코드 3 — judge_run.판정멈춤). 순정 구글 키 길도 없다. 규칙은 judge_run.py 한 곳.
+    확인: python ~/.claude/agy_call.py --usage
 
 사용:
   python 서버/runner/분석_결말판독.py --n 9            # 한 편
   python 서버/runner/분석_결말판독.py --전체 [--초 90] [--덮어쓰기]
 """
-import argparse, base64, json, os, subprocess, sys, time, urllib.error, urllib.request
-import agy_gemini  # 서버/runner/agy_gemini.py — agy 먼저, EvoLink 는 비상용 (2026-09-26)
+import argparse, base64, json, os, subprocess, sys, time
+import judge_run  # 서버/runner/judge_run.py — agy 먼저 · 영상 판정은 막히면 멈춤 (2026-09-26 사장님 결정 ②④)
+import agy_gemini  # noqa: E402  judge_run 이 PATH 빈틈을 막은 뒤 import 한 같은 모듈
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 목록_기본 = os.path.join(ROOT, "분석/지무비/목록.json")
 원본_기본 = "C:/Users/user/Desktop/youstudio_work/분석/지무비/원본"
 임시 = "C:/Users/user/Desktop/youstudio_work/분석/_결말클립"
-UA = "youstudio-mcp/0.8 (analysis runner)"
 
 프롬프트 = """이 영상 조각은 한국어 리캡 영상의 **마지막 부분**이다. 이 조각만 보고 아래를 판독해라.
 
@@ -53,14 +55,6 @@ UA = "youstudio-mcp/0.8 (analysis runner)"
 }"""
 
 
-def 키(env):
-    v = os.environ.get(env)
-    if v: return v.strip()
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", f"[Environment]::GetEnvironmentVariable('{env}','User')"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return (r.stdout or "").strip()
-
-
 def 클립만들기(video, 초, out):
     os.makedirs(os.path.dirname(out), exist_ok=True)
     argv = ["ffmpeg", "-y", "-v", "error", "-sseof", f"-{초}", "-i", video,
@@ -75,32 +69,13 @@ def 호출(clip, model, 최대토큰=8192):
     body = {"contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "video/mp4", "data": b64}}, {"text": 프롬프트}]}],
             "generationConfig": {"temperature": 0, "maxOutputTokens": 최대토큰, "responseMimeType": "application/json",
                                  "thinkingConfig": {"thinkingBudget": 0}}}
-    # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저. 막히면 아래 EvoLink 길.
+    # ★2026-09-26 사장님 결정 ②④ — agy(구독)만. 영상 판독이라 agy 가 막히면 멈춘다(EvoLink 로 안 감, 머리 주석).
     t0 = time.time()
-    resp = agy_gemini.generate(body, caller="분석_결말판독", limit_min=15)
-    if resp is not None:
-        return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
-    req = urllib.request.Request(f"https://api.evolink.ai/v1beta/models/{model}:generateContent",
-                                 data=json.dumps(body).encode("utf-8"),
-                                 headers={"content-type": "application/json", "user-agent": UA,
-                                          "authorization": f"Bearer {키('EVOLINK_API_KEY')}"}, method="POST")
-    t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=900) as r:
-            raw, status = r.read().decode("utf-8", "replace"), r.status
-    except urllib.error.HTTPError as e:
-        raw, status = e.read().decode("utf-8", "replace"), e.code
-    except Exception as e:
-        raw, status = json.dumps({"error": {"message": str(e)}}), 0
-    초 = round(time.time() - t0, 1)
-    답, usage = "", None
-    try:
-        j = json.loads(raw)
-        답 = "".join(p.get("text", "") for p in (j.get("candidates") or [{}])[0].get("content", {}).get("parts", []))
-        usage = j.get("usageMetadata")
-    except Exception:
-        pass
-    return status, 답.strip(), usage, raw, 초
+    resp, 까닭 = judge_run.agy_먼저(body, "분석_결말판독", limit_min=15)
+    if resp is None:
+        judge_run.비상길_검사(body, "분석_결말판독", 까닭, sec=time.time() - t0, model=model)   # 영상이라 여기서 멈춘다
+        raise judge_run.판정멈춤("분석_결말판독: 영상 판독인데 비상 길 검사를 지났다 — judge_run 규칙 오류, 멈춘다")
+    return 200, agy_gemini.text_of(resp).strip(), resp["usageMetadata"], json.dumps(resp, ensure_ascii=False), round(time.time() - t0, 1)
 
 
 def 느슨한파싱(text):

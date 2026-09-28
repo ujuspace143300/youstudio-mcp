@@ -1,8 +1,7 @@
-// runner 역할: brief ① 지시 받기 → judge job 실행(inputs 치환·auth env·out 저장) → measure(gemini_json_text) → brief ② → write_files
+// runner 역할: brief ① 지시 받기 → judge job 실행(judge_run.py — inputs 치환·agy 먼저·out 저장) → measure(gemini_json_text) → brief ② → write_files
 import fs from "node:fs";
 import { authHeaders } from "./기기.mjs"; // 발급 대장 인증(토큰·기기 id) — 설계/인증_이메일허가제.md 7
-import { execFileSync } from "node:child_process";
-import { agyGenerate } from "./agy_gemini.mjs"; // 제미나이는 agy 먼저, EvoLink 는 비상용 (2026-09-26 사장님)
+import { judgeRun } from "./judge_run.mjs"; // judge 는 judge_run.py 하나로 — agy 먼저, 글만 EvoLink 비상 길 (2026-09-26 사장님)
 const URL_ = "http://localhost:8787";
 const W = "C:/Users/user/Desktop/youstudio_work/fulltime";
 const carry = {
@@ -27,28 +26,15 @@ const r1 = await call("brief", carry);
 if (r1.status !== "execute" || r1.jobs_kind !== "judge") throw new Error("① 예상 밖: " + r1.status + "/" + r1.jobs_kind);
 const job = r1.jobs[0];
 
-// inputs 치환 (파일 → 문자열, 로그에 안 찍음)
-let bodyStr = JSON.stringify(job.request.body);
-for (const inp of job.inputs) {
-  const content = fs.readFileSync(inp.path, "utf8");
-  bodyStr = bodyStr.replace(JSON.stringify(inp.placeholder).slice(1, -1), () => JSON.stringify(content).slice(1, -1));
-}
+// judge — judge_run.py 가 inputs 치환(파일 → 문자열, 로그에 안 찍음)·agy 먼저·글만 EvoLink 비상 길·out 저장을 한다
 const t0 = Date.now();
-let rawText, httpStatus;
-const viaAgy = agyGenerate(bodyStr, "run_brief", 10);
-if (viaAgy) {
-  rawText = JSON.stringify(viaAgy); httpStatus = "agy";
-} else {
-  // auth: 환경변수에서 읽어 헤더로만 (사용자 환경변수 — 새 프로세스라 레지스트리 값을 읽는다)
-  const key = process.env[job.auth.env] || execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${job.auth.env}','User')`], { encoding: "utf8" }).trim();
-  if (!key) throw new Error(job.auth.env + " 없음");
-  const resp = await fetch(job.request.url, { method: job.request.method, headers: { ...job.request.headers, Authorization: "Bearer " + key }, body: bodyStr });
-  rawText = await resp.text(); httpStatus = resp.status;
+const jr = judgeRun(job);
+if (jr.code !== 0) {
+  console.error(`★judge ${job.name} 종료코드 ${jr.code} — ${jr.why}. 멈춘다(EvoLink 로 손수 보내지 않는다).`);
+  process.exit(jr.code);
 }
-fs.mkdirSync(job.out.replace(/\/[^/]+$/, ""), { recursive: true });
-fs.writeFileSync(job.out, rawText, "utf8");
-console.log(`judge http=${httpStatus} time=${((Date.now() - t0) / 1000).toFixed(1)}s bytes=${rawText.length} → ${job.out}`);
-const raw = JSON.parse(rawText);
+const raw = jr.resp;
+console.log(`judge ${raw.route ?? "?"} time=${((Date.now() - t0) / 1000).toFixed(1)}s → ${job.out}`);
 if (raw.error) throw new Error("모델 오류: " + JSON.stringify(raw.error));
 const cand = raw.candidates?.[0];
 console.log("finishReason=" + cand?.finishReason + " usage=" + JSON.stringify(raw.usageMetadata));
