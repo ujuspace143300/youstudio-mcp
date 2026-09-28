@@ -535,7 +535,8 @@ def main():
         return 0
 
     from s2pipe import build
-    return build.run_build(proj, path)
+    # --화자색: 대사 줄 화자 색(⑦ 프리미어와 같은 판정) — 한편_sk.sh ⑥ 재굽기가 준다 (2026-09-28)
+    return build.run_build(proj, path, 화자색켬="--화자색" in sys.argv)
 
 
 if __name__ == "__main__":

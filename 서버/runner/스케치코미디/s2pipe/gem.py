@@ -40,7 +40,10 @@ def shrink_for_inline(mp4, log=print):
     if os.path.getsize(mp4) <= INLINE_MB * 1024 * 1024:
         return mp4
     dst = os.path.splitext(mp4)[0] + ".judge.mp4"
-    if os.path.exists(dst) and os.path.getsize(dst) <= INLINE_MB * 1024 * 1024:
+    # ★원본보다 오래된 프록시는 다시 만든다 (2026-09-28 — ⑥ 재굽기가 cut.mp4 를 새로 구워도 옛 cut.judge.mp4 가 남아
+    #   화자 판정이 «이전 굽기» 영상을 봤다: 싱글72 프록시 10:48 · cut.mp4 10:55 실측).
+    if os.path.exists(dst) and os.path.getsize(dst) <= INLINE_MB * 1024 * 1024 \
+            and os.path.getmtime(dst) >= os.path.getmtime(mp4):
         return dst
     o = subprocess.run(["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
                         "-of", "csv=p=0", mp4], capture_output=True, text=True)

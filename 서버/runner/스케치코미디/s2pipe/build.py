@@ -566,8 +566,11 @@ def _ts(t):
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
-def write_ass(proj, dst, total, narrs=()):
+def write_ass(proj, dst, total, narrs=(), 색표=None):
     """대사와 나레이션을 **색으로 가른다**(지침서 3장).
+
+    색표 = 화자색.굽기색 결과 {(줄 시각, 글): (r,g,b)|None} — 대사 줄마다 화자 색(프리미어 dlg 큐와 같은 판정).
+      «글·시각» 으로 짝을 찾고, 짝이 없거나 None(화자1·판정 없음)이면 기본색(main 스타일 흰색) 그대로.
 
     ★**나레이션 자막은 `subs` 가 아니라 `segments[].narration` 에서 만든다.**
       두 곳에 같은 문구를 두면 한쪽만 고쳤을 때 어긋난다 — 실제로 나레이션을 줄였는데
@@ -612,6 +615,7 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
     # ★검수용 완성본도 프리미어판과 «동일하게» (2026-09-03 사장님 — 산출물 둘이 다르면
     #   검수가 어긋난다): 아모르 팝(86→104→100 튀기)과 말 끝 종료 시각을 같이 넣는다.
     팝 = "{\\fscx86\\fscy86\\t(0,120,\\fscx104\\fscy104)\\t(120,182,\\fscx100\\fscy100)}"
+    칠함 = [0, 0, 0]                                     # 화자 색 · 기본색(화자1) · 짝 없음(기본색)
     for i, cur in enumerate(subs):
         다음t = subs[i + 1]["t"] if i + 1 < len(subs) else total
         if cur.get("t1"):
@@ -623,7 +627,15 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         txt = (cur.get("text") or "").replace("\n", " ")
         if len(txt) > hi:                                # 넘치면 화면 밖으로 나간다
             txt = txt[:hi - 1] + "…"
-        body.append(f"Dialogue: 0,{_ts(cur['t'])},{_ts(end)},main,,0,0,0,,{팝}{txt}")
+        # ★화자 색 (2026-09-28 사장님 — 완성본에도 프리미어와 같은 화자별 색). 색만 바꾼다: 줄·시각·서식은 그대로.
+        색 = (색표 or {}).get((round(cur["t"], 3), cur.get("text")))
+        if 색표 is not None:
+            칠함[0 if 색 else (1 if (round(cur["t"], 3), cur.get("text")) in 색표 else 2)] += 1
+        색태그 = "{\\1c&H%02X%02X%02X&}" % (색[2], 색[1], 색[0]) if 색 else ""
+        body.append(f"Dialogue: 0,{_ts(cur['t'])},{_ts(end)},main,,0,0,0,,{색태그}{팝}{txt}")
+
+    if 색표 is not None:
+        print(f"    대사 색 — 화자 색 {칠함[0]}줄 · 기본색(화자1) {칠함[1]}줄 · 짝 없음(기본색) {칠함[2]}줄", flush=True)
 
     # 나레이션 — 실제로 구운 음성과 **같은 문구·같은 길이**로 얹는다
     seg_narr = {}
@@ -852,7 +864,9 @@ def report_cuts(proj, work, src):
           if back else "  시간 연결: 앞에서 뒤로만 간다")
 
 
-def run_build(proj, path):
+def run_build(proj, path, 화자색켬=False):
+    """화자색켬 — ⑥ 재굽기(한편_sk.sh 가 --화자색 을 준다)에서만 판정한다. ② 첫 굽기는 자막이 ④ 싱크 전이라
+    판정이 곧 낡는다(agy 한도만 쓴다) — 그래서 끈다."""
     slug = proj["slug"]
     work = os.path.join(HERE, CFG["paths"]["work"], slug)
     out = os.path.join(HERE, CFG["paths"]["out"])
@@ -885,7 +899,14 @@ def run_build(proj, path):
     print("3/5 나레이션 (★요금)", flush=True)
     narrs = narrate(proj, work, total)
     print("4/5 자막", flush=True)
-    ass = write_ass(proj, os.path.join(work, "sub.ass"), total, narrs)
+    # ★화자 판정은 나레 «뒤»·자막 «앞» (2026-09-28 사장님 설계) — 이 시점엔 새 cut.mp4 와 나레 길이가 있어 ⑦ 프리미어와
+    #   같은 재료다. 판정은 저장본(_화자판정캐시.json)에 남고 ⑦ 이 같은 키로 읽는다(두 번 묻지 않는다).
+    #   agy 가 전부 멈추면(AgyStop) 여기서 멈춘다 — ⑦ 과 같다. 일부 실패는 표결로 계속.
+    색표 = None
+    if 화자색켬:
+        from . import 화자색 as _HS
+        색표 = _HS.굽기색(proj, work, float(CFG["narration"].get("duck_pad_sec", 0.15)))
+    ass = write_ass(proj, os.path.join(work, "sub.ass"), total, narrs, 색표)
 
     sfx_at = []
     if CFG["sfx"].get("enabled"):

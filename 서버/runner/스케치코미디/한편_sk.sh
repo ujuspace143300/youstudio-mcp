@@ -46,7 +46,8 @@ STEP=0
 단계 "③ 재전사(유료)" "낱말사전|단어"                                "$PY" -m s2pipe.asr "$PJ"
 단계 "④ 작표"       "핀|재정박|병합|갈림|정정|유령|복원|재흐름|겹침 정리|최종 관문|커버리지|원문화면" "$PY" -m s2pipe.sync "$PJ"
 단계 "⑤ 재검사"     "반려|통과"                                    "$PY" make.py "$PJ" --check
-단계 "⑥ 재굽기"     "완성:"                                        "$PY" make.py "$PJ"
+# ⑥ 은 --화자색 — 대사 화자 색을 mp4 에도(판정은 여기서 한 번, ⑦ 은 저장본을 읽는다 · 2026-09-28)
+단계 "⑥ 재굽기"     "완성:|화자 판정|대사 색"                        "$PY" make.py "$PJ" --화자색
 단계 "⑦ 준비"       "여운|원음|통암전|잔존|화자 판정|감지|원문화면"   "$PY" 준비_prproj_sk.py "$PJ"
 단계 "⑧ 조립"       "\[X\]|저장|프리미어가|전체"                    "$PY" 조립_prproj_sk.py --timeline "$PR/timeline_sk.json" --donor "$DONOR" --out "$PR/스케치_${SLUG}.prproj"
 단계 "⑨ 주입검사"   "전체|탈"                                      python3 "/Users/yustudio1/Desktop/볼케이노 MCP/23. 신병4/ep_0212-0352/주입검사.py" "$PR/스케치_${SLUG}.prproj" --본 "$BON" --기준 "$PR/스케치_${SLUG}.prproj.아모르전"
