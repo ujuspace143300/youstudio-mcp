@@ -756,8 +756,11 @@ def narrate(proj, work, total):
     return out
 
 
-def pick_sfx(tag):
-    """`@꼬리표` 에서 하나를 고른다. 없으면 None — 조용히 넘기지 않고 알린다."""
+def pick_sfx(tag, key=""):
+    """`@꼬리표` 에서 하나를 고른다. 없으면 None — 조용히 넘기지 않고 알린다.
+    ★key(편 이름·조각 번호)로 시드를 건다 (2026-09-28 맥1 — 초이 윈도우 이식 대조 실측: 싱글50 을 같은 코드로 두 번 구우니
+      영상 프레임은 디코딩 해시까지 같은데 소리만 달랐다. 시드 없는 random.choice 가 «쿵» 16개 중 굽기마다 다른 것을 골랐다.
+      재굽기(FROM=4)·다른 컴퓨터에서 같은 편이 다른 소리로 나가 대조가 안 된다). 편마다 다른 소리는 그대로 — 같은 편만 늘 같다."""
     cat = os.path.join(CFG["paths"]["assets"], "catalog.json")
     if not os.path.isfile(cat) or not tag.startswith("@"):
         return None
@@ -766,7 +769,7 @@ def pick_sfx(tag):
     if not cands:
         print(f"    ★효과음 {tag} 이 카탈로그에 없다", flush=True)
         return None
-    return os.path.join(HERE, CFG["assets"]["sfx_dir"], random.choice(sorted(cands)))
+    return os.path.join(HERE, CFG["assets"]["sfx_dir"], random.Random(f"{key}|{tag}").choice(sorted(cands)))
 
 
 def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
@@ -916,9 +919,9 @@ def run_build(proj, path, 화자색켬=False):
     sfx_at = []
     if CFG["sfx"].get("enabled"):
         at = 0.0
-        for s in segs:
+        for k, s in enumerate(segs):
             if s.get("phase") == 4:                      # Climax — 크래시 줌 자리
-                p = pick_sfx(CFG["sfx"]["map"].get("punch", ""))
+                p = pick_sfx(CFG["sfx"]["map"].get("punch", ""), f"{proj.get('slug', '')}|{k}")
                 if p:
                     sfx_at.append((round(at, 3), p))
             at += s["t1"] - s["t0"]
