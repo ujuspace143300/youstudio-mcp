@@ -99,18 +99,32 @@ def main():
             if os.path.exists(_p):
                 os.remove(_p)
                 print(f"  --다시전사: {os.path.basename(_p)} 버림")
+    # ★자막띠시각 «멈춤» 기록이 남은 전사는 쓰지 않는다 (2026-09-28 저녁 싱글287) — 멈춘 뒤 --다시 없이 다시 돌리면 vtt 가 있어
+    #   전사·맞춤을 건너뛰고 엉킨 전사로 plan 까지 갔을 것이다. --다시전사 가 이 기록(.맞춤.json)도 지운다.
+    try:
+        _멈춤 = json.load(open(vtt + ".맞춤.json", encoding="utf-8")).get("멈춤") if os.path.exists(vtt) else None
+    except (OSError, ValueError):
+        _멈춤 = None
+    if _멈춤:
+        raise SystemExit(f"★자막띠시각 멈춤 기록 — {_멈춤}\n  편시작을 --다시전사 로 다시(싱글벙글은 준비.sh {vid.replace('싱글', '')} --다시) — agy 다시 전사 · 돈 안 듦")
     if not os.path.exists(vtt) and a.전사 == "agy":
         from s2pipe import agy_asr
         vocab = asr.load_vocab(vid, channel=a.채널)
         if vocab:
             print(f"  낱말사전 {len(vocab)}개: {', '.join(e['content'] for e in vocab[:8])}")
-        lines = agy_asr.transcribe(dst, vocab)
-        agy_asr.write_vtt(lines, vtt, agy_asr.MODEL)
+        _끝 = {}
+        lines = agy_asr.transcribe(dst, vocab, 끝기록=_끝)
+        # 머리에 «끝확인 닿음|붙임|끝없음» — 자막띠시각 꼬리 관문 ⑤ 가 «끝 대사까지 닿은 전사» 일 때만 결말 끌어당김을 판정한다
+        agy_asr.write_vtt(lines, vtt, agy_asr.MODEL, 끝확인=_끝.get("판정"))
         print(f"전사(agy) {len(lines)}줄 → {os.path.basename(vtt)}")
         # ★박힌 자막 띠로 시각 맞춤 (2026-09-27 사장님 A안 — «확인하는 용도로만»): agy 통째 읽기는 영상마다 시간을
         #   조금씩 늘려 센다(싱글282 끝에서 8초). 박힌 자막이 «언제 떴는가» 만 재서 맞춘다 — 글자는 안 쓴다.
         from s2pipe import 자막띠시각
-        자막띠시각.실행(dst, vtt, 반영=True)
+        _맞 = 자막띠시각.실행(dst, vtt, 반영=True)
+        if _맞 and _맞.get("멈춤"):
+            # ★꼬리 관문 ⑤ (2026-09-28 저녁 싱글287 1차 전사 — 두 장면 줄이 섞여 맞춤이 결말을 20초 앞으로 당겼고, 맞춤 전도
+            #   가운데가 20초 늦었다). 어느 시각도 못 믿어 plan 으로 넘기지 않는다 — 다시 전사하면 풀렸다(287 2차: 참 최대 0.29초).
+            raise SystemExit(f"★자막띠시각 멈춤 — {_맞['멈춤']}\n  편시작을 --다시전사 로 다시(싱글벙글은 준비.sh {vid.replace('싱글', '')} --다시) — agy 다시 전사 · 돈 안 듦")
         _, _L = 자막띠시각.읽기(vtt)
         _넘 = [t for t, _e, _x in _L if t > dur_src + 0.5] if (dur_src := float(subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst],

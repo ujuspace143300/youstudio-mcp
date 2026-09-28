@@ -23,10 +23,10 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from s2pipe import 자막띠시각 as Z  # noqa: E402
-
 ROOT = os.path.expanduser("~/Desktop/스케치코미디")
 CACHE = os.path.expanduser("~/.cache/맞춤평가")
+os.environ.setdefault("S2_CONFIG", os.path.join(ROOT, "config.json"))   # 꼬리 관문의 아웃트로 검출(build.엔드카드시작)이 설정을 읽는다
+from s2pipe import 자막띠시각 as Z  # noqa: E402
 
 
 # ── 카드 ────────────────────────────────────────────────────────────────
@@ -225,7 +225,21 @@ def 편자료(slug):
     if len(참) < 5:
         return None
     cards2, 폭 = 새카드(src)
-    return {"slug": slug, "L": L, "cards": 카드(src), "cards2": cards2, "폭": 폭, "참": 참}
+    return {"slug": slug, "L": L, "cards": 카드(src), "cards2": cards2, "폭": 폭, "참": 참, "src": src,
+            "끝확인": 끝확인(vtt0, slug)}
+
+
+def 끝확인(vtt0, slug):
+    """agy «끝 확인» 판정 — vtt 머리 표시(2026-09-28 저녁부터), 없으면 배치로그 편시작 로그의 «(끝 확인 …)»."""
+    v = Z.끝확인표시(open(vtt0, encoding="utf-8").read())
+    if v:
+        return v
+    try:
+        m = re.search(r"\(끝 확인 (닿음|붙임|끝없음)\)",
+                      open(os.path.join(ROOT, "배치로그", f"{slug}_1편시작.txt"), encoding="utf-8").read())
+        return m.group(1) if m else None
+    except OSError:
+        return None
 
 
 def 모든편(인자):
@@ -240,7 +254,8 @@ def 모든편(인자):
 
 
 def 재기(자료, 매=None):
-    """(맞춤 전, 옛 맞춤, 새 맞춤, 관문 뒤, 관문 채택) 오차."""
+    """(맞춤 전, 옛 맞춤, 새 맞춤, 관문 뒤, 관문 조치) 오차. 관문 조치 = 채택·부분되돌림·거부·멈춤(운영 자막띠시각.실행 과 같게).
+    멈춤이면 편시작이 멈춰 다시 전사하므로 «관문 뒤» 는 맞춤 전 오차를 그대로 둔다(다시 전사한 결과는 여기서 모른다)."""
     L, 참 = 자료["L"], 자료["참"]
     if "옛" not in 자료:
         자료["옛"] = [x[0] for x in 옛판.맞춤(L, 자료["cards"])[4]]
@@ -249,14 +264,24 @@ def 재기(자료, 매=None):
     a, *_, 새줄 = 새맞춤(L, 자료["cards2"], 자료["폭"], 매)
     새 = 오차([x[0] for x in 새줄], 참)
     ok = Z.관문(L, 새줄, 자료["cards2"], 자료["폭"], 배율=a)[0]      # 2026-09-28 관문 ③(옮긴 줄당 번 비용)까지 — 운영과 같게
-    return 전, 지, 새, (새 if ok else 전), ok
+    if not ok:
+        return 전, 지, 새, 전, "거부"
+    # ④⑤ 꼬리 관문(2026-09-28 저녁) — 운영과 같게. 아웃트로 검출은 편마다 한 번만(자료에 담아 둔다)
+    def 끝():
+        if "끝" not in 자료:
+            자료["끝"] = Z._아웃트로(자료["src"])
+        return 자료["끝"]
+    쓸, 꼬 = Z.꼬리관문(L, 새줄, 자료["cards2"], 끝확인=자료.get("끝확인"), 끝재기=끝)
+    조치 = {"없음": "채택"}.get(꼬["조치"], 꼬["조치"])
+    return 전, 지, 새, (전 if 조치 in ("거부", "멈춤") else 오차([x[0] for x in 쓸], 참)), 조치
 
 
 def 표(rows):
     f = lambda o: f"{o['중앙']:4.2f} {o['p90']:5.2f} {o['최대']:5.2f} {o['2초넘음']:4.0%}"
     print(f"{'편':8} {'줄':>3} {'참':>3} | {'맞춤 전 (중앙 p90 최대 >2초)':28} | {'옛 맞춤(운영판 DP)':24} | {'새 맞춤':24} | 관문")
-    for slug, n, 전, 지, 새, _뒤, ok in rows:
-        print(f"{slug:8} {n:3d} {전['n']:3d} | {f(전):28} | {f(지):24} | {f(새):24} | {'채택' if ok else '거부→맞춤 전'}")
+    for slug, n, 전, 지, 새, 뒤, 조치 in rows:
+        꼬 = {"채택": "채택", "거부": "거부→맞춤 전", "멈춤": "멈춤(다시 전사)"}.get(조치, f"{조치}→관문 뒤 {f(뒤)}")
+        print(f"{slug:8} {n:3d} {전['n']:3d} | {f(전):28} | {f(지):24} | {f(새):24} | {꼬}")
 
 
 def 점(os_):

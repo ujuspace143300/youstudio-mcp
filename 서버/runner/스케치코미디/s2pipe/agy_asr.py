@@ -241,7 +241,8 @@ def _끝확인(whole, dur, lines, vocab, model, log, caller, work, 기억=None):
     return 남김 + 붙임, "붙임"
 
 
-def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미디/agy_asr", 맞춤=False, 원시=None, 나눠=False):
+def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미디/agy_asr", 맞춤=False, 원시=None, 나눠=False,
+               끝기록=None):
     """원본 영상 전체 → [{"t","e","text"}]. 먼저 agy 한 번에 통째로 읽힌다(2026-09-26 사장님 «통째로»).
     출력 한도를 넘으면(2026-09-28 싱글126) 그때만 절반씩 나눠 묻고 잇는다 — _구간전사.
     끝에 «끝 확인»(2026-09-28 싱글146) — 끝 40초를 따로 들어 본 전사에 없는 끝 대사가 있으면 그 줄만 붙이고,
@@ -280,6 +281,8 @@ def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미�
     lines = [{"t": round(x["t"], 2), "e": round(x["e"], 2), "text": x["text"]} for x in got]
     lines.sort(key=lambda x: x["t"])
     log(f"  {len(lines)}줄 (끝 확인 {판정})")
+    if 끝기록 is not None:                             # ★끝 확인 판정을 부르는 쪽에 넘긴다 — 편시작이 vtt 머리에 «끝확인 …» 으로 적고
+        끝기록["판정"] = 판정                           #   자막띠시각 꼬리 관문 ⑤ 가 읽는다(2026-09-28 저녁 싱글287)
     if 원시:                                           # 맞춤 전 모델 시각 그대로(시험·대조용)
         write_vtt(lines, 원시, model or agy_gemini.DEFAULT_MODEL)
     if not 맞춤:
@@ -364,9 +367,11 @@ def 소리맞춤(lines, path, 창=1.0):
     return lines, moved
 
 
-def write_vtt(lines, path, model=""):
+def write_vtt(lines, path, model="", 끝확인=None):
+    """끝확인 — transcribe 의 «끝 확인» 판정(닿음·붙임·끝없음). 머리에 «· 끝확인 …» 으로 적는다: 전사가 원본 끝 대사까지
+    닿았다는 표시라 자막띠시각 꼬리 관문 ⑤ 가 «맞춤이 결말을 앞으로 끌어당김» 을 이것이 있을 때만 판정한다(2026-09-28 저녁)."""
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"WEBVTT\n\n{출처표시} {model}\n\n")
+        f.write(f"WEBVTT\n\n{출처표시} {model}" + (f" · 끝확인 {끝확인}" if 끝확인 else "") + "\n\n")
         for ln in lines:
             t, e = ln["t"], ln["e"]
             f.write(f"{int(t//3600):02d}:{int(t%3600//60):02d}:{t%60:06.3f} --> "
