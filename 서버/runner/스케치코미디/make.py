@@ -493,8 +493,13 @@ def check(proj, path):
 
     # ★구두점 금지 (정답지 G-구두점, hard · 2026-09-01 절대 규칙) — 서버 check.ts 와 같은 규칙
     banned = CFG["layout"]["subtitle"].get("구두점_금지") or []
-    dirty_s = [s for s in subs if any(ch in (s.get("text") or "") for ch in banned)]
-    dirty_n = [s for s in segs if any(ch in (s.get("narration") or "") for ch in banned)]
+    # ★숫자 사이 점·쉼표(4.5 · 1,000)는 구두점이 아니다 — sync 정돈과 같은 규칙(2026-09-28 싱글62: «평점 4.5» 가
+    #   반려돼 «사 점 오» 로 풀어 써야 했다. sync 는 09-27 싱글185 때 숫자 사이 점을 남기게 고쳤는데 이 관문만 남아 있었다).
+    import re as _re
+    def _구두점검사용(t):
+        return _re.sub(r"(?<=\d)[.,](?=\d)", "", t or "")
+    dirty_s = [s for s in subs if any(ch in _구두점검사용(s.get("text")) for ch in banned)]
+    dirty_n = [s for s in segs if any(ch in _구두점검사용(s.get("narration")) for ch in banned)]
     if dirty_s or dirty_n:
         ex = (dirty_s[0].get("text") if dirty_s else dirty_n[0].get("narration"))[:20]
         bad.append(f"★구두점 금지(절대 규칙) — 자막 {len(dirty_s)}줄·나레이션 {len(dirty_n)}건에"
