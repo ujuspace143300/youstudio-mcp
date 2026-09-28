@@ -544,7 +544,10 @@ def main():
             #   맞는 줄이 없어 핀을 못 달았다). 사람이 원본 박힌 자막 카드로 시각을 확인한 짧은 말만 넣는다 —
             #   시작 = 핀 시각, 끝 = 다음 줄 전까지(글자당 0.18초, 최소 0.8초).
             글 = 핀글[1:]
-            if any(abs(d["t"] - 핀tf) < 0.3 and CLEAN.sub("", 글) in CLEAN.sub("", d["text"]) for d in dlg):
+            이미 = [d for d in dlg if abs(d["t"] - 핀tf) < 0.3 and CLEAN.sub("", 글) in CLEAN.sub("", d["text"])]
+            if 이미:
+                for d in 이미:
+                    d["_더하기핀"] = True                       # 최종 관문 추임새 거르기에서 살린다(아래 ③a)
                 print(f"  [OK] 더하기 핀 [{핀t}s] — 이미 들어 있다")
                 continue
             뒤 = [d["t"] for d in dlg if d["t"] > 핀tf]
@@ -559,7 +562,7 @@ def main():
                 print(f"  ★더하기 핀 [{핀t}s] 「{글}」 — 뒤 줄이 {끝 - 핀tf:.2f}초 뒤에 붙어 있어 넣지 않음. "
                       f"그 줄이 같은 말을 잘못 들은 것이면 «=» 정확 핀으로 바꿔라")
                 continue
-            dlg.append({"t": round(핀tf, 2), "t1": round(끝, 2), "text": 글})
+            dlg.append({"t": round(핀tf, 2), "t1": round(끝, 2), "text": 글, "_더하기핀": True})
             dlg.sort(key=lambda d: d["t"])
             print(f"  ★더하기 핀 적용: [{핀tf:.1f}~{끝:.1f}s] 「{글}」 (완성본 전사가 놓친 말)")
             continue
@@ -623,7 +626,10 @@ def main():
     최대 = 14
     관문 = []
     # 추임새 단독 줄(«아» 등)은 자막 가치가 없고 아모르 도구도 못 삼킨다(2026-09-03 Deep06)
-    dlg = [d for d in dlg if not all(추임새다(tok) for tok in d["text"].split())]
+    # ★단 사람이 핀(«=어»·«+어»)으로 넣거나 고친 줄은 남긴다 (2026-09-28 싱글48 — 결말 대답 «어» 가 댓글 1위 펀치인데
+    #   더하기 핀으로 넣어도 여기서 지워져 핀이 무력했다. 한 글자 줄 «네»·«응» 은 이미 수백 줄이 아모르까지 통과한다.)
+    dlg = [d for d in dlg
+           if d.get("_핀") or d.get("_더하기핀") or not all(추임새다(tok) for tok in d["text"].split())]
     # ★기능어 고아 줄 병합 (2026-09-04 사장님 «것 이라는 자막이 혼자» — 모델 작표가
     #   실패하면 폴백(쉼 기준 묶음)이 의미 단위를 몰라 의존명사를 고아로 남겼다.
     #   생성 경로가 무엇이든 여기서 잡는다 — 규칙은 최종 관문 하나에.)
@@ -807,6 +813,7 @@ def main():
             x["text"] = 정
     for x in dlg:
         x.pop("_핀", None)
+        x.pop("_더하기핀", None)
     proj["subs"] = sorted(dlg + narr, key=lambda x: x["t"])
     json.dump(proj, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     print(f"\n저장: {pj}\n★대본이 바뀌었으니 다시 검사해야 제작할 수 있다.")
