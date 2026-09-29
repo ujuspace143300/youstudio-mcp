@@ -610,6 +610,46 @@ def _font(rel, px):
     raise SystemExit(f"글꼴을 못 찾았다 (rel={rel!r}) — load_default 는 size 를 무시하므로 쓰지 않는다. FALLBACK 사다리를 확인하라.")
 
 
+# ★머리 로고 한 장 — 자리·크기·흰 배경 처리를 여기 한 곳에 둔다(2026-09-29 사장님 결정: 점심이네 64편 = «누룽지독
+#   템플릿»). 예전엔 이 계산이 준비_prproj_sk(프리미어)에만 있어서, Deep 은 프리미어 머리만 누룽지독 로고였고
+#   납품 mp4 머리는 config channel.* 임시값 «@sketchsample 스케치샘플» 이 찍혀 나갔다(Deep90 mp4 3초 프레임 실측).
+#   mp4(draw_frame · config channel.logo_image) 와 프리미어(준비 · work/<슬러그>_로고.png) 가 이 함수 하나를 부른다.
+로고_자리 = (0.19928400218486786, 0.069892480969429016)   # 최하연님 작업 Deep prproj 실측 — 로고 중심 (x/폭, y/높이)
+로고_비율 = 0.16451612472534                              # 같은 실측 — 프리미어 비율 16.45%(시퀀스 1080 기준)
+
+
+def 배경맞춤(img, bg):
+    """카드·로고의 순백 배경을 껍데기 배경색으로 — 흰 카드 경계가 티 나지 않게 (2026-09-01 사장님).
+    (준비_prproj_sk 에서 옮겨 왔다 2026-09-29 — mp4 머리 로고도 같은 처리를 써야 해서. 계산은 그대로)"""
+    import numpy as np
+    a = np.asarray(img.convert("RGBA")).copy()
+    m = (a[:, :, 0] >= 250) & (a[:, :, 1] >= 250) & (a[:, :, 2] >= 250)
+    a[m, 0], a[m, 1], a[m, 2] = bg[0], bg[1], bg[2]
+    return Image.fromarray(a, "RGBA")
+
+
+def 로고얹기(im, logo_path, bg):
+    """머리 로고 그림을 프리미어 실측 자리·크기로 im 에 얹는다. 순백 배경은 bg(껍데기 배경색)로 바꾼다.
+
+    자리·비율은 config channel.logo_pos · channel.logo_scale 이 있으면 그 값, 없으면 Deep 실측(로고_자리·로고_비율).
+    im 이 RGBA(프리미어 껍데기)면 alpha_composite, RGB(mp4 frame)면 알파 마스크로 붙인다 — 불투명 로고면 같은 화소.
+    돌려주는 값: (왼쪽 위 x, y), (폭, 높이) — 검사용.
+    """
+    ch = CFG.get("channel") or {}
+    cxr, cyr = ch.get("logo_pos") or 로고_자리
+    s_ = float(ch.get("logo_scale") or 로고_비율) * V["w"] / 1080
+    logo = 배경맞춤(Image.open(logo_path), bg)
+    w_, h_ = int(logo.width * s_), int(logo.height * s_)
+    logo = logo.resize((w_, h_))
+    cx, cy_ = cxr * V["w"], cyr * V["h"]
+    xy = (int(cx - w_ / 2), int(cy_ - h_ / 2))
+    if im.mode == "RGBA":
+        im.alpha_composite(logo, xy)
+    else:
+        im.paste(logo, xy, logo)
+    return xy, (w_, h_)
+
+
 def draw_frame(proj, dst):
     """움직이지 않는 층을 한 장으로 — 헤더·제목·출처. 영상과 자막은 ffmpeg 가 얹는다.
 
@@ -620,32 +660,40 @@ def draw_frame(proj, dst):
 
     h = L["header"]
     ch = CFG["channel"]
-    icon = os.path.join(HERE, ch.get("icon", "") or "")
-    if ch.get("icon") and os.path.isfile(icon):
-        # ★투명 코너를 살려 합성한다(2026-09-09 숨은기록 원형 로고 — RGB 로 붙이면 코너가 검게 나온다)
-        ic = Image.open(icon).convert("RGBA").resize((h["icon_size"], h["icon_size"]))
-        im.paste(ic, (h["icon_x"], h["y0"] + 8), ic)
+    if ch.get("logo_image"):
+        # ★머리 = 로고 그림 한 장(누룽지독 템플릿 2026-09-29) — 아이콘·핸들·채널명 글자를 그리지 않는다.
+        #   프리미어 껍데기(준비_prproj_sk)와 같은 함수·같은 자리. 그림이 없으면 글자 머리로 떨어지지 말고 멈춘다.
+        lp = os.path.join(HERE, ch["logo_image"])
+        if not os.path.isfile(lp):
+            raise SystemExit(f"channel.logo_image 그림이 없다: {lp} — 머리 로고 없이 굽지 않는다")
+        로고얹기(im, lp, tuple(int(L["bg"][i:i + 2], 16) for i in (0, 2, 4)))
     else:
-        d.ellipse([h["icon_x"], h["y0"] + 8,
-                   h["icon_x"] + h["icon_size"], h["y0"] + 8 + h["icon_size"]],
-                  outline="#E23B3B", width=8)
-    tx = h["icon_x"] + h["icon_size"] + 26
-    hf = _font(h.get("font", ""), h["handle_size"])
-    hy = h["y0"] + 10
-    d.text((tx, hy), ch.get("handle", ""), font=hf, fill="#111111")
-    # ★인증배지 — 핸들 오른쪽에 파란 체크(2026-09-09 숨은기록 템플릿). config channel.badge 있을 때만
-    badge = os.path.join(HERE, ch.get("badge", "") or "")
-    if ch.get("badge") and os.path.isfile(badge):
-        try:
-            hw = int(d.textlength(ch.get("handle", ""), font=hf))
-        except Exception:
-            hw = hf.getbbox(ch.get("handle", ""))[2]
-        bs = h.get("badge_size", 44)
-        bg_ = Image.open(badge).convert("RGBA").resize((bs, bs))
-        by = hy + (h["handle_size"] - bs) // 2 + 4
-        im.paste(bg_, (tx + hw + h.get("badge_gap", 14), by), bg_)
-    d.text((tx, h["y0"] + 10 + h["handle_size"] + 12), ch.get("name", ""),
-           font=_font(h.get("font", ""), h["name_size"]), fill="#111111")
+        icon = os.path.join(HERE, ch.get("icon", "") or "")
+        if ch.get("icon") and os.path.isfile(icon):
+            # ★투명 코너를 살려 합성한다(2026-09-09 숨은기록 원형 로고 — RGB 로 붙이면 코너가 검게 나온다)
+            ic = Image.open(icon).convert("RGBA").resize((h["icon_size"], h["icon_size"]))
+            im.paste(ic, (h["icon_x"], h["y0"] + 8), ic)
+        else:
+            d.ellipse([h["icon_x"], h["y0"] + 8,
+                       h["icon_x"] + h["icon_size"], h["y0"] + 8 + h["icon_size"]],
+                      outline="#E23B3B", width=8)
+        tx = h["icon_x"] + h["icon_size"] + 26
+        hf = _font(h.get("font", ""), h["handle_size"])
+        hy = h["y0"] + 10
+        d.text((tx, hy), ch.get("handle", ""), font=hf, fill="#111111")
+        # ★인증배지 — 핸들 오른쪽에 파란 체크(2026-09-09 숨은기록 템플릿). config channel.badge 있을 때만
+        badge = os.path.join(HERE, ch.get("badge", "") or "")
+        if ch.get("badge") and os.path.isfile(badge):
+            try:
+                hw = int(d.textlength(ch.get("handle", ""), font=hf))
+            except Exception:
+                hw = hf.getbbox(ch.get("handle", ""))[2]
+            bs = h.get("badge_size", 44)
+            bg_ = Image.open(badge).convert("RGBA").resize((bs, bs))
+            by = hy + (h["handle_size"] - bs) // 2 + 4
+            im.paste(bg_, (tx + hw + h.get("badge_gap", 14), by), bg_)
+        d.text((tx, h["y0"] + 10 + h["handle_size"] + 12), ch.get("name", ""),
+               font=_font(h.get("font", ""), h["name_size"]), fill="#111111")
 
     # 제목 — ★항상 2줄, 가운데 정렬
     t = L["title"]

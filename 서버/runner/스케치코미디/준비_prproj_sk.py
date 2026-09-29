@@ -87,14 +87,9 @@ def 텍스트검출(rgb, row_min=12, tot_min=80, top=False):
     return hit, (min(후보) if hit and 후보 else None)
 
 
-def 배경맞춤(img, bg):
-    """카드·로고의 순백 배경을 껍데기 배경색으로 — 흰 카드 경계가 티 나지 않게 (2026-09-01 사장님)."""
-    import numpy as np
-    a = np.asarray(img.convert("RGBA")).copy()
-    m = (a[:, :, 0] >= 250) & (a[:, :, 1] >= 250) & (a[:, :, 2] >= 250)
-    a[m, 0], a[m, 1], a[m, 2] = bg[0], bg[1], bg[2]
-    from PIL import Image as _I
-    return _I.fromarray(a, "RGBA")
+# 카드·로고의 순백 배경을 껍데기 배경색으로 (2026-09-01 사장님) — 정의는 build 한 곳(2026-09-29 옮김:
+#   mp4 머리 로고도 같은 처리를 쓴다). 계산은 옮기기 전과 같다.
+배경맞춤 = build.배경맞춤
 
 
 from s2pipe import 화자색  # noqa: E402  대사 큐·화자 판정·색 — ⑥ 굽기와 같은 함수 (2026-09-28)
@@ -312,7 +307,7 @@ def main():
     #   규격(S-CoreDream-7ExtraBold·96·#111111·잉크 y305/422)으로 갈아 끼우고 위치를 화면 안에 박는다.
     #   (2026-09-01 «정위치·검은색 보장» 굽기는 서식 교체를 못 풀어 증상만 가린 것이었다.)
     #   ★Deep 흐름(work/<슬러그>_로고.png 존재): 헤더는 사장님 지정 로고 이미지로 갈고
-    #   (배치는 최하연님 작업 prproj 실측 — 위치 0.1993:0.0699 · 비율 16.45%),
+    #   (배치는 최하연님 작업 prproj 실측 — 위치 0.1993:0.0699 · 비율 16.45% · 값은 build.로고_자리·로고_비율 한 곳),
     #   댓글 카드 PNG 를 선별해 슬롯 순환으로 굽는다(위치 0.5:0.8126 · 폭 1020 = 실측).
     from PIL import Image
     import copy as _copy
@@ -339,16 +334,23 @@ def main():
     #   옛 Deep(최하연 스캐치독: 헤더가 로고 이미지 하나뿐)용이라, 숨은기록에 돌리면 hidden_story·
     #   배지·숨은기록 글씨를 배경색으로 덮어 지운다(2026-09-09 사장님 «로고 옆 문구·로고인증 반영
     #   안 됨» — MP4 엔 있는데 prproj 엔 없던 진짜 원인: 헤더 소스가 MP4·prproj 로 갈렸다).
-    헤더전체 = bool(CFG["channel"].get("handle") and L["header"].get("font"))
+    #   ★머리를 로고 그림 한 장으로 그리는 채널(config channel.logo_image — 누룽지독 템플릿 2026-09-29)도
+    #   draw_frame 이 이미 같은 함수(build.로고얹기)·같은 자리로 얹었다 — 여기서 다시 갈지 않는다.
+    _설정로고 = CFG["channel"].get("logo_image")
+    헤더전체 = bool(_설정로고 or (CFG["channel"].get("handle") and L["header"].get("font")))
+    if _설정로고 and deep:
+        # ★편시작 --로고 와 설정 로고가 다른 그림이면 멈춘다 — mp4·프리미어 머리는 설정 그림으로 그려지므로
+        #   다른 그림을 준 편은 사장님이 뜻한 로고가 어느 쪽인지 모른다(2026-09-29 점심이네 = 누룽지독 고정).
+        _a = Image.open(logo_p).convert("RGBA")
+        _b = Image.open(os.path.join(build.HERE, _설정로고)).convert("RGBA")
+        if _a.size != _b.size or _a.tobytes() != _b.tobytes():
+            raise SystemExit(f"★편시작 --로고({logo_p}) 가 설정 channel.logo_image({_설정로고}) 와 다른 그림이다 — "
+                             "mp4·프리미어 머리는 설정 그림으로 그린다. 어느 로고인지 사장님께 여쭙고 "
+                             "편시작을 그 로고로 다시(또는 설정을 고쳐) 돌려라")
     if deep and not 헤더전체:
         hd = L["header"]
         im.paste(Image.new("RGBA", (1080, hd["y1"] - hd["y0"] + 40), bg), (0, hd["y0"] - 20))
-        logo = 배경맞춤(Image.open(logo_p), bg)
-        s_ = 0.16451612472534 * 1080 / 1080          # 최하연 실측 비율(시퀀스 1080 기준)
-        w_, h_ = int(logo.width * s_), int(logo.height * s_)
-        logo = logo.resize((w_, h_))
-        cx, cy_ = 0.19928400218486786 * 1080, 0.069892480969429016 * 1920
-        im.alpha_composite(logo, (int(cx - w_ / 2), int(cy_ - h_ / 2)))
+        build.로고얹기(im, logo_p, bg)                # 자리·비율 = 최하연 실측(build.로고_자리·로고_비율)
     if deep:
         # ★댓글 영역을 배경색으로 비운다 — draw_frame 이 그린 가짜 댓글 UI(아이콘·닉·날짜)를 지우고
         #   진짜 댓글 카드 PNG 를 그 자리에 얹기 위해. 헤더 방식과 무관하게 댓글 카드가 있으면 돈다
