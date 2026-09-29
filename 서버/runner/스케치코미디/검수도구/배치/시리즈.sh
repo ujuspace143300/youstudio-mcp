@@ -21,12 +21,12 @@ _sk_defaults() {   # $1 = 시리즈 이름 → d_pfx d_cfg d_logo d_title
       d_logo=$HOME/Desktop/youstudio-mcp/자산/스케치코미디/channel_icon_숨은기록.png ;;
     점심이네)
       # 2026-09-29 사장님 결정 — 템플릿 «누룽지독»(Deep 에 쓰던 틀, 볼트 프리셋/스케치코미디/작품/Deep.md «로고 = 누룽지독(@yellow_dog) 고정»).
-      #   하단 «#점심이네 - 원제», 원제 = 소재 폴더 이름의 «NN.점심이네_» 뒤(mp4 이름은 «…운전기사냐는 진짜 분노» 처럼 원제와 다르다).
+      #   하단 «#점심이네 - 원제», 원제 = mp4 파일 이름의 «_» 뒤(전례 — Deep·싱글벙글과 같음. 폴더 이름과는 다를 수 있다: 01 폴더 «내가 너네 운전기사야» · mp4 «…운전기사냐는 진짜 분노»).
       d_pfx=점심이네
       d_cfg=$HOME/Desktop/스케치코미디/config_누룽지독.json
       d_logo=$HOME/Desktop/youstudio-mcp/자산/스케치코미디/channel_logo_누룽지독.png
       [ -f "$d_logo" ] || d_logo=$HOME/Desktop/스케치코미디/work/Deep01_로고.png   # 저장소 자산이 들어오기 전 자리
-      d_title=폴더 ;;
+      d_title=mp4 ;;   # ★2026-09-29 전례대로 mp4 파일 이름(Deep 카드 «파일명 = 하단 원제» 09-01 사장님 · 싱글벙글 credit.title = mp4 이름). 폴더 이름을 쓰려면 SERIES_TITLE=폴더
   esac
 }
 
