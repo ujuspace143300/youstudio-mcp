@@ -38,7 +38,11 @@ def main():
     ap.add_argument("--전사", choices=["agy", "speechmatics"], default="agy",
                     help="원본 전사 엔진 — 기본 agy(구독). speechmatics 는 유료(사전 승인)")
     ap.add_argument("--다시전사", action="store_true",
-                    help="work 의 원본 전사(.ko.vtt·.맞춤전·.맞춤.json)를 버리고 새로 묻는다 — 준비.sh --다시 가 준다")
+                    help="work 의 원본 전사(.ko.vtt·.맞춤전·.맞춤.json·.시각대조.json)와 agy 답 저장본(<원본>.agy전사/)을 버리고"
+                         " 새로 묻는다 — 준비.sh --다시 가 준다")
+    ap.add_argument("--나눠전사", action="store_true",
+                    help="원본 전사를 처음부터 절반씩 나눠 묻는다(통째 읽기를 건너뜀) — 준비.sh --나눠 가 준다. "
+                         "2026-09-29 점심이네10(통째 3번 다 1.5배 늘어남) 같은 편을 손 스크립트 없이 다시 돌리는 길")
     ap.add_argument("--원제", default=None,
                     help="하단 출처 원제를 직접 준다(안 주면 지금처럼 mp4 파일 이름의 «_» 뒤). 2026-09-29 점심이네는 mp4 이름"
                          "(«…운전기사냐는 진짜 분노»)이 원제와 달라 준비.sh 가 소재 폴더 이름의 «NN.점심이네_» 뒤를 준다")
@@ -99,11 +103,17 @@ def main():
         shutil.copy2(_사, os.path.join(work, f"{vid}_사전.json"))
     # ★--다시전사 (2026-09-28 싱글146): 준비.sh --다시 가 편시작을 다시 돌려도 이 vtt 가 있으면 전사를 건너뛰어,
     #   끝 146~157초가 빠진 전사를 그대로 다시 썼다. 자막띠시각의 .맞춤전(«없을 때만» 씀)도 옛 전사로 남는다 — 셋 다 버린다.
-    if a.다시전사:
-        for _p in (vtt, vtt + ".맞춤전", vtt + ".맞춤.json"):
+    # ★agy 답 저장본(2026-09-29 밤 — 통째·절반·40초 창 답). 한도·시간으로 끊겨 다시 돌리면 받은 답은 다시 안 묻는다.
+    #   --다시전사 는 «새로 들어라» 라 저장본도 버린다(안 버리면 같은 틀린 통째 답을 다시 쓴다).
+    캐시 = dst + ".agy전사"
+    if a.다시전사 or a.나눠전사:                   # --나눠전사 만이면 창·절반 저장본은 둔다(통째 답은 어차피 안 쓴다)
+        for _p in (vtt, vtt + ".맞춤전", vtt + ".맞춤.json", vtt + ".시각대조.json"):
             if os.path.exists(_p):
                 os.remove(_p)
-                print(f"  --다시전사: {os.path.basename(_p)} 버림")
+                print(f"  {'--다시전사' if a.다시전사 else '--나눠전사'}: {os.path.basename(_p)} 버림")
+        if a.다시전사 and os.path.isdir(캐시):
+            shutil.rmtree(캐시)
+            print(f"  --다시전사: {os.path.basename(캐시)}/ (agy 답 저장본) 버림")
     # ★자막띠시각 «멈춤» 기록이 남은 전사는 쓰지 않는다 (2026-09-28 저녁 싱글287) — 멈춘 뒤 --다시 없이 다시 돌리면 vtt 가 있어
     #   전사·맞춤을 건너뛰고 엉킨 전사로 plan 까지 갔을 것이다. --다시전사 가 이 기록(.맞춤.json)도 지운다.
     try:
@@ -117,10 +127,21 @@ def main():
         vocab = asr.load_vocab(vid, channel=a.채널)
         if vocab:
             print(f"  낱말사전 {len(vocab)}개: {', '.join(e['content'] for e in vocab[:8])}")
-        _끝 = {}
-        lines = agy_asr.transcribe(dst, vocab, 끝기록=_끝)
+        _끝, _록 = {}, {}
+        # ★구간 시각 대조 (2026-09-29 밤 점심이네 3·10·53 — 통째 전사 시각이 뒤로 갈수록 늘어나 최대 42초 틀렸는데 끝 확인·늘어남
+        #   관문이 못 잡았다). transcribe 가 원본을 40초 창으로 따로 전사해 줄마다 시각을 창에 맞추고, 본 전사가 창과 안 맞으면 나눠 다시
+        #   전사한다 — 그래도면 RuntimeError(여기서 멈춤). 판정·지표는 <vtt>.시각대조.json, vtt 머리에 «시각대조 맞음|바로잡음».
+        try:
+            lines = agy_asr.transcribe(dst, vocab, 끝기록=_끝, 캐시=캐시, 대조기록=_록, 나눠=a.나눠전사)
+        except RuntimeError as e:
+            if _록:
+                json.dump(_록, open(vtt + ".시각대조.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            raise SystemExit(f"★원본 전사 멈춤 — {e}\n  받은 agy 답은 {os.path.basename(캐시)}/ 에 있다(다시 돌리면 다시 안 묻는다)."
+                             f" 통째 답을 버리고 새로 들으려면 준비.sh {vid} --다시 · 처음부터 나눠 들으려면 준비.sh {vid} --다시 --나눠")
+        json.dump(_록, open(vtt + ".시각대조.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         # 머리에 «끝확인 닿음|붙임|끝없음» — 자막띠시각 꼬리 관문 ⑤ 가 «끝 대사까지 닿은 전사» 일 때만 결말 끌어당김을 판정한다
-        agy_asr.write_vtt(lines, vtt, agy_asr.MODEL, 끝확인=_끝.get("판정"))
+        # 머리에 «시각대조 맞음|바로잡음» — 자막띠시각 대조 관문 ⑥ 이 창 대조로 확인된 시각에서 크게 옮긴 맞춤을 되돌린다
+        agy_asr.write_vtt(lines, vtt, agy_asr.MODEL, 끝확인=_끝.get("판정"), 시각대조=_록.get("판정"))
         print(f"전사(agy) {len(lines)}줄 → {os.path.basename(vtt)}")
         # ★박힌 자막 띠로 시각 맞춤 (2026-09-27 사장님 A안 — «확인하는 용도로만»): agy 통째 읽기는 영상마다 시간을
         #   조금씩 늘려 센다(싱글282 끝에서 8초). 박힌 자막이 «언제 떴는가» 만 재서 맞춘다 — 글자는 안 쓴다.
