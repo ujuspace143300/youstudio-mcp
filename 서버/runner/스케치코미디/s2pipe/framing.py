@@ -73,14 +73,104 @@ def _faces_yunet(rgb, score=0.45):
     # ★★검출기는 얼굴 상자와 함께 **5점(오른눈·왼눈·코·입 양끝)** 을 준다 —
     #   그동안 상자만 쓰고 버렸다. `f[4]`·`f[5]` 에 **두 눈의 중점**을 실어 보낸다.
     #   상자 중심은 머리 기울기·머리카락에 흔들리는데 눈은 훨씬 덜 흔들린다.
+    # ★`f[6]` = 검출 점수 · `f[7]` = 두 눈 사이 거리 (2026-09-29 «가짜 얼굴» 수리 — 얼굴고르기 가 쓴다.
+    #   예전엔 점수를 버리고 넓이만 봤다: 흐린 뒤통수·벽 무늬(점수 0.45~0.70)가 진짜 얼굴(0.82~0.94)보다 커서 주인공이 됐다)
     out = []
     for f in faces:
         ex = ey = None
+        d = 0.0
         if len(f) >= 8:
             ex = (float(f[4]) + float(f[6])) / 2
             ey = (float(f[5]) + float(f[7])) / 2
-        out.append((int(f[0]), int(f[1]), int(f[2]), int(f[3]), ex, ey))
+            d = float(np.hypot(float(f[6]) - float(f[4]), float(f[7]) - float(f[5])))
+        sc = float(f[14]) if len(f) >= 15 else 1.0
+        out.append((int(f[0]), int(f[1]), int(f[2]), int(f[3]), ex, ey, sc, d))
     return out
+
+
+def _선명도(gray, f):
+    """얼굴 한 개의 선명도 (얼굴 상자 · 눈 둘레) — 대비로 나눈 라플라시안 분산(대비·크기와 무관하게 «초점» 만 잰다).
+    ★2026-09-29 점심이네 실측(몽타주 58개 얼굴): 초점 맞은 말하는 얼굴 상자 0.040~0.222 · 눈 둘레 0.090~0.479,
+      초점 밖 앞사람 뒤통수·흐린 뒷사람 상자 0.001~0.017 · 눈 0.012~0.077 (15편 흐린 앞 여친은 머리카락 윤곽 때문에
+      상자 0.086 이라 눈 둘레 0.030 으로만 갈린다 — 그래서 둘 다 본다)."""
+    import cv2 as _cv
+    H, W = gray.shape
+    x, y, w, h = f[:4]
+    x0, y0, x1, y1 = max(0, x), max(0, y), min(W, x + w), min(H, y + h)
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return 0.0, 0.0
+    r = gray[y0:y1, x0:x1].astype(np.float32)
+    r = _cv.resize(r, (96, max(8, int(96 * (y1 - y0) / (x1 - x0)))), interpolation=_cv.INTER_AREA)
+    상자 = float(_cv.Laplacian(r, _cv.CV_32F).var()) / (float(r.var()) + 25.0)
+    눈 = 0.0
+    if f[4] is not None and len(f) > 7:
+        d = max(8.0, f[7])
+        ex0, ex1 = int(max(0, f[4] - d)), int(min(W, f[4] + d))
+        ey0, ey1 = int(max(0, f[5] - d * 0.5)), int(min(H, f[5] + d * 0.5))
+        if ex1 - ex0 >= 4 and ey1 - ey0 >= 4:
+            e = _cv.resize(gray[ey0:ey1, ex0:ex1].astype(np.float32), (64, 32), interpolation=_cv.INTER_AREA)
+            눈 = float(_cv.Laplacian(e, _cv.CV_32F).var()) / (float(e.var()) + 25.0)
+    return 상자, 눈
+
+
+def 얼굴고르기(rgb, box, usable_h, score=None):
+    """★구도가 따라갈 «자격 있는 얼굴» 목록(넓이 큰 순) — 모든 구도 경로(plan_beats·plan_frame·plan_pan·same_scene·
+    준비의 컷 상자)가 이 한 곳을 지난다. 돌려주는 얼굴 튜플 = _faces_yunet 과 같다 (x,y,w,h,눈x,눈y,점수,눈사이).
+
+    ★2026-09-29 점심이네 64편 배치 — 다시 굽기의 대부분이 «가짜 얼굴» 이었다. YuNet 은 점수 0.45 로 흐린 앞사람 뒤통수·
+      어깨·팔 깁스·벽·꽃·액자·담요·쿠션 무늬·냉장고 자석을 얼굴로 준다. 그런 상자는 진짜 얼굴보다 «크다»(11편 벽 391194px²
+      vs 얼굴 160198 · 23편 흐린 배경 −12,366,534x570 vs 얼굴 411x548). 예전 코드는 넓이순 첫째를 주인공으로 골라
+      구도가 그쪽으로 끌려가 말하는 얼굴이 상자 밖·반쯤 잘렸다(가림 없이 다시 재면 가림 시간창 115.4초 중 얼굴 담김 42%).
+      에이전트는 완성본 프레임을 눈으로 보고 조각마다 «가림» 사각형을 넣어 우회했다(20편 · 36곳).
+    가르는 것(같은 프레임의 다른 얼굴과 «견준다» — 절대 문턱은 어두운 장면·옆얼굴에서 진짜를 버린다):
+      ① 점수 — 같은 프레임 최고 점수 − face_score_gap(기본 0.2) 아래는 버린다. 실측: 가짜 0.45~0.70 · 같은 프레임 진짜 0.82~0.94.
+      ② 초점 — 점수가 넉넉한(최고 − 0.1 안) 얼굴 중 가장 선명한 값과 견줘 상자 선명도가 face_sharp_ratio(기본 0.18)배 아래거나
+         눈 둘레 선명도가 face_eye_sharp_ratio(기본 0.12)배 아래면 버린다. 실측: 흐린 앞사람 상자 0.02~0.15배 · 눈 0.03~0.07배,
+         초점 맞은 두 사람 서로 상자 0.23배 이상(36편 283초 소파에 엎드려 웃는 남자 0.23 · 24편 그늘진 여자 0.137 은 빠진다).
+         눈 쪽을 더 느슨하게 둔 까닭 — 눈 감은 얼굴은 눈 둘레 결이 적다(5편 157초 기대어 잠든 여자 0.20배 · 상자는 0.57배).
+         둘 다 0.25 로 두었을 때 한 쌍 무리에서 진짜 얼굴이 빠졌다(회귀 재기 2026-09-29 에서 잡음).
+         흐린 진짜 앞사람(어깨너머 샷 9·15·24·36편)도 여기서 빠진다 — 초점이 가 있는 사람이 이 샷의 주인공이다.
+    얼굴이 하나뿐이면 견줄 것이 없어 그대로 둔다(8편 누운 얼굴 0.54 는 진짜다)."""
+    if rgb is None or not HAS_YN:
+        return []
+    box = box or {}
+    thr = box.get("face_score", 0.45) if score is None else score
+    fs = [q for q in _faces_yunet(rgb, thr) if q[1] + q[3] // 2 < usable_h]
+    # ★★배경의 작은 얼굴을 버린다. 지나가는 사람·액자·포스터가 잡히면
+    #   구도가 그쪽으로 끌려간다 — 세로가 화면의 6% 도 안 되면 주인공이 아니다.
+    fs = [q for q in fs if q[3] >= usable_h * 0.06]
+    if len(fs) <= 1:
+        return fs
+    best = max(q[6] for q in fs)
+    fs = [q for q in fs if q[6] >= best - box.get("face_score_gap", 0.2)]
+    선명 = {}
+    if len(fs) > 1:
+        import cv2 as _cv
+        gray = _cv.cvtColor(np.ascontiguousarray(rgb), _cv.COLOR_RGB2GRAY)
+        sh = [_선명도(gray, q) for q in fs]
+        확신 = [s for q, s in zip(fs, sh) if q[6] >= best - 0.1]
+        ref상자 = max(s[0] for s in 확신)
+        ref눈 = max(s[1] for s in 확신)
+        rr = box.get("face_sharp_ratio", 0.18)
+        re_ = box.get("face_eye_sharp_ratio", 0.12)
+        선명 = {id(q): s[0] for q, s in zip(fs, sh)}
+        fs = [q for q, s in zip(fs, sh) if s[0] >= ref상자 * rr and (ref눈 <= 0 or s[1] >= ref눈 * re_)]
+    fs.sort(key=lambda q: -q[2] * q[3])
+    # ★주인공(fs[0])은 점수가 넉넉한(최고 − 0.1 안) 얼굴 중 가장 큰 것 — 나머지는 넓이순. 점수가 한 단 낮은 큰 상자
+    #   (13편 담요 0.70 vs 얼굴 0.92)는 주인공이 못 되고, 크기가 비슷하면 무리로만 함께 담긴다(plan_beats mains).
+    #   단 크기가 엇비슷한(45% 이상) 얼굴이 두 배 넘게 선명하면 그쪽이 주인공이다 — 초점이 가 있는 사람이 이 샷의 주인공
+    #   (17편 102.7초: 앞의 남자 247x387 선명도 0.034 · 말하는 여자 200x336 0.122 — 넓이만 보면 남자로 걸어가 1초 동안
+    #   둘 다 반쯤 잘렸다. 얼굴 관문이 잡았다).
+    if len(fs) > 1:
+        b_ = max(q[6] for q in fs)
+        후보 = [q for q in fs if q[6] >= b_ - 0.1]
+        주 = 후보[0]
+        또렷 = [q for q in 후보 if q[2] * q[3] >= 주[2] * 주[3] * 0.45
+                and 선명.get(id(q), 0) >= 2 * 선명.get(id(주), 0) > 0]
+        if 또렷:
+            주 = max(또렷, key=lambda q: 선명.get(id(q), 0))
+        fs = [주] + [q for q in fs if q is not 주]
+    return fs
 
 
 def _busy_center(rgb, usable_h):
@@ -124,10 +214,10 @@ def same_scene(a, b, thr=0.93):
         return False                       # 색부터 다르면 볼 것도 없다
 
     if HAS_YN:
-        fa, fb = _faces_yunet(a), _faces_yunet(b)
+        # 자격 있는 얼굴만 견준다 (2026-09-29 — 흐린 뒤통수·무늬가 «가장 큰 얼굴» 이면 같은 장면을 다르다고 봤다)
+        fa, fb = 얼굴고르기(a, None, a.shape[0]), 얼굴고르기(b, None, b.shape[0])
         if fa and fb:
-            ga = max(fa, key=lambda f: f[2] * f[3])
-            gb = max(fb, key=lambda f: f[2] * f[3])
+            ga, gb = fa[0], fb[0]
             W = a.shape[1]
             # 얼굴이 화면 폭의 12% 넘게 움직이거나 크기가 30% 넘게 달라지면 다른 장면
             moved = abs((ga[0] + ga[2] / 2) - (gb[0] + gb[2] / 2)) / W
@@ -181,8 +271,7 @@ def face_track(src, seg, W, usable_h, work, tag, step=0.8):
         a = _read_rgb(p)
         if a is None:
             continue
-        fs = [f for f in (_faces_yunet(a) if HAS_YN else [])
-              if f[1] + f[3] // 2 < usable_h]
+        fs = 얼굴고르기(a, None, usable_h)            # 가짜·흐린 얼굴을 거른다(2026-09-29 — 모든 구도 경로가 한 곳을 지난다)
         if not fs:
             continue
         if len(fs) > 1:
@@ -242,9 +331,13 @@ def 가림경계(경계, seg, a, e, usable_h, ratio):
       왼쪽에 비쳤다. 자막띠 자르기(세로 한계)로는 못 막는 자리라, 그 시간 동안 그림경계를 캡션 바깥쪽으로 줄인다 —
       왼쪽·오른쪽·위·아래 중 crop(비율 ratio)을 가장 크게 둘 수 있는 쪽. 관문은 번인관문.걸림 이 같은 사각형으로 본다."""
     vx0, vy0, vx1, vy1 = 경계
+    from .번인관문 import 관문겹침
     for r in seg.get("가림") or []:
         t0, t1 = (r[4], r[5]) if len(r) >= 6 else (seg["t0"], seg["t1"])
-        if not (t0 < e and t1 > a):
+        # ★겹침은 관문(번인관문.걸림)과 같은 자로 — 0.1초 이하로 스친 비트(가림 끝이 다음 샷 첫 비트에 격자 한두 장 걸침)는
+        #   예전엔 그 비트 «전체»(0.8초)에 가림을 걸어 옆 샷 구도까지 비틀었다(2026-09-29 점심이네5 카페 어깨너머 샷 번갈이).
+        #   관문도 0.1초 이하는 겹침으로 안 보므로 여기서 풀어도 관문과 어긋나지 않는다.
+        if min(t1, e) - max(t0, a) <= 관문겹침:
             continue
         x0, y0, x1, y1 = r[:4]
         if x1 <= vx0 or x0 >= vx1 or y1 <= vy0 or y0 >= min(vy1, usable_h):
@@ -259,6 +352,14 @@ def 가림경계(경계, seg, a, e, usable_h, ratio):
             return min(h, w / ratio) * min(w, h * ratio)
         vx0, vy0, vx1, vy1 = max(후보, key=넓이)
     return (vx0, vy0, vx1, vy1)
+
+
+def _얼굴든(c, q, 몫=0.6):
+    """crop c=(w,h,x,y) 안에 얼굴 q 의 가로 몫(기본 60%) 이상과 세로 가운데가 드는가 — «이 얼굴이 보이는가»."""
+    w, h, x, y = c[:4]
+    fx, fy, fw, fh = q[:4]
+    가로 = max(0, min(x + w, fx + fw) - max(x, fx)) / max(fw, 1)
+    return 가로 >= 몫 and y <= fy + fh / 2 <= y + h
 
 
 def 담기(bw, bh, tx, ty, face, 경계, usable_h, ratio):
@@ -401,25 +502,33 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
         prev = None                                     # 점프 컷 — 앞 조각 구도를 끌고 오지 않는다
 
     # 원본 프레임 차이(조각 전체 · 64x36) — 전환 위치를 프레임 단위로 잰다
-    _기점 = max(0, k0 - 3)
-    _D = G.차이열(G.프레임들(src, g, _기점, k1 + 3))
+    _기점 = max(0, k0 - 5)
+    _F = G.프레임들(src, g, _기점, k1 + 5)
+    _D = G.차이열(_F)
 
     def _전환(k, 느슨=False):
+        # 번쩍임(조명 깜빡임)은 전환이 아니다 — F 를 넘겨 프레임격자.날카로운 이 가린다(2026-09-29 점심이네20 가스불)
         j = k - _기점
         if not (0 < j < len(_D)):
             return False
-        return G.날카로운(_D, j) or (느슨 and G.날카로운(_D, j, 최소=4.0, 배=3.0))
+        return G.날카로운(_D, j, F=_F) or (느슨 and G.날카로운(_D, j, 최소=4.0, 배=3.0, F=_F))
 
     # 비트 경계 — 원본 전환은 전부 살리고(짧아도 경계), 그 사이가 벌어지면 격자를 끼운다
     전환들 = sorted({g.번호(c) for c in cuts if k0 < g.번호(c) < k1}
                   | {k for k in range(k0 + 1, k1) if _전환(k)})
     # scene_cuts 값이 봉우리 옆(±2)이면 봉우리로 — 격자 반올림이 어긋났을 때의 받침
+    def _번쩍(k):
+        j = k - _기점
+        return 0 < j < len(_D) and G.날카로운(_D, j) and not G.날카로운(_D, j, F=_F)
+
     for i_, k in enumerate(전환들):
         if not _전환(k):
             옆 = [k + d for d in (-1, 1, -2, 2) if k0 < k + d < k1 and _전환(k + d)]
             if 옆:
                 전환들[i_] = 옆[0]
-    전환들 = sorted(set(전환들))
+            elif any(_번쩍(k + d) for d in (0, -1, 1)):
+                전환들[i_] = None                          # scene_cuts 가 번쩍임을 컷으로 잡았다 — 경계가 아니다(2026-09-29 20편)
+    전환들 = sorted({x for x in 전환들 if x is not None})
     박자 = max(1, int(round(beat * fps)))
     최소 = max(1, int(round(0.35 * fps)))
     bs, at_cut = [k0], [머리 in ("새샷", "전환")]
@@ -486,24 +595,23 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
     #   흔들린다. 그 흔들림이 그대로 카메라에 실려 **화면이 떠는 것처럼 보였다.**
     #   먼저 모아서 궤적을 다듬은 뒤(smooth) 구도를 정한다 — `plan_pan` 은 이미
     #   그렇게 하고 있었는데 여기만 안 하고 있었다.
-    raw, 경계들 = [], []
+    raw, 경계들, 힌트, 자격들 = [], [], [], []
     for k in range(len(bs) - 1):
         a, e = bs[k], bs[k + 1]
+        자격들.append([])                                  # 이 비트의 자격 얼굴 전부(주인공 아닌 얼굴 포함)
         km = (bs_k[k] + bs_k[k + 1]) // 2                 # 비트 가운데 프레임(번호)
         rgb = frame_at(src, g.경계값(km), work, f"{idx:02d}m{km}")
         경계들.append(가림경계(그림경계(rgb, W, H), seg, a, e, usable_h,   # ★비트(샷)마다 — 레터박스는 샷 단위로 나타난다
                                box["w"] / box["h"]))
-        f, many = None, False
+        f, many, fs = None, False, []
         if rgb is not None and HAS_YN:
-            fs = [q for q in _faces_yunet(rgb, box.get("face_score", 0.45))
-                  if q[1] + q[3] // 2 < usable_h]
-            # ★★배경의 작은 얼굴을 버린다. 지나가는 사람·액자·포스터가 잡히면
-            #   구도가 그쪽으로 끌려간다 — 세로가 화면의 6% 도 안 되면 주인공이 아니다.
-            fs = [q for q in fs if q[3] >= usable_h * 0.06]
+            # ★자격 있는 얼굴만(점수·초점을 같은 프레임 얼굴과 견줌 · 작은 얼굴 제외) — 규칙은 얼굴고르기 한 곳(2026-09-29)
+            fs = 얼굴고르기(rgb, box, usable_h)
+            자격들[-1:] = [list(fs)]
             if fs:
                 # ★★**큰 것부터 정렬한다.** 예전엔 `fs[0]`, 곧 검출기가 준 순서대로
                 #   첫 번째를 썼다 — 그게 주인공이라는 보장이 없다.
-                fs.sort(key=lambda q: -q[2] * q[3])
+                # ★fs[0] = 주인공(얼굴고르기가 정한다 — 점수가 넉넉한 얼굴 중 가장 큰 것 · 2026-09-29)
                 big = fs[0][2] * fs[0][3]
                 # ★★둘 다 감싸는 것은 **크기가 비슷할 때만**이다. 예전엔 얼굴이 2개면
                 #   무조건 감쌌는데, 뒤쪽의 작은 얼굴 하나 때문에 화면이 확 넓어졌다.
@@ -526,7 +634,17 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
                     f = (x0, y0, x1 - x0, y1 - y0, None, None)
                 else:
                     f = mains[0]
+        # 얼굴 없는 샷의 자리 힌트 — 주인공 크기(6%)엔 못 미쳐도 확실한(점수 0.8↑) 작은 얼굴 · 잔무늬 세로 중심
+        힌 = None
+        if f is None and rgb is not None:
+            작은 = [q for q in (_faces_yunet(rgb, 0.8) if HAS_YN else []) if q[1] + q[3] // 2 < usable_h]
+            if 작은:
+                힌 = ("얼굴", min(q[0] for q in 작은), min(q[1] for q in 작은),
+                      max(q[0] + q[2] for q in 작은), max(q[1] + q[3] for q in 작은))
+            else:
+                힌 = ("잔무늬", None, _busy_center(rgb, usable_h)[1], None, None)
         raw.append((f, many))
+        힌트.append(힌)
 
     # 궤적 다듬기 — 얼굴이 없는 비트는 앞값으로 채우고 이동평균을 건다
     def _fill(v):
@@ -559,11 +677,27 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
         if k == len(raw) or at_cut[k]:
             샷들.append((_s, k)); _s = k
     cxs, cys, fhs = [None] * len(raw), [None] * len(raw), [None] * len(raw)
+    # ★얼굴 없는 샷의 목표 (2026-09-29 점심이네17 숲 와이드 · 29 밤 한강) — 예전엔 «지금 구도를 지킨다» 였는데 조각 첫 샷이면
+    #   지킬 구도가 없어 기본값(가운데 · 위에서 10%)으로 가서 나무 윗부분·빈 밤하늘만 나왔다. 앞 샷 얼굴 확대(최대 1.8배)를
+    #   얼굴 없는 새 샷에 그대로 끌고 오는 것도 같은 구멍이다. 이제 샷마다 «사람이 있는 자리»를 잰다:
+    #   확실한 작은 얼굴(점수 0.8↑ · 주인공 크기 6% 미만 — 17편 숲 34x43)이 있으면 그 무리를, 없으면 잔무늬가 몰린 세로 자리
+    #   (하늘·벽은 밋밋하다)를 가운데 둔다. 확대는 기본값(1+(최대−1)×0.4) — 얼굴이 없으니 더 당길 까닭이 없다.
+    무얼굴 = [None] * len(raw)
     _sw = box.get("smooth_win", 3)
     for s0, s1 in 샷들:
         조 = raw[s0:s1]
         if not any(f for f, _ in 조):
-            continue                                     # 이 샷엔 얼굴이 없다 — 지금 구도를 지킨다(아래 cur)
+            if not (at_cut[s0] or (s0 == 0 and prev is None)):
+                continue                                 # 원본에서 이어지는 샷 — 얼굴을 잠깐 놓친 것이다, 지금 구도를 지킨다(cur)
+            얼 = [h for h in 힌트[s0:s1] if h and h[0] == "얼굴"]
+            if 얼:
+                목 = ("얼굴", (min(h[1] for h in 얼) + max(h[3] for h in 얼)) / 2,
+                     (min(h[2] for h in 얼) + max(h[4] for h in 얼)) / 2)
+            else:
+                ys_ = sorted(h[2] for h in 힌트[s0:s1] if h)
+                목 = ("잔무늬", None, ys_[len(ys_) // 2]) if ys_ else None
+            무얼굴[s0:s1] = [목] * (s1 - s0)
+            continue                                     # 이 샷엔 자격 얼굴이 없다 — 아래에서 무얼굴 목표로
         xs = _fill([_cx(f) if f else None for f, _ in 조])
         ys = _fill([_cy(f) if f else None for f, _ in 조])
         hs = _fill([f[3] if f else None for f, _ in 조])
@@ -581,6 +715,8 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
 
         if fh:
             z = usable_h / max(fh / (0.62 if many else face_ratio), 1)
+        elif 무얼굴[k]:
+            z = 1.0 + (zmax - 1.0) * 0.4           # 얼굴 없는 샷 — 기본 확대(앞 샷 얼굴 확대를 끌고 오지 않는다)
         elif cur:
             z = usable_h / max(cur[1], 1)          # 못 찾으면 지금 크기를 지킨다
         else:
@@ -615,6 +751,10 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
         if fh:                                   # ★다듬은 궤적을 쓴다(원 검출값이 아니라)
             tx = cxs[k] - bw / 2
             ty = cys[k] - bh * face_y
+        elif 무얼굴[k]:
+            종, hx, hy = 무얼굴[k]
+            tx = (W - bw) / 2 if hx is None else hx - bw / 2
+            ty = hy - bh * (face_y if 종 == "얼굴" else 0.5)
         elif cur:
             tx, ty = cur[2] + (cur[0] - bw) / 2, cur[3] + (cur[1] - bh) / 2
         else:
@@ -657,17 +797,21 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
         #   제한된 걸음으로 다가간다 — 경계 안에 두는 것은 언제나 한다.
         fk = raw[k][0]
         담을얼굴 = None
+        # ⑤ 지금 구도에 이 비트의 자격 얼굴이 «하나도» 없으면 다가가지 않고 담는다 (2026-09-29 점심이네15 89.6~92.5 초점
+        #   옮김 샷 · 11편 213~217 고개 숙임) — 걸음 제한은 «지금 보이는 사람» 을 두고 휘둘리지 않으려는 것인데, 아무도 안
+        #   보이는 구도를 지킬 까닭은 없다. 예전엔 비트당 5.4% 씩 2.5초를 걸어 말하는 얼굴이 그동안 반쯤 잘렸다.
+        빈구도 = bool(cur) and bool(자격들[k]) and not any(_얼굴든(cur, q) for q in 자격들[k])
         if fk:
             앞 = raw[k - 1][0] if k else None
             같은 = bool(앞) and abs((fk[0] + fk[2] / 2) - (앞[0] + 앞[2] / 2)) <= max(fk[2], 앞[2]) \
                 and abs((fk[1] + fk[3] / 2) - (앞[1] + 앞[3] / 2)) <= max(fk[3], 앞[3])
-            if cur is None or at_cut[k] or 같은 or fk[3] * 1.22 > bh:
+            if cur is None or at_cut[k] or 같은 or fk[3] * 1.22 > bh or 빈구도:
                 담을얼굴 = fk
         bw, bh, tx, ty, 담김 = 담기(bw, bh, tx, ty, 담을얼굴, 경계들[k], usable_h,
                                    box["w"] / box["h"])
         if fk and 담을얼굴 is None:
             담김 = None                          # 따라가지 않기로 한 얼굴 — 게이트 대상이 아니다
-        elif 담을얼굴 and cur and not at_cut[k] and not (fk[3] * 1.22 > cur[1]):
+        elif 담을얼굴 and cur and not at_cut[k] and not (fk[3] * 1.22 > cur[1]) and not 빈구도:
             # 같은 샷 안에서 같은 얼굴을 따라잡는 중 — 한 번에 뛰지 않고 컷 완화폭(relief)만큼만 간다
             mx, my = dp_max * relief * W, dp_max * relief * usable_h
             tx2 = int(max(cur[2] - mx, min(cur[2] + mx, tx)))
@@ -685,7 +829,7 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
         if cur and not at_cut[k]:
             sx = max(vx0, min(cur[2] + (cur[0] - bw) / 2, vx1 - bw))
             sy = max(vy0, min(cur[3] + (cur[1] - bh) / 2, min(vy1, usable_h) - bh))
-            if 담을얼굴 and 담김:
+            if 담을얼굴 and 담김 and not 빈구도:     # 빈 구도에서 넘어갈 때는 샷 한가운데라 뛰지 않고 흘러간다(튐 금지)
                 # 시작 위치도 얼굴을 담는다 — 원본 컷에서 크기가 바뀐 비트는 흘러오지 않고 제자리에서 연다
                 fx, fy, fw, fh = 담을얼굴[:4]
                 if not (sy <= fy + fh * 0.15 and sy + bh >= fy + fh * 0.98
@@ -712,9 +856,13 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
             #   **smoothstep(3u²-2u³)** 으로 양끝을 눕히면 이어 붙은 듯 흐른다.
             u = f"min(t/{dur:.2f},1)"
             ease = u if box.get("ease") == "linear" else f"({u}*{u}*(3-2*{u}))"
-            vf = (f"crop={bw}:{bh}:"
-                  f"x='{sx:.0f}+({tx - sx:.0f})*{ease}':"
-                  f"y='{sy:.0f}+({ty - sy:.0f})*{ease}'")
+            # ★반 픽셀로 움직인다 (2026-09-29 점심이네27 229.14~231.48 «3프레임 주기 계단»). crop 의 x·y 는 정수이고 yuv420 은
+            #   짝수로 내림된다(exact=0) — 20장에 21px 가는 느린 팬이 원본 2px(출력 3.8px) 걸음으로 뛰고 19장 중 9장은 멈췄다.
+            #   2배(bicubic — 선명도 82.1 vs 지금 80.8, bilinear 는 56.6 으로 흐려진다)로 키운 뒤 exact=1 로 자르면 원본 0.5px
+            #   걸음이 되어 멈춤 1/19 · 최대 걸음 3.1px 로 ease 곡선을 그대로 따른다. 움직이는 비트만 — 멈춘 비트는 예전 그대로.
+            vf = (f"scale=iw*2:ih*2:flags=bicubic,crop={2 * bw}:{2 * bh}:"
+                  f"x='2*({sx:.0f}+({tx - sx:.0f})*{ease})':"
+                  f"y='2*({sy:.0f}+({ty - sy:.0f})*{ease})':exact=1")
         vf += f",scale={box['w']}:{box['h']}:flags=lanczos"
         if box.get("mirror"):
             vf += ",hflip"
@@ -726,6 +874,55 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
                                "시작crop": (bw, bh, int(sx), int(sy)),
                                "f0": bs_k[k], "f1": bs_k[k + 1]}))     # 원본 프레임 번호 [f0, f1)
         cur = (bw, bh, int(tx), int(ty))
+    return out
+
+
+def 얼굴관문(src, plan, idx, work, usable_h, 확실=0.8, 한계초=0.5):
+    """★영구 관문 (2026-09-29 점심이네 «가짜 얼굴» 클래스) — 비트마다 «확실한 얼굴»(점수 ≥ 0.8 · 세로 6% 이상)이 화면에
+    있는데 crop 에 하나도 안 드는 시간이 연달아 한계초(0.5초)를 넘으면 걸림 목록을 돌려준다(build 가 멈춘다).
+
+    구도 계획(plan_beats · 얼굴고르기)과 «다른 자»로 잰다 — 계획이 고른 얼굴이 아니라 검출기가 확신하는 얼굴 전부를 본다.
+    예전 build 관문(«얼굴이 crop 밖으로 나간 비트»)은 계획이 고른 얼굴만 봤다: 계획이 벽 무늬·흐린 뒤통수를 얼굴로 고르면
+    그 가짜는 crop 안이라 통과했고 진짜 얼굴은 아무도 안 봤다. 튐 관문은 경계 프레임만, 번인 관문은 박힌 자막만 본다 —
+    그래서 36곳을 에이전트가 완성본 프레임을 눈으로 보고 «가림» 으로 우회했다(이 관문이 그 눈을 대신한다).
+    확실한 얼굴이 crop 보다 크면(원본 초근접) 가운데만 들면 든 것으로 본다. 여러 얼굴 중 하나만 들어도 통과다
+    (멀리 떨어진 두 사람은 한 사람만 담는 것이 규칙 — pair_max_span)."""
+    if not HAS_YN:
+        return []
+    걸, 연속, 시작 = [], 0.0, None
+    for a, e, _vf, info in plan:
+        km = (info["f0"] + info["f1"]) // 2
+        from . import 프레임격자 as G
+        g = G.얻기(src)
+        rgb = frame_at(src, g.경계값(km), work, f"{idx:02d}m{km}")
+        # 확실한 얼굴 = 점수 0.8↑ 이고 «초점 밖이 아닌» 얼굴 — 화면에서 점수 0.6↑ 얼굴 중 가장 선명한 것의 0.18배 아래면
+        #   초점 밖(흐린 앞사람·잠든 뒷사람)이라 담지 않아도 된다(3편 143.5초: 잠든 뒷사람 0.87·선명 0.006 · 말하는 사람 0.040)
+        fs = [q for q in (_faces_yunet(rgb, 0.6) if rgb is not None else [])
+              if q[1] + q[3] // 2 < usable_h and q[3] >= usable_h * 0.06]
+        if len(fs) > 1:
+            import cv2 as _cv
+            gray = _cv.cvtColor(np.ascontiguousarray(rgb), _cv.COLOR_RGB2GRAY)
+            sh = [_선명도(gray, q)[0] for q in fs]
+            fs = [q for q, s in zip(fs, sh) if s >= max(sh) * 0.18]
+        fs = [q for q in fs if q[6] >= 확실]
+        c = info["crop"]
+        든 = (not fs) or any(_얼굴든(c, q) or (q[2] > c[0] * 0.9 and c[2] <= q[0] + q[2] / 2 <= c[2] + c[0])
+                            for q in fs)
+        if 든:
+            연속, 시작 = 0.0, None
+            continue
+        시작 = a if 시작 is None else 시작
+        연속 += e - a
+        if 연속 > 한계초:
+            걸.append({"조각": idx, "t0": round(시작, 2), "t1": round(e, 2), "crop": tuple(c),
+                      "얼굴": [tuple(int(v) for v in q[:4]) + (round(q[6], 2),) for q in fs]})
+    # 같은 구간이 여러 번 늘어 적힌 것을 하나로
+    out = []
+    for x in 걸:
+        if out and out[-1]["t0"] == x["t0"]:
+            out[-1] = x
+        else:
+            out.append(x)
     return out
 
 
@@ -747,10 +944,10 @@ def plan_frame(src, seg, idx, W, H, usable_h, box, work, prev=None):
             경계 = 그림경계(frames[len(frames) // 2], W, H)
         if HAS_YN:
             for a in frames:
-                fs = [f for f in _faces_yunet(a) if f[1] + f[3] // 2 < usable_h]
+                fs = 얼굴고르기(a, box, usable_h)       # 가짜·흐린 얼굴을 거른다 · fs[0] = 주인공 (2026-09-29)
                 if fs:
                     경계 = 그림경계(a, W, H)
-                    face = max(fs, key=lambda f: f[2] * f[3])
+                    face = fs[0]
                     # ★여러 명이면 **다 담아야 한다.** 하나만 골라 61% 로 맞추면
                     #   나머지가 프레임 밖으로 나간다 — 세 사람 장면이 전부 1.8배가 됐다.
                     if len(fs) > 1:

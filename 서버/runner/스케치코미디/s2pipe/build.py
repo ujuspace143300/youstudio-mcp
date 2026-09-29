@@ -395,6 +395,7 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         end_frame 이다(2026-09-28 — 예전 trim=start=초 .3f 는 경계가 프레임 사이에 걸리면 한 장 어긋날 수 있었다)."""
         legs, tags = [], []
         lo_, hi_ = 틀["앞멈춤"], 틀["앞멈춤"] + 틀["M"]         # 실제 프레임 = ffmpeg 첫 프레임(f0)에서 센 [lo_, hi_)
+        이음 = lo_
         for j, (bt0, bt1, vf, info) in enumerate(plan):
             s0 = max(lo_, min(hi_, info["f0"] - 틀["f0"]))
             s1 = max(lo_, min(hi_, info["f1"] - 틀["f0"]))
@@ -402,13 +403,22 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
                 s1 = hi_
             if s1 <= s0:
                 continue
+            # ★비트는 빈틈·겹침 없이 이어져야 한다 — 계획이 장을 빼먹거나 두 번 쓰면 ffmpeg 전에 멈춘다(2026-09-29)
+            assert s0 == 이음, f"비트 창이 안 이어진다 — 비트 {j} 시작 {s0} ≠ 앞 비트 끝 {이음} (framing.plan_beats 경계)"
+            이음 = s1
             legs.append(f"[0:v]trim=start_frame={s0}:end_frame={s1},setpts=PTS-STARTPTS,{vf},setsar=1[v{j}]")
             tags.append(f"[v{j}]")
+        assert 이음 == hi_, f"비트 창이 조각 끝 {hi_} 에 못 미친다({이음})"
         # ★비트 영상을 소리와 «정확히 같은 프레임 수»로 못 박는다 (2026-09-09 립싱크 실측: 비트 concat 이 마지막 비트에서
         #   1프레임 넘쳐 영상이 소리보다 1프레임 길었다) — 이제 _틀굽기 가 trim=end_frame=M(+끝 멈춤)·프레임 수 관문을 건다.
         #   ★PCM + 프레임 정확 길이(2026-09-03 «순간 배속» 사건) — AAC 꼬리 패딩이 조각마다 +40~60ms 붙어 경계에서 말이
         #   겹쳐 들렸다(46ms 실측). AAC 인코딩은 최종 합칠 때 한 번만.
-        영상 = ";".join(legs) + f";{''.join(tags)}concat=n={len(tags)}:v=1:a=0[vx]"
+        # ★concat 뒤 시각을 «장 번호 / fps» 로 다시 매긴다 (2026-09-29 점심이네20 «조각 프레임 309 ≠ 틀 311»).
+        #   1장짜리 비트는 concat 이 길이를 0 으로 쳐서 다음 비트 첫 장과 시각이 겹치고, 겹친 장은 뒤 trim·인코더에서 버려진다.
+        #   실측(20편 원본 · 굽기와 같은 필터): 비트 [10,1,1,1,1,1,10] → 21장(기대 25) · [5, 1×20, 5] → 11장(기대 30) ·
+        #   1장 비트 하나만 있을 때와 2장 비트는 멀쩡했다. 다시 매기면 넷 다 기대 장 수 그대로 나온다.
+        영상 = (";".join(legs) + f";{''.join(tags)}concat=n={len(tags)}:v=1:a=0,"
+               f"setpts=N/({g.fps:.9f}*TB)[vx]")
         parts.append(_틀굽기(src, 틀, 영상, os.path.join(work, f"seg{len(parts):03d}.mov"), 겹=True))
 
     def _안쪽경계(t):
@@ -534,6 +544,26 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         #   face_in=None 은 얼굴이 쓸 수 있는 자리보다 큰 불가피 비트(원본 초근접) — 찍기만 한다.
         밖 = [(round(x[0], 2), x[3]["crop"]) for x in plan if x[3]["face"] and x[3].get("face_in") is False]
         assert not 밖, f"조각 {i}: 얼굴이 crop 밖으로 나간 비트 {밖[:3]} — framing.담기 를 우회했다"
+        # ★영구 게이트 (2026-09-29 점심이네20 가스불 — 2장 간격 번쩍임을 전환으로 받아 1~2장 비트 18개가 이어졌고 구도가
+        #   2장마다 옮겨졌다): 2장 이하 비트가 셋 넘게 잇달면 번쩍임·깜빡임을 샷 전환으로 본 것이다(진짜 컷 셋이 12분의 1초
+        #   간격으로 잇달 일은 없다). 프레임격자.번쩍임 을 우회한 길이 생기면 여기서 먼저 멈춘다.
+        _짧, _런 = 0, []
+        for x in plan:
+            _짧 = _짧 + 1 if x[3]["f1"] - x[3]["f0"] <= 2 else 0
+            if _짧 >= 3:
+                _런.append(round(x[0], 2))
+        assert not _런, (f"조각 {i}: 2장 이하 비트가 셋 넘게 잇달았다(원본 {_런[:4]}초) — 번쩍임을 화면 전환으로 봤다"
+                         " (s2pipe/프레임격자.번쩍임 · framing.plan_beats 전환들)")
+        # ★영구 게이트 (2026-09-29 점심이네 «가짜 얼굴» — 36곳 가림 우회): 위 관문은 «계획이 고른 얼굴» 만 봐서, 계획이
+        #   벽 무늬·흐린 뒤통수를 얼굴로 고르면 통과했다. 검출기가 확신하는 얼굴(점수 0.8↑)이 화면에 있는데 crop 에
+        #   0.5초 넘게 하나도 안 들면 멈춘다 — 사람이 완성본 프레임을 보기 전에.
+        _얼 = framing.얼굴관문(src, plan, i, work, uh)
+        if _얼:
+            raise AssertionError(
+                f"조각 {i}: 확실한 얼굴이 화면에 있는데 crop 에 안 든 구간 {len(_얼)}곳 — "
+                + "; ".join(f"원본 {x['t0']}~{x['t1']}초 crop {x['crop']} 얼굴 {x['얼굴'][:3]}" for x in _얼[:3])
+                + "\n  수리: framing.얼굴고르기(가짜·흐린 얼굴 거르기) · plan_beats(주인공 고르기·빈 구도 담기)를 먼저 본다."
+                  " 원본이 정말 그 얼굴을 비켜 찍은 샷이면(말하는 사람이 따로 있음) 조각 «가림» 이 아니라 원인을 보고로 남긴다.")
         불가피 = sum(1 for x in plan if x[3]["face"] and x[3].get("face_in") is None)
         띠 = sum(1 for x in plan if tuple(x[3].get("bounds", (0, 0, W, H))) != (0, 0, W, H))
         if 불가피 or 띠:
