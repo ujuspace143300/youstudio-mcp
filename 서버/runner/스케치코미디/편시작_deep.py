@@ -39,6 +39,9 @@ def main():
                     help="원본 전사 엔진 — 기본 agy(구독). speechmatics 는 유료(사전 승인)")
     ap.add_argument("--다시전사", action="store_true",
                     help="work 의 원본 전사(.ko.vtt·.맞춤전·.맞춤.json)를 버리고 새로 묻는다 — 준비.sh --다시 가 준다")
+    ap.add_argument("--원제", default=None,
+                    help="하단 출처 원제를 직접 준다(안 주면 지금처럼 mp4 파일 이름의 «_» 뒤). 2026-09-29 점심이네는 mp4 이름"
+                         "(«…운전기사냐는 진짜 분노»)이 원제와 달라 준비.sh 가 소재 폴더 이름의 «NN.점심이네_» 뒤를 준다")
     a = ap.parse_args()
     d = a.folder
     assert os.path.isdir(d), "소재 폴더 없음: " + d
@@ -79,6 +82,8 @@ def main():
     base = os.path.splitext(os.path.basename(src))[0]
     base = unicodedata.normalize("NFC", base)     # ★NFD 원제는 폰트가 못 그린다(출처 줄 실측)
     원제 = base.split("_", 1)[1] if "_" in base else base
+    if a.원제:                                    # 준비.sh 가 시리즈 규칙대로 준 원제(점심이네 = 폴더 이름) — SMB 는 NFD 로 준다
+        원제 = unicodedata.normalize("NFC", a.원제).strip()
     info = {"channel": a.채널, "title": 원제, "comments": []}
     json.dump(info, open(os.path.join(work, f"{vid}.info.json"), "w", encoding="utf-8"), ensure_ascii=False)
 
@@ -106,7 +111,7 @@ def main():
     except (OSError, ValueError):
         _멈춤 = None
     if _멈춤:
-        raise SystemExit(f"★자막띠시각 멈춤 기록 — {_멈춤}\n  편시작을 --다시전사 로 다시(싱글벙글은 준비.sh {vid.replace('싱글', '')} --다시) — agy 다시 전사 · 돈 안 듦")
+        raise SystemExit(f"★자막띠시각 멈춤 기록 — {_멈춤}\n  편시작을 --다시전사 로 다시(배치는 준비.sh {vid} --다시 — 슬러그로 시리즈를 안다) — agy 다시 전사 · 돈 안 듦")
     if not os.path.exists(vtt) and a.전사 == "agy":
         from s2pipe import agy_asr
         vocab = asr.load_vocab(vid, channel=a.채널)
@@ -124,7 +129,7 @@ def main():
         if _맞 and _맞.get("멈춤"):
             # ★꼬리 관문 ⑤ (2026-09-28 저녁 싱글287 1차 전사 — 두 장면 줄이 섞여 맞춤이 결말을 20초 앞으로 당겼고, 맞춤 전도
             #   가운데가 20초 늦었다). 어느 시각도 못 믿어 plan 으로 넘기지 않는다 — 다시 전사하면 풀렸다(287 2차: 참 최대 0.29초).
-            raise SystemExit(f"★자막띠시각 멈춤 — {_맞['멈춤']}\n  편시작을 --다시전사 로 다시(싱글벙글은 준비.sh {vid.replace('싱글', '')} --다시) — agy 다시 전사 · 돈 안 듦")
+            raise SystemExit(f"★자막띠시각 멈춤 — {_맞['멈춤']}\n  편시작을 --다시전사 로 다시(배치는 준비.sh {vid} --다시 — 슬러그로 시리즈를 안다) — agy 다시 전사 · 돈 안 듦")
         _, _L = 자막띠시각.읽기(vtt)
         _넘 = [t for t, _e, _x in _L if t > dur_src + 0.5] if (dur_src := float(subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst],
