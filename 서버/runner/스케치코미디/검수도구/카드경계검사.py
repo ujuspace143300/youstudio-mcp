@@ -26,7 +26,10 @@ for slug in [a for a in sys.argv[1:] if not a.startswith("--")]:
     pj = slug if os.sep in slug else f"{W}/projects/{slug}.json"     # 경로를 주면 그 판(예: .경계전 백업)을 잰다
     proj = json.load(open(pj, encoding="utf-8"))
     src = f"{W}/work/{proj['source']['id']}.mp4"
-    cards = 자막띠시각.카드들(src)
+    # ★2026-09-29 — 글자 인식으로 확인된 카드만(점심이네11 운동화·21 파란 탁자·52 냄비 가장자리를 카드로 잡아 가짜 가로지름이
+    #   났다). 규칙은 s2pipe/번인관문._글자확인 한 곳 — 픽셀 카드 중 그 시간에 자막 글줄이 안 읽힌 것은 뺀다.
+    from s2pipe import 번인관문  # noqa: E402
+    cards = 번인관문.확인된카드들(src)
     segs = [s for s in proj["segments"] if s.get("keep", True)]
     붙음 = set()
     for a, b in zip(segs, segs[1:]):                 # 완성본 순서로 잇닿고 원본에서도 맞닿은 이음은 자른 자리가 아니다

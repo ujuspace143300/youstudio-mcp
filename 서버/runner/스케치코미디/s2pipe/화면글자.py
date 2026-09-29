@@ -1,0 +1,438 @@
+# -*- coding: utf-8 -*-
+"""원본 화면에 박힌 글자를 «글자 인식»(macOS 내장 Vision · 한국어)으로 찾는다 — 박힌 자막·화면 캡션의 단일 원천.
+
+    python -m s2pipe.화면글자 <원본.mp4>            # 훑고(캐시) 자막 줄·캡션 후보·판정을 보인다
+    python -m s2pipe.화면글자 <원본.mp4> --판정      # 캡션 후보를 agy 로 판정까지(캐시)
+
+★2026-09-29 점심이네 64편 배치 — 박힌 글자 인식이 «특정 모양·특정 자리» 만 알았다(한 클래스, 세 증상):
+  (a) 화면 가운데·좌하단에 크게 뜬 원본 캡션을 어떤 관문도 못 잡았다 — 점심이네2 1차 완성본 9~12초에 «6월 14일→1월 03일»
+      (원본 21.52~25.78초 · 글줄 높이 0.23H · 가운데)이 보였는데 make·굽기·⑦ 준비 관문이 전부 통과했다. 같은 모양이
+      «며칠 뒤»(26·32) «20분 후»(14) «N차 이슈 발생»(29) «강원도 인제»(17) «3시간 후»(1) «2012년·2026년»(36) «PM 6:07»(29)
+      «한 달뒤»(22) «8년 전»(33) «다음 날»(37) — 19편 훑기에서 13편.
+  (b) 흰 옷·회색 길 위 흰 자막(점심이네3 «너넨 뒤졌어»·«이리 와봐» 202.0~204.6)을 카드로 못 잡았다.
+  (c) 밝은 운동화·보도블록(11 219~222)·의자 등받이(5 13.3)·파란 탁자(21 20.1)·냄비(52 247.2)·식탁·흰 티(37)를
+      자막 카드로 잡아 전체화면·카드경계 관문이 가짜로 막혔다.
+  클래스: 자막띠시각._카드재기 / 번인관문._한카드 는 «화면 아래 60~99% 띠 안의, 밝은 픽셀 3px 곁 어두운 픽셀» 이라는
+    한 가지 모양으로 «글자가 있다» 를 정했다. 자리(가운데·좌하단 캡션은 띠 밖) · 대비(그림자만 있는 흰 자막) · 모양(밝은
+    물건 가장자리도 같은 모양) 셋 중 하나만 어긋나도 틀린다 — 문턱을 옮기는 술래잡기로는 닫히지 않는다.
+  수리(구조): 글자는 «글자 인식기가 읽은 글줄» 로 정한다. 화면 전체를 2fps 로 읽어(원본 250초 ≈ 26초) 글줄마다
+    자리·크기·글자를 남기고,
+      ① 가운데 아래 자리의 글줄 = 박힌 대사 자막 → 번인관문.카드상자들 이 카드를 «확인»(글자 없는 카드 = 가짜, 뺀다)하고
+        카드가 놓친 자막을 채운다.
+      ② 그 밖의 읽히는 큰 글줄 = 캡션 후보 → 편집으로 얹은 글자(캡션)인지 장면 속 물건 글자(휴대폰 화면·포장지·간판·책)
+        인지를 agy 가 그림으로 판정한다(원본마다 한 번 · 캐시). 캡션은 번인관문 의 «화면캡션» 사각형이 되어 굽기(framing
+        가림경계)가 피하고, 굽기·준비·make 관문이 같은 사각형으로 막는다.
+    agy 판정이 끝내 안 되면 EvoLink 로 넘기지 않고 멈춘다(2026-09-26 사장님 결정 2 — 그림 판정). 인식기가 없는 컴퓨터(맥이
+    아님)는 RuntimeError — 조용히 옛 픽셀 검출로 내려가지 않는다(내려가면 이 구멍이 그대로 열린다).
+  주의: 인식기 실행 파일 이름에 한글이 있으면 Vision(CoreML)이 «Unable to compute the prediction» 으로 빈 답을 낸다
+    (2026-09-29 실측) — 캐시 이름은 ASCII(screentext_vision_<해시>).
+"""
+import base64
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SWIFT = os.path.join(HERE, "화면글자_vision.swift")
+CACHE_DIR = os.path.expanduser("~/.cache/youstudio")
+
+판 = 1                    # 읽는 방법이 바뀌면 올린다(캐시 무효)
+FPS = 2.0                 # 훑기 간격 — 원본 캡션은 1초 넘게 뜬다(19편 실측 최단 1.0초)
+폭 = 960                  # 읽는 그림 폭(원본 1920 의 절반 — 대사 자막 글줄 높이 ≈ 30px 로 충분)
+# 캡션 후보: 확신 0.5 이상 · 한글/숫자 2자 이상 · 글줄 높이 0.045H 이상(19편 캡션 최소 «저녁식사 복불복» 0.048)이 한 장 이상,
+#   흐린 표본(확신 0.3)까지 같은 자리에 두 장 이상
+후보확신, 후보글자, 후보높이, 후보장수 = 0.5, 2, 0.045, 2
+# 대사 자막 자리: 가운데(글줄 중심 x 가 0.5±0.15) · 자막띠 윗끝 0.12H 위(두 줄 자막 윗줄)부터 아래 · 글줄 높이 0.13H 이하
+자막가로, 자막위, 자막높이 = 0.15, 0.12, 0.13
+판정묶음 = 10             # agy 한 번에 보내는 후보 그림 수
+
+
+# ───────────────────────── 인식기 ─────────────────────────
+def 인식기():
+    """컴파일된 인식기 경로(없으면 swiftc 로 만든다). 맥이 아니거나 swiftc 가 없으면 None."""
+    if sys.platform != "darwin" or not shutil.which("swiftc"):
+        return None
+    h = hashlib.sha256(open(SWIFT, "rb").read()).hexdigest()[:12]
+    exe = os.path.join(CACHE_DIR, f"screentext_vision_{h}")
+    if os.path.exists(exe):
+        return exe
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    tmp = exe + f".{os.getpid()}"
+    r = subprocess.run(["swiftc", "-O", SWIFT, "-o", tmp], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError("화면글자 인식기 컴파일 실패: " + r.stderr[-400:])
+    os.replace(tmp, exe)
+    return exe
+
+
+def 그림들읽기(paths):
+    """[[[확신, x, y, w, h, 글자, …], …] 그림마다] — 비율 좌표(원점 왼쪽 위)."""
+    exe = 인식기()
+    if exe is None:
+        raise RuntimeError("화면글자 인식기 없음 — macOS Vision 전용(swiftc 필요). 박힌 글자 관문을 건너뛰지 않는다")
+    if not paths:
+        return []
+    r = subprocess.run([exe], input="\n".join(paths) + "\n", capture_output=True, text=True, check=True)
+    out = {}
+    for line in r.stdout.splitlines():
+        if line.strip():
+            o = json.loads(line)
+            out[o["f"]] = o["r"]
+    return [out.get(p, []) for p in paths]
+
+
+def 훑기(src, fps=FPS, width=폭):
+    """[(t, rows)] — 원본을 fps 로 풀어 프레임마다 글줄."""
+    d = tempfile.mkdtemp(prefix="screentext_")
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vf", f"fps={fps},scale={width}:-2", "-q:v", "2",
+                        os.path.join(d, "%06d.jpg")], check=True)
+        fs = sorted(os.listdir(d))
+        res = 그림들읽기([os.path.join(d, f) for f in fs])
+        return [(round(i / fps, 3), r) for i, r in enumerate(res)]
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def 시각들읽기(src, times, width=폭):
+    """시각마다 한 장씩 읽는다 — [(t, rows)]. 카드 확인(짧은 카드는 2fps 훑기 사이에 빠진다)용."""
+    d = tempfile.mkdtemp(prefix="screentext_")
+    try:
+        ps = []
+        for k, t in enumerate(times):
+            p = os.path.join(d, f"{k:06d}.jpg")
+            subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
+                            "-vf", f"scale={width}:-2", "-q:v", "2", p], capture_output=True)
+            ps.append(p)
+        있음 = [p for p in ps if os.path.exists(p)]           # 원본 끝을 넘은 시각은 그림이 없다 — 빈 줄로 둔다
+        읽음 = dict(zip(있음, 그림들읽기(있음)))
+        return [(t, 읽음.get(p, [])) for t, p in zip(times, ps)]
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _wh(src):
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                        "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
+    return tuple(int(v) for v in r.stdout.strip().split(",")[:2])
+
+
+def _캐시경로(src):
+    return os.path.abspath(os.path.expanduser(src)) + ".화면글자.json"
+
+
+def _캐시(src):
+    src = os.path.abspath(os.path.expanduser(src))
+    st = os.stat(src)
+    key = f"{판}:{st.st_size}:{int(st.st_mtime)}:{FPS}:{폭}"
+    try:
+        c = json.load(open(_캐시경로(src), encoding="utf-8"))
+        if c.get("key") == key:
+            return c
+    except (OSError, ValueError):
+        pass
+    W, H = _wh(src)
+    c = {"key": key, "W": W, "H": H, "fps": FPS, "frames": 훑기(src), "판정": {}}
+    _저장(src, c)
+    return c
+
+
+def _저장(src, c):
+    p = _캐시경로(src)
+    try:
+        tmp = p + f".{os.getpid()}"
+        json.dump(c, open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+        os.replace(tmp, p)
+    except OSError:
+        pass
+
+
+# ───────────────────────── 글줄 분류 ─────────────────────────
+def _줄(row):
+    c, x, y, w, h, s = row[:6]
+    return {"c": c, "x": x, "y": y, "w": w, "h": h, "s": s,
+            "한": len(re.findall(r"[가-힣]", s)), "수": len(re.findall(r"[가-힣0-9]", s))}
+
+
+def 자막자리(l, 띠):
+    """박힌 대사 자막 자리의 글줄인가 — 가운데 · 자막띠 근처 · 한 줄 높이."""
+    return (abs(l["x"] + l["w"] / 2 - 0.5) <= 자막가로 and l["y"] + l["h"] / 2 >= 띠[0] - 자막위
+            and l["h"] <= 자막높이)
+
+
+def 자막글자(l):
+    """대사 자막 자리에서 «글자가 있다» 고 볼 글줄 — 한글 1자 이상(확신 0.3 이상) 또는 글자 2자 이상(확신 0.5 이상).
+    장면 속 영문 무늬(운동화 «OPEN»·옷 로고)는 한글이 아니라 대개 빠진다."""
+    return (l["한"] >= 1 and l["c"] >= 0.3) or (l["수"] >= 2 and l["c"] >= 0.5)
+
+
+자막가운데 = 0.06        # 카드 확인용 대사 자막 글줄: 같은 높이 글줄들을 합친 가로 중심이 0.5±0.06 (19편 자막 97% 가 ±0.04 —
+                        #   벗어난 것은 휴대폰 자판 «스페이스»·포장지 값표 같은 장면 글자, 2026-09-29 실측)
+
+
+def 자막표본(frames, 띠):
+    """[(t, 줄)] — 카드 확인·채우기에 쓸 «박힌 대사 자막» 글줄. 한 장 안에서 같은 높이 글줄을 한 줄로 합쳐(인식기가 자막 한 줄을
+    둘로 나누기도 한다 — 점심이네37 «팀장 입장에서는» 조각) 그 줄의 가로 중심이 가운데인 것만."""
+    out = []
+    for t, rows in frames:
+        ls = [l for l in (_줄(r) for r in rows) if 자막자리(l, 띠) and 자막글자(l)]
+        줄들 = []
+        for l in sorted(ls, key=lambda l: l["y"]):
+            for g in 줄들:
+                if abs(g[0]["y"] - l["y"]) < 0.02 and 0.6 <= l["h"] / max(1e-6, g[0]["h"]) <= 1.6:
+                    g.append(l)
+                    break
+            else:
+                줄들.append([l])
+        for g in 줄들:
+            x0, x1 = min(l["x"] for l in g), max(l["x"] + l["w"] for l in g)
+            if abs((x0 + x1) / 2 - 0.5) <= 자막가운데:
+                out += [(t, l) for l in g]
+    return out
+
+
+def 캡션글자(l):
+    return l["c"] >= 후보확신 and l["수"] >= 후보글자 and l["h"] >= 후보높이
+
+
+def _띠(src):
+    from . import 자막띠시각 as 띠시각
+    try:
+        _c, info = 띠시각.카드들(src, 정보=True)
+        if info.get("띠"):
+            return info["띠"]
+    except Exception:                                    # noqa: BLE001
+        pass
+    return list(띠시각.옛띠)
+
+
+def _겹침(a, l):
+    """글줄 l 이 자취 a 의 마지막 상자와 겹치는가 — 겹친 넓이가 작은 쪽 넓이의 30% 이상 · 높이 비 0.5~2."""
+    ix = min(a["_x1"], l["x"] + l["w"]) - max(a["_x0"], l["x"])
+    iy = min(a["_y1"], l["y"] + l["h"]) - max(a["_y0"], l["y"])
+    if ix <= 0 or iy <= 0:
+        return False
+    작 = min((a["_x1"] - a["_x0"]) * (a["_y1"] - a["_y0"]), l["w"] * l["h"])
+    비 = l["h"] / max(1e-6, a["_y1"] - a["_y0"])
+    return ix * iy >= 0.3 * 작 and 0.5 <= 비 <= 2.0
+
+
+def 자취들(frames, 약함, 강함, fps=FPS):
+    """약함(줄) 을 지난 글줄을 «같은 자리에 이어 뜬 것» 끼리 묶는다(두 표본 = 1초 비어도 잇는다) —
+    [{t0,t1,x0,y0,x1,y1,글,n,강,c,대표}]. 강 = 강함(줄) 을 지난 표본 수(흐린 전환 프레임은 약함으로만 잇는다 —
+    점심이네2 «6월 14일→1월 03일» 21.5~25.5 는 가운데 두 장이 확신 0.3 이었다)."""
+    tr = []
+    for t, rows in frames:
+        for row in rows:
+            l = row if isinstance(row, dict) else _줄(row)
+            if not 약함(l):
+                continue
+            hit = None
+            for a in tr:
+                if t - a["t1"] <= 2.0 / fps + 0.01 and a["t1"] < t + 1e-6 and _겹침(a, l):
+                    hit = a
+                    break
+            if hit is None:
+                hit = {"t0": t, "t1": t, "x0": l["x"], "y0": l["y"], "x1": l["x"] + l["w"], "y1": l["y"] + l["h"],
+                       "글들": [], "n": 0, "강": 0, "c": 0.0, "대표": None}
+                tr.append(hit)
+            hit["t1"] = t
+            hit["_x0"], hit["_y0"], hit["_x1"], hit["_y1"] = l["x"], l["y"], l["x"] + l["w"], l["y"] + l["h"]
+            hit["x0"], hit["y0"] = min(hit["x0"], l["x"]), min(hit["y0"], l["y"])
+            hit["x1"], hit["y1"] = max(hit["x1"], l["x"] + l["w"]), max(hit["y1"], l["y"] + l["h"])
+            hit["n"] += 1
+            if 강함(l):
+                hit["강"] += 1
+                hit["c"] = max(hit["c"], l["c"])
+                hit["글들"].append(l["s"])
+                if hit["대표"] is None or l["w"] * l["h"] > hit["대표"]["w"] * hit["대표"]["h"]:
+                    hit["대표"] = dict(l, t=t)
+    out = []
+    for a in tr:
+        for k in ("_x0", "_y0", "_x1", "_y1"):
+            a.pop(k, None)
+        if a["강"]:
+            a["글"] = max(a["글들"], key=lambda s: len(re.findall(r"[가-힣0-9]", s)))
+            out.append(a)
+    return out
+
+
+def 판정키(글):
+    return re.sub(r"[^가-힣0-9A-Za-z]", "", 글)
+
+
+def 자막줄들(src, log=None):
+    """박힌 대사 자막 자리의 글줄 자취 — 번인관문 카드 확인·채우기용. 좌표는 비율."""
+    c = _캐시(src)
+    띠 = _띠(src)
+    장 = {}
+    for t, l in 자막표본(c["frames"], 띠):
+        장.setdefault(t, []).append(l)
+    return 자취들(sorted(장.items()), lambda l: True, 자막글자, c["fps"])
+
+
+def 캡션후보(src):
+    c = _캐시(src)
+    띠 = _띠(src)
+    약 = lambda l: l["c"] >= 0.3 and l["수"] >= 1 and l["h"] >= 후보높이 and not 자막자리(l, 띠)   # noqa: E731
+    return [a for a in 자취들(c["frames"], 약, 캡션글자, c["fps"]) if a["n"] >= 후보장수]
+
+
+# ───────────────────────── agy 판정 ─────────────────────────
+_물음 = """너는 영상 편집 검수자다. 아래 번호 붙은 그림은 한 원본 영상(한국 스케치 코미디 유튜브)의 프레임이고, 빨간 네모 안에 글자가 있다.
+각 그림마다 빨간 네모 속 글자가 무엇인지 가려라.
+- "overlay": 원본 편집자가 영상 위에 얹은 글자 — 시간·장소 자막(«며칠 뒤» «PM 6:07» «강원도 인제»), 제목 카드, 날짜 캡션, 대사 자막, 채널 로고·워터마크 등. 장면 속 물건과 상관없이 화면에 붙어 있다.
+- "scene": 촬영된 장면 속 물건에 적힌 글자 — 휴대폰·모니터·TV 화면, 포장지·상자·병, 간판·표지판, 책·종이, 옷·신발 무늬 등.
+헷갈리면 "overlay" 로 답한다.
+JSON 만: {"items":[{"i":번호,"kind":"overlay"|"scene"}]}"""
+
+
+def _후보그림(src, a, W, H, p):
+    from PIL import Image, ImageDraw
+    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{a['대표']['t']:.3f}", "-i", src, "-frames:v", "1",
+                        "-vf", "scale=640:-2", "-f", "image2", "-vcodec", "png", "-"], capture_output=True, check=True)
+    import io
+    im = Image.open(io.BytesIO(r.stdout)).convert("RGB")
+    w, h = im.size
+    l = a["대표"]
+    d = ImageDraw.Draw(im)
+    d.rectangle([l["x"] * w - 4, l["y"] * h - 4, (l["x"] + l["w"]) * w + 4, (l["y"] + l["h"]) * h + 4],
+                outline=(255, 0, 0), width=3)
+    im.save(p)
+
+
+def 판정(src, log=print):
+    """캡션 후보마다 overlay/scene — 글자(판정키)별로 한 번만 묻고 캐시에 둔다. {판정키: kind}"""
+    c = _캐시(src)
+    후보 = 캡션후보(src)
+    판 = c.setdefault("판정", {})
+    남은, 본 = [], set()
+    for a in 후보:
+        k = 판정키(a["글"])
+        if k in 판 or k in 본:
+            continue
+        본.add(k)
+        남은.append((k, a))
+    if not 남은:
+        return 판
+    from . import gem
+    from .cfg import CFG
+    models = CFG.get("gemini", {}).get("models", ["gemini-3.5-flash"])
+    d = tempfile.mkdtemp(prefix="screentext_j_")
+    try:
+        for s0 in range(0, len(남은), 판정묶음):
+            묶 = 남은[s0:s0 + 판정묶음]
+            parts = [{"text": _물음}]
+            for j, (k, a) in enumerate(묶):
+                p = os.path.join(d, f"{s0 + j}.png")
+                _후보그림(src, a, c["W"], c["H"], p)
+                parts.append({"text": f"[{j}]"})
+                parts.append({"inline_data": {"mime_type": "image/png", "data": base64.b64encode(open(p, "rb").read()).decode()}})
+            payload = {"contents": [{"role": "user", "parts": parts}],
+                       "generationConfig": {"maxOutputTokens": 800, "responseMimeType": "application/json"}}
+            got = None
+            for _시도 in range(2):
+                txt, _r, _m = gem.ask(payload, models, timeout=300, log=log)
+                try:
+                    m = re.search(r"\{.*\}", txt or "", re.S)
+                    items = json.loads(m.group(0))["items"]
+                    got = {int(it["i"]): it["kind"] for it in items if it.get("kind") in ("overlay", "scene")}
+                    if len(got) == len(묶):
+                        break
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    got = None
+            if not got or len(got) != len(묶):
+                raise RuntimeError(f"화면 글자 판정(agy) 답이 모자라다 — {len(got or {})}/{len(묶)}. 멈춘다(EvoLink 로 넘기지 않음)")
+            for j, (k, a) in enumerate(묶):
+                판[k] = got[j]
+            if log:
+                log("    화면 글자 판정 " + " · ".join(f"«{a['글'][:12]}» {got[j]}" for j, (k, a) in enumerate(묶)))
+        _저장(src, c)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    return 판
+
+
+def _가장자리(src, c, a):
+    """캡션이 처음·마지막으로 보인 시각을 0.05초 단위로 좁힌다 — 훑기(0.5초 간격) 첫 표본 앞 1초~뒤 0.15초·끝 표본 앞 0.15초~
+    뒤 1초를 0.05초마다 읽어 같은 자리·같은 글자 글줄이 읽히는 가장 바깥 시각. 캐시(«가장자리»)에 둔다.
+    (2026-09-29 점심이네2 «설날 며칠 전» — 훑기 표본 45.5 앞뒤 0.75초를 통째로 넓히면 45.42 에서 끝낸 조각이 가짜로 걸린다)"""
+    k = f"v4:{a['t0']}:{a['t1']}:{a['x0']:.3f}:{a['y0']:.3f}"
+    같은글 = set(re.findall(r"[가-힣0-9A-Za-z]", "".join(a["글들"])))
+    가 = c.setdefault("가장자리", {})
+    if k in 가:
+        return tuple(가[k])
+    간 = 1.0 / c["fps"]
+    # 훑기 표본 시각은 fps 필터가 고른 프레임이라 ±반 프레임 어긋나고, 흐리게 사라지는 끝 표본은 훑기에서 빠지기도 한다
+    #   (점심이네29 «4차 이슈 발생» 훑기 끝 204.0 · 실제 204.7) — 가장자리 둘레 1초를 0.05초마다 다시 읽는다
+    폭_ = 1.0
+    앞 = [round(a["t0"] - 폭_ + 0.05 * j, 3) for j in range(0, int(round((폭_ + 0.15) / 0.05)) + 1)]
+    뒤 = [round(a["t1"] - 0.15 + 0.05 * j, 3) for j in range(0, int(round((폭_ + 0.15) / 0.05)) + 1)]
+    ts = sorted({t for t in 앞 + 뒤 if t >= 0})
+    본 = {}
+    for t, rows in 시각들읽기(src, ts):
+        for row in rows:
+            l = _줄(row)
+            # 같은 자리 · 같은 글자 하나 이상(장면 잡음 «1j» 가 가장자리를 넓히지 않게)
+            if l["c"] >= 0.3 and set(re.findall(r"[가-힣0-9A-Za-z]", l["s"])) & 같은글 \
+                    and _겹침({"_x0": a["x0"], "_y0": a["y0"], "_x1": a["x1"], "_y1": a["y1"]}, l):
+                본[t] = True
+    # 처음 읽힌 칸 한 칸(0.05초) 앞부터 · 마지막 읽힌 칸 한 칸 뒤까지 떠 있었다고 본다. 가장 바깥 칸까지 읽혔으면 한 표본 더 넓힌다.
+    h0 = [t for t in 앞 if 본.get(t)]
+    h1 = [t for t in 뒤 if 본.get(t)]
+    e0 = (min(h0) - 0.05) if h0 and min(h0) > 앞[0] else a["t0"] - 폭_ - (간 if h0 else 0)
+    e1 = (max(h1) + 0.05) if h1 and max(h1) < 뒤[-1] else a["t1"] + 폭_ + (간 if h1 else 0)
+    가[k] = [round(e0, 2), round(e1, 2)]
+    _저장(src, c)
+    return tuple(가[k])
+
+
+def _iou(a, b):
+    ix = min(a["x1"], b["x1"]) - max(a["x0"], b["x0"])
+    iy = min(a["y1"], b["y1"]) - max(a["y0"], b["y0"])
+    if ix <= 0 or iy <= 0:
+        return 0.0
+    u = (a["x1"] - a["x0"]) * (a["y1"] - a["y0"]) + (b["x1"] - b["x0"]) * (b["y1"] - b["y0"]) - ix * iy
+    return ix * iy / u
+
+
+def 화면캡션(src, log=print, 판정하기=True):
+    """원본에 얹힌 화면 캡션 — [{t0,t1,x0,y0,x1,y1,글}] (원본 픽셀·원본 초). 시각은 훑기 간격만큼 앞뒤로 넓힌다
+    (2fps: 첫·끝 표본 ±0.5초 + 0.25초 — 사이에 떠 있던 시간을 놓치지 않게). scene 판정은 뺀다."""
+    c = _캐시(src)
+    판 = 판정(src, log=log) if 판정하기 else c.get("판정", {})
+    W, H = c["W"], c["H"]
+    후 = 캡션후보(src)
+    틀 = [a for a in 후 if 판.get(판정키(a["글"]), "overlay") == "overlay"]
+    out = []
+    for a in 후:
+        k = 판정키(a["글"])
+        # ★같은 틀 — 편집자 캡션은 한 원본 안에서 같은 자리·같은 크기로 되풀이된다. agy 가 «scene» 이라 해도 overlay 로 판정된
+        #   글줄과 상자가 겹치면(IoU 0.6 이상) overlay 로 본다(2026-09-29 점심이네29 «PM 6:25» 를 scene 으로 잘못 봤다 —
+        #   같은 자리 «PM 6:07·PM 1:13» 은 overlay).
+        if 판.get(k, "overlay") != "overlay" and not any(_iou(a, b) >= 0.6 for b in 틀):
+            continue
+        e0, e1 = _가장자리(src, c, a)
+        out.append({"t0": round(max(0.0, e0), 2), "t1": round(e1, 2),
+                    "x0": int(a["x0"] * W) - 6, "y0": int(a["y0"] * H) - 6,
+                    "x1": int(a["x1"] * W) + 6, "y1": int(a["y1"] * H) + 6, "글": a["글"]})
+    return out
+
+
+if __name__ == "__main__":
+    src = sys.argv[1]
+    c = _캐시(src)
+    print(f"훑기 {len(c['frames'])}장 · 자막띠 {_띠(src)}")
+    zs = 자막줄들(src)
+    print(f"대사 자막 자리 글줄 자취 {len(zs)}개")
+    if "--판정" in sys.argv:
+        판정(src)
+    판_ = _캐시(src).get("판정", {})
+    for a in 캡션후보(src):
+        print(f"  후보 {a['t0']:7.1f}~{a['t1']:7.1f} x{a['x0']:.2f}~{a['x1']:.2f} y{a['y0']:.2f}~{a['y1']:.2f} n{a['n']:2d}"
+              f" c{a['c']:.1f} {판_.get(판정키(a['글']), '?'):7s} {a['글'][:30]}")

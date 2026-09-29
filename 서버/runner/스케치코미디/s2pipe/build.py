@@ -267,6 +267,14 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
                 usable_h = 기본h
                 print(f"    원본 자막 못 찾음 → 기본값으로 세로 {usable_h}px", flush=True)
 
+    # ★원본 화면 캡션 (2026-09-29 점심이네2 1차 완성본 9~12초 «6월 14일→1월 03일» — 자막띠 밖 캡션은 카드도 «가림» 도 아니라
+    #   관문이 비교조차 안 했다). 글자 인식(화면글자)이 찾고 agy 가 «얹은 글자» 로 판정한 사각형을 조각 «가림» 사본에 붙여
+    #   framing.가림경계 가 피하게 하고, 아래 최종 관문이 같은 사각형으로 막는다. 계획(proj)에는 쓰지 않는다(사본만).
+    캡션 = 관.캡션들(src, log=lambda m: print(m, flush=True))
+    if 캡션:
+        print(f"    원본 화면 캡션 {len(캡션)}개 — 조각 가림으로 피한다: "
+              + " · ".join(f"«{c['글'][:10]}» {c['t0']}~{c['t1']}" for c in 캡션[:8]), flush=True)
+
     cuts = sp.scene_cuts(src) if b.get("follow_face") else []
 
     # ★마지막 조각의 검은 꼬리 자동 절단 (2026-09-04 사장님 «소리가 남았다고 검은 화면을
@@ -503,10 +511,11 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
             else:
                 uh = H
                 print(f"    조각 {i}: 자막띠무시 — 세로 {H}px 전체를 쓴다(박힌 자막 카드 없음)", flush=True)
-        plan = framing.plan_beats(src, s, i, W, H, uh, b, work, cuts, prev,
+        s캡 = 관.캡션붙인조각(s, 캡션)                   # 화면 캡션을 가림으로 붙인 사본(framing 이 피한다) — s 자체는 계획이다
+        plan = framing.plan_beats(src, s캡, i, W, H, uh, b, work, cuts, prev,
                                   머리=머리, 틀={"k0": 실0, "k1": 실0 + 틀["M"]})
         if not plan:
-            vf, info = framing.plan_frame(src, s, i, W, H, uh, b, work, prev=None if 머리 == "새샷" else prev)
+            vf, info = framing.plan_frame(src, s캡, i, W, H, uh, b, work, prev=None if 머리 == "새샷" else prev)
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
             parts.append(_틀굽기(src, 틀, f"[0:v]{vf}[vx]", p))
             prev = info["crop"]
@@ -580,12 +589,14 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
     # ★최종 관문 (2026-09-27 싱글266·188 글자 노출 · 85편 상자 띠) — 구운 crop 전부(비트·한 장 구도·전체/원문화면·
     #   프레임-인-프레임)를 카드 상자·사람이 잰 화면 캡션(조각 «가림»)과 위치로 비교한다. 준비(프리미어 컷 상자)도 같은
     #   함수를 부른다. 예전엔 납품 mp4 의 crop 을 보는 관문이 없었다(준비는 프리미어 상자만 봤다).
-    if b.get("avoid_burned_subs"):
+    if b.get("avoid_burned_subs") or 캡션:
         crops, _ = 관.beats_crops(log, W, H)
-        걸 = 관.걸림(박스들, crops, 관.가림목록(segs))
+        걸 = 관.걸림(박스들, crops, 관.가림목록([관.캡션붙인조각(s, 캡션) for s in segs]))
         if 걸:
-            raise AssertionError(f"박힌 자막이 crop 안에 든다 {len(걸)}건 — {관.글(걸)} (s2pipe/번인관문.py)")
-        print(f"    [OK] 박힌 자막 관문 — crop {len(crops)}개 · 카드 {len(박스들)}장 겹침 0", flush=True)
+            raise AssertionError(f"박힌 자막·화면 캡션이 crop 안에 든다 {len(걸)}건 — {관.글(걸)} (s2pipe/번인관문.py)"
+                                 + (" · 화면 캡션이면 그 샷을 조각에서 빼거나(원본 시각을 옮긴다) 장면 글자면 조각 «글자허용»"
+                                    if any(g["종류"] == "화면캡션" for g in 걸) else ""))
+        print(f"    [OK] 박힌 자막 관문 — crop {len(crops)}개 · 카드 {len(박스들)}장 · 화면 캡션 {len(캡션)}개 겹침 0", flush=True)
     return dst
 
 
