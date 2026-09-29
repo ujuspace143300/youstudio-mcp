@@ -26,6 +26,10 @@ if [ ! -f ~/Desktop/스케치코미디/projects/$SLUG.json ] || [ "$2" = "--다�
       --로고 "$LOGO" > "$L/${SLUG}_1편시작.txt" 2>&1 \
     || { echo "★편시작 실패 — $L/${SLUG}_1편시작.txt"; tail -5 "$L/${SLUG}_1편시작.txt"; exit 1; }
 fi
-$PY -m s2pipe.plan $SLUG --slug $SLUG > "$L/${SLUG}_2plan.txt" 2>&1 \
+# ★파악 답을 plan 의 입력·관문 근거로 (2026-09-29 점심이네 64편 — s2pipe/plan관문.py). 배치가 미리 받은 답(agy_video .md)이
+#   있으면 그것을 준다. 없으면 plan 이 agy 에 원본을 통째로 줘 한 번 받는다(work/<슬러그>.파악.json 캐시).
+PA="$L/agy파악_$SERIES"; [ "$SERIES" = 싱글벙글 ] && PA="$L/agy파악"
+PARG=(); [ -s "$PA/$SLUG.md" ] && PARG=(--파악 "$PA/$SLUG.md")
+$PY -m s2pipe.plan $SLUG --slug $SLUG "${PARG[@]}" > "$L/${SLUG}_2plan.txt" 2>&1 \
   || { echo "★plan 실패 — $L/${SLUG}_2plan.txt"; tail -5 "$L/${SLUG}_2plan.txt"; exit 1; }
 echo "준비 끝 $SLUG $(( $(date +%s)-st ))초"

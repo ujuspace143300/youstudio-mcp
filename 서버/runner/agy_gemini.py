@@ -595,6 +595,12 @@ def _read(rc, out, err, n, want_json, js, use_flag):
             # 필터가 답 중간을 막으면 JSON 이 잘린다 — 잘린 답의 앞쪽 조각을 답으로 받지 않는다(다시 해도 같은 자리에서 막힌다)
             return "stop", "필터 차단 — 답이 잘렸다: " + text[-120:], "", res
         obj = _first_json(text)
+        # ★객체를 요구했는데 [ {…} ] 로 한 겹 싸서 낸 답은 벗겨 받는다 (2026-09-29 점심이네50·싱글116·204·269 plan —
+        #   «스키마와 다르다: $ 는 object 여야 한다(list)» 로 영상 plan 을 통째로 다시 물어 한 번에 3~8분을 버렸다.
+        #   내용은 온전한 답 하나였다). 원소가 둘 이상이면 어느 것이 답인지 모르니 그대로 형식 오류로 둔다.
+        if js and js.get("type") == "object" and isinstance(obj, list) and len(obj) == 1 and isinstance(obj[0], dict):
+            obj = obj[0]
+            note = "; ".join(x for x in (note, "답이 [ {…} ] 로 한 겹 싸여 있어 벗겨 받음") if x)
         bad = ["JSON 이 없다"] if obj is None else (_schema_errors(obj, js) if js else [])
         if bad:
             if see:
