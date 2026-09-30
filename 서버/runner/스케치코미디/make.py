@@ -221,27 +221,24 @@ def check(proj, path):
     #   달력이 span 에 남아 밀도가 20%로 무너졌다. 블록 총길이가 jump_max 이하이고 P5 로 끝날 때만.
     #   (2026-09-09 재수정 — 큰 간격이 없을 때 제외를 아예 안 해 Deep55 단일 끝조각이 밀도를 깨뜨렸다:
     #   여러 컷 끝장면은 큰 간격(>15s) 앞까지 통째로, 큰 간격이 없으면 마지막 한 조각만 뺀다.)
-    cut_i = len(segs)
-    if len(segs) > 1 and segs[-1].get("phase") == 5:
-        acc = 0.0
-        for i in range(len(segs) - 1, 0, -1):
-            acc += segs[i]["t1"] - segs[i]["t0"]
-            if acc > jump_max:
-                break
-            if segs[i]["t0"] - segs[i - 1]["t1"] > 15:   # 큰 간격 = 끝 장면으로 점프한 자리
-                cut_i = i
-                break
-        if cut_i == len(segs) and segs[-1]["t1"] - segs[-1]["t0"] <= jump_max:
-            cut_i = len(segs) - 1                         # 큰 간격 없음 — 마지막 한 조각만(원래 동작)
-    span_segs = segs[:cut_i]
-    span = max(s["t1"] for s in span_segs) - min(s["t0"] for s in span_segs)
-    c_total = sum(s["t1"] - s["t0"] for s in span_segs)
-    dens = c_total / span if span > 0 else 1.0
+    # ★계산은 s2pipe/밀도.계산 한 곳(2026-09-29 점심이네 배치 — 먼 도입 셋업·가운데 광고·결말 쪽 훅이 범위를
+    #   부풀려 셋업을 못 넣던 구멍). 훅 제외·광고 제외·도입 점프는 규격 스위치(edit.훅_밀도제외·광고_밀도제외·
+    #   도입점프_최대_s)로만 켠다 — 꺼져 있으면 예전 계산과 같다. 기준값 35% 는 그대로다.
+    from s2pipe import 밀도 as _밀도
+    _md = _밀도.계산(segs, e, proj)
+    span, c_total, dens = _md["span"], _md["c_total"], _md["dens"]
+    bad += _md["반려"]
+    warn += _md["주의"]
     if dens < lo_d:
-        bad.append(f"★밀도 {dens*100:.0f}% — 원본 {span:.0f}초에 걸쳐 {total:.0f}초를"
-                   f" 뽑았다. {lo_d*100:.0f}% 이상이어야 한다."
+        _뺌 = (" (범위에서 뺀 것: " + " · ".join(_md["뺀것"]) + ")") if _md["뺀것"] else ""
+        _셋업 = ""
+        if float(e.get("도입점프_최대_s", 0) or 0) > 0 and not proj.get("도입점프"):
+            _셋업 = (f" · 뒤에서 갚히는 먼 도입 셋업(P2, {e['도입점프_최대_s']}초 이하) 때문이면"
+                     f" proj[\"도입점프\"]={{\"근거\":…,\"짝\":[갚는 원본 시각]}} 로 선언할 수 있다")
+        bad.append(f"★밀도 {dens*100:.0f}% — 원본 {span:.0f}초에 걸쳐 {c_total:.0f}초를"
+                   f" 뽑았다{_뺌}. {lo_d*100:.0f}% 이상이어야 한다."
                    f" **넓게 퍼뜨리면 맥락이 끊겨 이야기가 안 이어진다** —"
-                   f" 좋은 대목이 몰린 곳으로 범위를 좁혀라")
+                   f" 좋은 대목이 몰린 곳으로 범위를 좁혀라{_셋업}")
     elif dens > hi_d:
         warn.append(f"밀도 {dens*100:.0f}% — 한 구간을 통으로 쓴 것에 가깝다."
                     f" 원본의 늘어짐이 그대로 남는다")
