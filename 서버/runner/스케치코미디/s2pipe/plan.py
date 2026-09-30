@@ -44,6 +44,7 @@ SCHEMA = {
                     "phase": {"type": "integer"},
                     "keep": {"type": "boolean"},
                     "narration": {"type": "string"},
+                    "첫대사": {"type": "string"},   # keep 조각이 담는 첫 원본 자막 줄 — plan관문 ⑦ 이 시각과 맞대 본다(2026-09-29)
                 },
                 "required": ["t0", "t1", "what", "punch", "phase", "keep"],
             },
@@ -110,7 +111,44 @@ def focus_block(focus, win=70):
 """
 
 
-def prompt(dur, fps, sub_text, hot=(), focus=None, cands=(), 원제=""):
+def 파악_block(파악):
+    """agy 파악 답(원본을 통째로 보고 들은 답)을 plan 입력으로 — 줄거리·인물 관계·셋업·결말·로고 시각의 근거.
+    (2026-09-29 점심이네 64편 — plan 이 인물 관계를 틀리고(36 친구를 «남매»로) 결말 반전의 셋업을 뺐는데, 같은 원본을 본
+     파악 답은 대체로 맞았고 에이전트는 그 답으로 plan 을 바로잡았다. plan 은 그 답을 받은 적이 없었다.)"""
+    if not 파악:
+        return ""
+    return f"""## ★★원본을 통째로 보고 들은 «파악 답» — 줄거리·인물 관계·셋업·결말의 근거
+
+{파악['글'].strip()}
+
+★**인물 관계(친구·남매·연인·선후임)와 결말은 이 답을 따른다.** 네가 영상에서 다르게 짐작했으면 이 답이 맞다.
+★★**셋업(결말이 뒤집거나 닫는 약속·내기·경고·질문·거짓말) 대사는 반드시 조각에 넣는다** — 셋업을 빼면 결말이 왜 웃긴지
+  알 수 없다(관문이 재고, 빠지면 주의로 알린다 — 같은 구실을 하는 다른 대사가 조각에 있으면 그것으로 된다). «꼭 남길 대사» 도 되도록 담는다.
+★**로고(아웃트로 카드)가 나온 뒤의 목소리는 결말이 아니다** — 굽기가 카드에서 조각을 잘라 낸다. 결말은 로고 앞 마지막 대사다.
+★이 답의 시각은 ±2초 어림이다. 조각의 t0·t1 은 아래 「원본 자막」 시각으로 잡는다.
+"""
+
+
+_글길_머리 = """## ★★★영상 없이 짠다 — 원본 자막(전사)과 파악 답만 준다
+영상을 붙인 요청이 구글 안전 필터에 막혔다. 아래 「원본 자막」(0.1초 시각)과 「파악 답」만으로 조각을 골라라.
+- 장면·인물은 파악 답의 흐름과 대화 맥락(질문과 대답, 호칭)으로 판단한다. 아래 글 가운데 «영상을 보고» 는 «자막과 파악 답을 읽고» 로 읽어라.
+- ★★**답에 욕설·성적 표현·폭력 낱말을 옮겨 적지 마라** — 그 낱말은 `○` 로 가린다(`hooks.text`·`what`·`logline`·`narration`).
+  시각이 정본이다: 훅 대사 글은 코드가 원본 자막에서 다시 채운다(`첫대사` 도 가린 채 적어도 된다).
+- ★`subs` 는 **빈 목록** `[]` 으로 낸다 — 초안 자막은 코드가 원본 자막에서 짠다(굽기 뒤 ④ 가 완성본 전사로 다시 짠다).
+
+"""
+_줄임 = """
+
+## ★★앞선 답이 출력 한도를 넘어 잘렸다 — 이번에는 짧게
+- `subs` 는 **빈 목록** `[]` 으로 낸다(초안 자막은 코드가 원본 자막에서 짠다).
+- `segments` 의 `what` 은 25자 이내, 버리는 조각(`keep:false`)은 40초 덩어리로 크게 묶어 몇 개만.
+- 생각은 짧게 하고 곧바로 답을 내라.
+"""
+
+
+def prompt(dur, fps, sub_text, hot=(), focus=None, cands=(), 원제="", 파악=None, 글길=False):
+    # ★나레 글자 상한은 make 관문과 같은 식(max_sec ÷ sec_per_char)으로 알려 준다 (2026-09-29 — 예전 문구 «3×6.5=19자» 는
+    #   make 의 «글자 × 0.161초 > 3초» 반려(18자까지)보다 1자 넉넉해, 점심이네 초안 10편이 정확히 19자 나레로 반려됐다)
     e, n, t = CFG["edit"], CFG["narration"], CFG["title_formula"]
     lo, hi = e["target_sec"]
     tf0, tf1 = e["tail_margin_frames"]
@@ -123,7 +161,7 @@ def prompt(dur, fps, sub_text, hot=(), focus=None, cands=(), 원제=""):
     원제줄 = (f"\n## ★★원제 «{원제}» — 이 편이 무엇에 관한 것인지다\n"
              "원제가 말하는 사연·반전이 들어 있는 대목과, 원본 끝(아웃트로 직전)의 진짜 결말을 **반드시** 담아라. "
              "곁가지 장면만으로 짜지 마라. 원제를 그대로 제목(titles)으로 쓰지는 마라.\n") if 원제 else ""
-    return f"""이 한국 스케치 코미디 롱폼({dur:.0f}초 · {fps:.3f}fps)을 숏폼 한 편으로 자르려 한다.
+    return f"""{_글길_머리 if 글길 else ""}이 한국 스케치 코미디 롱폼({dur:.0f}초 · {fps:.3f}fps)을 숏폼 한 편으로 자르려 한다.
 「마스터 지침서 3.11」의 규칙을 그대로 따라라.
 {원제줄}
 ## ★★기승전결은 5-Phase 다 — 이것이 이 채널의 뼈대다
@@ -217,14 +255,16 @@ def prompt(dur, fps, sub_text, hot=(), focus=None, cands=(), 원제=""):
   - ★**한 덩어리는 40초를 넘기지 마라.** 긴 구간은 대사가 바뀌는 자리에서 쪼갠다.
   - ★**덩어리는 원본을 빈틈없이 덮어야 한다.** 첫 `t0` 는 0, 마지막 `t1` 은 끝.
   - `what`: 무슨 일이 벌어지는지
+  - `첫대사`: ★`keep:true` 조각마다 **그 조각이 담는 첫 원본 자막 줄을 그대로**(아래 「원본 자막」에서 옮겨 적는다).
+    관문이 이 줄을 전사에서 찾아 `t0` 언저리에 있는지 잰다 — 설명과 시각이 다른 장면을 가리키면 반려된다.
   - `punch`: 웃음의 세기 0~10
   - `phase`: **1~5.** 위 표의 역할에 맞게. 버릴 조각(`keep:false`)은 0 으로.
   - `keep`: 숏폼에 넣을지
   - `narration`: 이 조각에 얹을 나레이션 한 문장(없으면 빈 문자열).
     ★**건조하고 무심한 톤.** 다큐멘터리 성우처럼 객관적으로. 화면 속 인물의 오버하는
     연기와 **대비**를 이뤄야 한다. 감탄사·이모지·구어체 금지.
-    ★★**{int(n['max_sec'] * 6.5)}자를 넘기지 마라.** 읽는 데 {n['max_sec']:.0f}초가 넘으면
-    다음 대사와 겹친다(한국어 나레이션은 초당 약 6.5자다).
+    ★★**공백 포함 {int(n['max_sec'] / n.get('sec_per_char', 0.15))}자를 넘기지 마라(관문이 글자 수로 잰다).** 읽는 데
+    {n['max_sec']:.0f}초가 넘으면 다음 대사와 겹친다.
     ★★★**어디에 얹느냐가 아니라 「어디에 얹지 않느냐」가 규칙이다.**
       나레이션이 나오는 동안 그 구간의 **원음은 죽는다.** 그러니
       - ○ **상황 설명 대사** 위에 얹어라 — 그 설명을 나레이션이 대신하므로 잃는 게 없다.
@@ -254,6 +294,13 @@ def prompt(dur, fps, sub_text, hot=(), focus=None, cands=(), 원제=""):
   ★desc 를 한 문장으로 적을 수 없다면 결말이 없는 것이다. 그러면 조각 선택으로 돌아가
     결말이 있는 대목까지 범위를 잡아라.
 
+### ★★관문이 plan 직후에 재는 것 (2026-09-29 — 반려되면 수리 지침과 함께 다시 부른다)
+- **훅 대사를 본문에서 또 쓰지 마라** — 훅 조각의 원본 구간이 다른 조각과 겹치거나, 같은 말이 본문 조각에서 또 나오면 반려.
+- **나레는 꼭 남길 대사·훅 대사 위에 얹지 마라** — 나레 조각 머리에서 (글자 수 × 0.11초) 동안 원음이 죽는다.
+- **로고(아웃트로 카드) 위로 조각을 늘이지 마라** — 카드 뒤 목소리(쿠키 대사)는 결말이 아니다.
+- **밀도·Climax 위치·결말 포함·조각 겹침** 은 위 규칙 그대로 잰다.
+
+{파악_block(파악)}
 {focus_block(focus)}
 {comment_block(cands)}
 {hot_block(hot)}
@@ -481,21 +528,174 @@ def origin_of(info_path):
         return {"channel": "", "title": ""}
 
 
-def call(mp4, dur, fps, sub_text, hot, focus=None, cands=(), 원제=""):
-    b64 = base64.b64encode(open(mp4, "rb").read()).decode()
-    payload = {
-        "contents": [{"role": "user", "parts": [
-            {"inline_data": {"mime_type": "video/mp4", "data": b64}},
-            {"text": prompt(dur, fps, sub_text, hot, focus, cands, 원제)},
-        ]}],
-        "generationConfig": {"maxOutputTokens": 32000,
-                             "responseMimeType": "application/json",
-                             "responseSchema": SCHEMA},
-    }
-    txt, _route, _model = gem.ask(payload, MODELS, timeout=900, tries=6)
-    if txt is None:
-        raise RuntimeError("모든 경로가 막혔다")
-    return json.loads(txt)
+def vtt_정밀(path):
+    """글 길(영상 없음)용 원본 자막 — 0.1초 시각. 분:초(1초 단위)로는 영상 없이 경계를 못 잡는다."""
+    L = _vtt_큐(path)
+    return "\n".join(f"[{t:.1f}초] {x}" for t, x in L) if L else "(자막 없음)"
+
+
+CALLER = "스케치코미디/plan"
+
+
+def _agy(payload, limit_min, log=print):
+    """plan 전용 agy 호출 → 답 글. **EvoLink 로 넘기지 않는다** — 글 길도 영상 판정의 대신이라 막히면 멈춘다
+    (2026-09-26 사장님 결정 2번 · 유료 금지). 실패는 judge_run.판정멈춤(SystemExit 3)."""
+    jr = gem.judge_run
+    resp, 까닭 = jr.agy_먼저(payload, CALLER, limit_min=limit_min, log=log)
+    if resp is None:
+        jr.기록(CALLER, "agy_fail_stop", 0, "plan — EvoLink 로 안 넘김(멈춤) — " + 까닭)
+        raise jr.판정멈춤(f"plan agy 실패 — EvoLink 로 넘기지 않고 멈춘다: {까닭}")
+    return gem.agy_gemini.text_of(resp)
+
+
+def 거절종류(글):
+    """판정멈춤 글 → "필터"(구글 안전 필터) · "출력한도"(답이 잘림) · None(그 밖 — 그대로 멈춘다)."""
+    if re.search(r"필터 차단|content safety|sensitive words|PROHIBITED_CONTENT|blocked by Gemini", 글, re.I):
+        return "필터"
+    if re.search(r"출력 토큰 한도|output token limit", 글, re.I):
+        return "출력한도"
+    return None
+
+
+def _본문(mp4, 글, schema):
+    parts = []
+    if mp4:
+        parts.append({"inline_data": {"mime_type": "video/mp4",
+                                      "data": base64.b64encode(open(mp4, "rb").read()).decode()}})
+    parts.append({"text": 글})
+    return {"contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"maxOutputTokens": 32000, "responseMimeType": "application/json",
+                                 "responseSchema": schema}}
+
+
+def call(mp4, dur, fps, vtt, hot, focus=None, cands=(), 원제="", 파악=None, 덧="", 길="영상"):
+    """plan 한 번 → (답 dict, 길 "영상"|"글", 겪은 일 [글]).
+
+    ★구글 안전 필터 대안 길 (2026-09-29 점심이네4 — 여동생 속옷 택배 장면·«뒤질래» 등으로 영상 plan 이 세 번 거절돼 보류,
+      에이전트가 손으로 projects json 을 짜 납품. 싱글벙글7 도 같은 일로 보류). ⑥/⑦ 화자 판정(화자색.py 2026-09-27 싱글233)의
+      전례대로, 영상이 필터에 막히면 **글(원본 전사 0.1초 시각 + 파악 답)만으로** 다시 짠다. 거절문이 «모델 출력에 민감한 낱말»
+      이라 글 길은 욕설을 ○ 로 가려 적게 하고(훅 글은 코드가 전사로 되채움), 자막 초안은 코드가 전사로 짠다.
+    ★출력 한도 초과 (싱글166·159·245·184 — 옛 코드에서 한 번 더 물어 4편 모두 통과) — 되묻지 않고 멈추던 것을, 답을 줄이라는
+      지시(자막 초안 빼기 · what 짧게)를 붙여 **한 번만** 다시 묻는다(같은 질문을 되풀이하지 않는다 — agy_gemini.AgyOutputLimit)."""
+    jr = gem.judge_run
+    겪음, 줄임 = [], False            # 길: 앞 회차가 필터로 글 길에 갔으면 수리 회차도 글 길로(같은 거절을 또 사지 않게)
+    while True:
+        글 = prompt(dur, fps, vtt_정밀(vtt) if 길 == "글" else vtt_text(vtt), hot, focus, cands, 원제, 파악,
+                   글길=(길 == "글")) + (_줄임 if 줄임 else "") + 덧
+        try:
+            txt = _agy(_본문(mp4 if 길 == "영상" else None, 글, SCHEMA), limit_min=15)
+            return json.loads(txt), 길, 겪음
+        except jr.판정멈춤 as e:
+            k = 거절종류(str(e))
+            if k == "필터" and 길 == "영상":
+                겪음.append("영상 요청이 구글 안전 필터에 막힘 → 글(전사·파악 답)만으로 다시")
+                print("  주의  plan — 영상이 구글 안전 필터에 막힘 → 글(원본 전사 0.1초 · 파악 답)만으로 다시 짠다", flush=True)
+                길 = "글"
+                continue
+            if k == "출력한도" and not 줄임:
+                겪음.append("출력 한도 초과 → 줄인 답으로 한 번 더")
+                print("  주의  plan — 답이 출력 한도를 넘어 잘림 → 자막 초안을 빼고 짧게 한 번 더", flush=True)
+                줄임 = True
+                continue
+            raise
+
+
+# ── agy 파악 답 (원본을 통째로 보고 들은 답) ──────────────────────
+파악SCHEMA = {
+    "type": "object",
+    "properties": {
+        "요약": {"type": "string"},
+        "인물": {"type": "array", "items": {"type": "object", "properties": {
+            "이름": {"type": "string"}, "관계": {"type": "string"}}, "required": ["이름", "관계"]}},
+        "흐름": {"type": "array", "items": {"type": "object", "properties": {
+            "t0": {"type": "number"}, "t1": {"type": "number"}, "무슨일": {"type": "string"},
+            "대사": {"type": "array", "items": {"type": "string"}}}, "required": ["t0", "t1", "무슨일"]}},
+        "셋업": {"type": "array", "items": {"type": "object", "properties": {
+            "t": {"type": "number"}, "대사": {"type": "string"}, "뒤집는것": {"type": "string"}},
+            "required": ["t", "대사"]}},
+        "결말": {"type": "object", "properties": {
+            "t": {"type": "number"}, "대사": {"type": "string"}, "설명": {"type": "string"}}, "required": ["t", "대사"]},
+        "로고초": {"type": "number"},
+        "광고": {"type": "array", "items": {"type": "object", "properties": {
+            "t0": {"type": "number"}, "t1": {"type": "number"}}}},
+        "훅후보": {"type": "array", "items": {"type": "object", "properties": {
+            "t": {"type": "number"}, "대사": {"type": "string"}}}},
+        "꼭남길": {"type": "array", "items": {"type": "object", "properties": {
+            "t": {"type": "number"}, "대사": {"type": "string"}}, "required": ["t", "대사"]}},
+    },
+    "required": ["요약", "인물", "흐름", "셋업", "결말", "로고초", "꼭남길"],
+}
+
+
+def 파악질문(dur):
+    return f"""이 영상은 한국 스케치 코미디 한 편({dur:.0f}초)이다. 쇼츠(80초 이하)로 줄이기 위한 «내용 파악»만 한다.
+영상을 통째로 한 번 보고 소리를 한 번 듣고 곧바로 답하라. 사진(프레임)을 따로 뽑지 마라 — 정밀한 시각은 우리가 따로 잰다.
+시각은 영상 첫머리부터의 초(대략 ±2초면 충분).
+
+- 요약: 누가, 무엇 때문에, 어떻게 끝나는가(결말·반전 포함) 한 문장.
+- 인물: 등장인물마다 불리는 이름(모르면 겉모습)과 서로의 관계(친구·남매·연인·선후임 등). ★관계는 대사(호칭·말투)를 근거로.
+- 흐름: 큰 장면 5~10개 — t0·t1 · 무슨 일 · 핵심 대사 1~2개(들리는 그대로).
+- 셋업: 결말(반전·결론)이 뒤집거나 닫는 **앞선** 대사 — 약속·내기·경고·질문·거짓말. 이 대사가 없으면 결말이 왜 웃긴지
+  알 수 없는 것만 1~4개. 각 대사가 결말의 무엇을 받쳐 주는지(뒤집는것).
+- 결말: 로고·끝 카드가 나오기 **전** 마지막 결말 대사와 그 시각, 무엇으로 끝나는지 한 문장.
+- 로고초: 채널 로고·끝 카드가 처음 화면에 나오는 시각(없으면 -1). ★로고 위에 깔리는 쿠키 대사는 결말이 아니다.
+- 광고: 영화·앱·제품 홍보 구간(없으면 빈 목록).
+- 훅후보: 첫 3초에 쓸 센 대사 2개와 시각.
+- 꼭남길: 80초로 줄일 때 꼭 남길 대사(뜻이 통하는 질문–대답 쌍)와 시각 — 셋업·결말 대사를 포함해 6~12줄.
+"""
+
+
+def 파악정리(j):
+    """파악 JSON → plan관문 이 쓰는 모양 {"글", "로고", "꼭남길", "셋업", "결말"}."""
+    def 초(t):
+        try:
+            return float(t)
+        except (TypeError, ValueError):
+            return None
+    줄 = [f"요약: {j.get('요약', '')}"]
+    줄 += ["인물: " + " · ".join(f"{x.get('이름', '')}({x.get('관계', '')})" for x in j.get("인물") or [])]
+    for x in j.get("흐름") or []:
+        줄.append(f"- {초(x.get('t0')) or 0:.0f}~{초(x.get('t1')) or 0:.0f}초 {x.get('무슨일', '')}"
+                 + (" — " + " / ".join(f"«{d}»" for d in x.get("대사") or []) if x.get("대사") else ""))
+    for x in j.get("셋업") or []:
+        줄.append(f"셋업 {초(x.get('t')) or 0:.0f}초 «{x.get('대사', '')}» — {x.get('뒤집는것', '')}")
+    ed = j.get("결말") or {}
+    줄.append(f"결말 {초(ed.get('t')) or 0:.0f}초 «{ed.get('대사', '')}» — {ed.get('설명', '')}")
+    로고 = 초(j.get("로고초"))
+    줄.append(f"로고(아웃트로 카드) 처음: {'없음' if 로고 is None or 로고 < 0 else f'{로고:.0f}초'}")
+    if j.get("광고"):
+        줄.append("광고 구간: " + ", ".join(f"{초(x.get('t0')) or 0:.0f}~{초(x.get('t1')) or 0:.0f}초" for x in j["광고"]))
+    줄 += [f"꼭 남길 {초(x.get('t')) or 0:.0f}초 «{x.get('대사', '')}»" for x in j.get("꼭남길") or []]
+    return {"글": "\n".join(줄), "로고": 로고 if 로고 is not None and 로고 >= 0 else None,
+            "꼭남길": [{"글": x.get("대사", ""), "시각": [초(x.get("t"))] if 초(x.get("t")) is not None else [], "묶음": i}
+                     for i, x in enumerate(j.get("꼭남길") or [])],
+            "셋업": [{"글": x.get("대사", ""), "시각": [초(x.get("t"))] if 초(x.get("t")) is not None else []}
+                   for x in j.get("셋업") or []],
+            "결말": {"글": ed.get("대사", ""), "시각": [초(ed.get("t"))] if 초(ed.get("t")) is not None else []} if ed.get("대사") else None}
+
+
+def 파악얻기(slug, mp4, dur, work, 준것=None):
+    """파악 답 — ① --파악 으로 준 파일(.md 배치 답·.json) ② work/<slug>.파악.json(캐시) ③ 없으면 agy 에 원본 영상을 통째로 준다.
+    막히면(필터 등) None — plan 은 파악 없이 간다(파악은 plan 의 입력·관문의 근거일 뿐 필수는 아니다)."""
+    from . import plan관문
+    for p in [준것] if 준것 else []:
+        if p and os.path.exists(p):
+            if p.endswith(".json"):
+                return 파악정리(json.load(open(p, encoding="utf-8"))), p
+            return plan관문.파악읽기(p), p
+    캐시 = os.path.join(work, f"{slug}.파악.json")
+    if os.path.exists(캐시):
+        return 파악정리(json.load(open(캐시, encoding="utf-8"))), 캐시
+    jr = gem.judge_run
+    t0 = time.time()
+    try:
+        j = json.loads(_agy(_본문(mp4, 파악질문(dur), 파악SCHEMA), limit_min=10))
+    except jr.판정멈춤 as e:
+        print(f"  주의  파악 답 못 받음({거절종류(str(e)) or '실패'}) — 파악 없이 plan 을 짠다: {str(e)[:120]}", flush=True)
+        return None, ""
+    json.dump(j, open(캐시, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    print(f"파악 답 {time.time() - t0:.0f}초 — {캐시}", flush=True)
+    return 파악정리(j), 캐시
 
 
 def main():
@@ -539,9 +739,124 @@ def main():
     cands = pick_comments(info, 9999)
     if cands:
         print(f"댓글 후보 {len(cands)}개 — 어울리는 것을 모델이 고른다", flush=True)
-    plan = call(gem.shrink_for_inline(mp4), dur, fps, vtt_text(vtt), hot, focus, cands,
-                origin_of(info).get("title", ""))
+    원제 = origin_of(info).get("title", "")
+    판정영상 = gem.shrink_for_inline(mp4)
+    # ★파악 답을 plan 의 입력으로 (2026-09-29 점심이네 64편 — plan 초안이 인물 관계·셋업·로고를 틀린 편이 많았고, 같은 원본을
+    #   agy 가 통째로 본 파악 답은 대체로 맞았다). --파악 <파일>(배치가 미리 받은 .md·.json) · 없으면 work 캐시 · 없으면 agy 한 번.
+    준파악 = sys.argv[sys.argv.index("--파악") + 1] if "--파악" in sys.argv else None
+    파악, 파악출처 = 파악얻기(slug, 판정영상, dur, work, 준파악)
+    if 파악:
+        print(f"파악 답 — {파악출처} (꼭 남길 {len(파악.get('꼭남길') or [])}줄 · 셋업 {len(파악.get('셋업') or [])}줄"
+              f" · 로고 {파악.get('로고')})", flush=True)
 
+    # ★plan 직후 관문 (s2pipe/plan관문.py 머리 주석) — 반려면 수리 지침을 붙여 다시 부른다. 가장 반려가 적은 답을 남긴다.
+    from . import plan관문, build
+    큐 = plan관문.큐읽기(vtt)
+    try:
+        카드 = build.엔드카드시작(mp4, dur)
+    except Exception as e:                               # noqa: BLE001
+        카드 = None
+        print(f"  (아웃트로 카드 검출 건너뜀: {e})", flush=True)
+    if 카드 is not None:
+        print(f"원본 아웃트로 카드 {카드:.2f}초~ (정지 카드 — 이 뒤 목소리는 결말이 아니다)", flush=True)
+    pdir = os.path.join(HERE, CFG["paths"]["projects"])
+    os.makedirs(pdir, exist_ok=True)
+    dst = os.path.join(pdir, f"{slug}.json")
+    수리회수 = int(CFG.get("edit", {}).get("plan_수리회수", 2))
+    # --글길: 처음부터 영상 없이(글 길) — 같은 편이 필터에 거듭 막혀 영상 요청을 또 사지 않으려 할 때(사람이 고른다)
+    덧, 길, 회차, 최선 = "", ("글" if "--글길" in sys.argv else "영상"), [], None
+    for 회 in range(수리회수 + 1):
+        plan, 길, 겪음 = call(판정영상, dur, fps, vtt, hot, focus, cands, 원제, 파악, 덧, 길)
+        proj, total = 정리(plan, dur, fps, vtt, 큐, info, url, vid, slug, 길)
+        bad, warn, 값 = plan관문.검사(proj, 큐, 파악, 카드, dst)
+        회차.append({"회": 회 + 1, "길": 길, "겪음": 겪음, "반려": [[d, g] for d, g in bad], "주의": warn, "값": 값})
+        print(f"\nplan 관문 {회 + 1}회({길}) — 반려 {len(bad)} · 주의 {len(warn)}", flush=True)
+        for d, g in bad:
+            print(f"  반려  [{d}] {g}", flush=True)
+        for w in warn:
+            print(f"  주의  {w}", flush=True)
+        if 최선 is None or len(bad) < len(최선[1]):
+            최선 = (proj, bad, total)
+        if not bad:
+            break
+        if 회 < 수리회수:
+            print(f"  → 수리 지침을 붙여 plan 을 다시 부른다({회 + 2}/{수리회수 + 1})", flush=True)
+            덧 = "\n\n" + plan관문.수리지침(bad, warn) + 앞선답(proj)
+    proj, bad, total = 최선
+    proj["_plan관문"] = {"통과": not bad, "남은반려": [[d, g] for d, g in bad], "회차": 회차,
+                       "파악": 파악출처, "엔드카드": 카드}
+    json.dump(proj, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
+    keep = proj["segments"]
+    print(f"\n{proj['logline']}")
+    ed = proj.get("ending") or {}
+    print(f"결말({ed.get('type', '?')}): {ed.get('desc', '— 없음')}")
+    lo, hi = CFG["edit"]["target_sec"]
+    print(f"구간 {len(keep)}개 / 전체 {len(proj['segments_all'])}개 · 예상 {total:.0f}초 "
+          + ("OK" if lo <= total <= hi else f"★목표 {lo}~{hi}초 밖"))
+    names = {p["no"]: p["name"] for p in CFG["edit"]["phases"]}
+    at = 0.0
+    for s in keep:
+        ph = s.get("phase", 0)
+        nr = (s.get("narration") or "").strip()
+        print(f"  P{ph} {names.get(ph, '?'):<10} {at:5.1f}초  원본 {s['t0']:7.1f}~{s['t1']:7.1f}"
+              f"  punch {s['punch']:2d}  {s['what'][:30]}"
+              + (f"\n        나레: {nr[:44]}" if nr else ""))
+        at += s["t1"] - s["t0"]
+    print(f"\n제목 후보:")
+    for t in proj.get("title_candidates", []):
+        print(f"  {t}")
+    print(f"해시태그: {proj.get('hashtag', '')}")
+    if bad:
+        print(f"\n★plan 관문 미통과 — 반려 {len(bad)}건이 남았다(다시 부르기 {len(회차)}회). 고칠 것: "
+              + plan관문.요약(bad, []) + " — projects json «_plan관문» · 검수도구/plan점검.py 로 보고 사람이 고친다")
+    else:
+        print(f"\nplan 관문 통과 ({len(회차)}회째)")
+    print(f"\n저장: {dst}")
+    return 0
+
+
+def 앞선답(proj):
+    """다시 부를 때 붙이는 앞선 답(keep 조각·훅) — 반려 사유가 없는 조각은 그대로 두게."""
+    줄 = [f"- P{s.get('phase')} 원본 {s['t0']:.1f}~{s['t1']:.1f}초 punch {s.get('punch')}"
+         + (f" 나레 «{s['narration']}»" if (s.get("narration") or "").strip() else "") + f" — {s.get('what', '')[:40]}"
+         for s in proj["segments"]]
+    훅 = [f"- {h.get('t0')}초 «{h.get('text', '')}»" for h in proj.get("hooks") or []]
+    return "\n## 앞선 답 (keep 조각 — 재생 순서)\n" + "\n".join(줄) + "\n### 앞선 훅\n" + "\n".join(훅) + "\n"
+
+
+def 초안자막(keep, 큐, maxc):
+    """원본 전사 → 숏폼 시각 초안 자막(대사) + 나레 줄. 모델이 subs 를 비운 답(글 길·줄인 답)에서만 쓴다.
+    초안은 굽기 뒤 ④ sync 가 완성본 전사로 통째로 다시 짠다 — 여기서는 make ① 이 읽을 초안(14자·구두점 규칙)만 맞춘다."""
+    out, at = [], 0.0
+    for s in keep:
+        if (s.get("narration") or "").strip():
+            out.append({"t": round(at, 2), "text": s["narration"], "kind": "narr"})
+        for c0, c1, x in 큐:
+            if not (s["t0"] <= c0 < s["t1"]):
+                continue
+            글 = cfg.strip_punct(x)
+            if not 글:
+                continue
+            t = at + (c0 - s["t0"])
+            조각 = [글]
+            while any(len(g) > maxc and " " in g for g in 조각):
+                g = next(g for g in 조각 if len(g) > maxc and " " in g)
+                k = min((i for i, ch in enumerate(g) if ch == " "), key=lambda i: abs(i - len(g) / 2))
+                i = 조각.index(g)
+                조각[i:i + 1] = [g[:k], g[k + 1:]]
+            span = max(0.3, min(c1, s["t1"]) - c0)
+            합 = sum(len(g) for g in 조각) or 1
+            누 = 0
+            for g in 조각:
+                out.append({"t": round(t + span * 누 / 합, 2), "text": g, "kind": "line"})
+                누 += len(g)
+        at += s["t1"] - s["t0"]
+    return out
+
+
+def 정리(plan, dur, fps, vtt, 큐3, info, url, vid, slug, 길):
+    """모델 답 → projects 모양. (proj, keep 길이 합)."""
     # ★모델이 원본 길이를 넘는 타임코드를 낸다. 그런데 **일정한 비율로 늘어난다** —
     #   274→412(1.50배) · 416→656(1.58배). 그냥 버리면 뒤쪽 좋은 대목이 통째로
     #   날아가므로 먼저 비율을 되돌리고, 그래도 밖이면 그때 버린다.
@@ -591,6 +906,19 @@ def main():
     for x in plan.get("subs", []):
         x["text"] = cfg.strip_punct(x.get("text"))
 
+    # ★글 길·줄인 답은 욕설을 ○ 로 가리고 subs 를 비운다(call 머리 주석) — 훅 글은 전사에서 되채우고 초안 자막은 전사로 짠다
+    from . import plan관문
+    for h in plan.get("hooks", []):
+        if "○" in (h.get("text") or ""):
+            # t0 ±6초 안에서 가린 글과 가장 닮은 전사 줄 하나로 (여러 줄을 이으면 앞 줄까지 딸려 온다 — 점심이네4 글 길 시험)
+            후보 = [(plan관문.닮음(h["text"].replace("○", ""), x), x) for c0, c1, x in 큐3 if abs(c0 - h.get("t0", 0)) <= 6.0]
+            if 후보 and max(후보)[0] >= 0.3:
+                h["text"] = max(후보)[1]
+    subs = plan.get("subs") or []
+    if not subs:
+        subs = 초안자막(keep, 큐3, CFG["layout"]["subtitle"]["max_chars"])
+        print(f"  초안 자막 {len(subs)}줄 — 원본 전사로 짰다(모델 답에 subs 없음 · ④ 가 완성본 전사로 다시 짠다)", flush=True)
+
     proj = {
         "slug": slug,
         "source": {"url": url, "id": vid, "dur": round(dur, 1), "fps": round(fps, 3)},
@@ -601,7 +929,7 @@ def main():
         "hooks": plan.get("hooks", []),
         "segments": keep,
         "segments_all": plan["segments"],
-        "subs": plan.get("subs", []),
+        "subs": subs,
         "comments": pick_comments(info, total, plan.get("comment_picks")),
         "comment_picks": plan.get("comment_picks", []),
         "credit": origin_of(info),
@@ -609,33 +937,9 @@ def main():
         "ending": plan.get("ending", {}),
         "_est_sec": round(total, 1),
     }
-    pdir = os.path.join(HERE, CFG["paths"]["projects"])
-    os.makedirs(pdir, exist_ok=True)
-    dst = os.path.join(pdir, f"{slug}.json")
-    json.dump(proj, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-
-    print(f"\n{proj['logline']}")
-    ed = proj.get("ending") or {}
-    print(f"결말({ed.get('type', '?')}): {ed.get('desc', '— 없음')}")
-    lo, hi = CFG["edit"]["target_sec"]
-    print(f"구간 {len(keep)}개 / 전체 {len(plan['segments'])}개 · 예상 {total:.0f}초 "
-          + ("OK" if lo <= total <= hi else f"★목표 {lo}~{hi}초 밖"))
-    names = {p["no"]: p["name"] for p in CFG["edit"]["phases"]}
-    at = 0.0
-    for s in keep:
-        ph = s.get("phase", 0)
-        nr = (s.get("narration") or "").strip()
-        print(f"  P{ph} {names.get(ph, '?'):<10} {at:5.1f}초  원본 {s['t0']:7.1f}~{s['t1']:7.1f}"
-              f"  punch {s['punch']:2d}  {s['what'][:30]}"
-              + (f"\n        나레: {nr[:44]}" if nr else ""))
-        at += s["t1"] - s["t0"]
-    print(f"\n제목 후보:")
-    for t in plan.get("titles", []):
-        print(f"  {t}")
-    print(f"해시태그: {plan.get('hashtag', '')}")
-    print(f"\n저장: {dst}")
-    return 0
-
+    if 길 == "글":
+        proj["_plan길"] = "글(영상이 구글 안전 필터에 막혀 원본 전사·파악 답만으로 짬)"
+    return proj, total
 
 if __name__ == "__main__":
     sys.exit(main())

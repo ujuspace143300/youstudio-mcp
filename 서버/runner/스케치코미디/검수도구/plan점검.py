@@ -45,5 +45,12 @@ for a, b in zip(원순, 원순[1:]):
             빈.append((a["t1"], b["t0"], len(줄), 줄[0][:16], 줄[-1][:16]))
 for a, b, n, f_, l_ in 빈:
     print(f"  (뺀 구간 {a:.1f}~{b:.1f} · {n}줄 · «{f_}» … «{l_}»)")
+# plan 직후 관문 결과 (2026-09-29 s2pipe/plan관문.py) — 남은 반려부터 고친다. 고친 뒤 다시 재기: python -m s2pipe.plan관문 <json>
+_pg = p.get("_plan관문")
+if _pg:
+    print(f"  plan 관문: {'통과' if _pg.get('통과') else '★미통과'} · 다시 부르기 {len(_pg.get('회차') or [])}회"
+          + (f" · {p.get('_plan길')}" if p.get("_plan길") else ""))
+    for d, g in _pg.get("남은반려") or []:
+        print(f"    반려 [{d}] {g[:110]}")
 cands = [t if isinstance(t, list) else [t] for t in p.get("title_candidates", [])]
 print("  제목 후보:", " | ".join(" / ".join(t) for t in cands))
