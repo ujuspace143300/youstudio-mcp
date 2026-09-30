@@ -227,12 +227,15 @@ def main():
     cdir = os.path.join(work, f"{vid}_댓글")
     if not os.path.isdir(cdir):
         os.makedirs(cdir, exist_ok=True)
-        r = subprocess.run(["ditto", "-x", "-k", zp, cdir], capture_output=True)
-        if r.returncode != 0 or not glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True):
-            # ★빈 zip 은 unzip 이 1 을 낸다(2026-09-30 루키치 271~278·299 — zip 안이 비었다) — 멈추지 않고 0장으로 보충에 넘긴다
-            r2 = subprocess.run(["unzip", "-qq", "-O", "cp949", zp, "-d", cdir], capture_output=True, text=True)
-            if r2.returncode != 0 and "zipfile is empty" not in (r2.stdout + r2.stderr):
-                raise SystemExit(f"★댓글 zip 풀기 실패: {zp}\n{r2.stderr[-300:]}")
+        import zipfile
+        # ★빈 zip(2026-09-30 루키치 271~278·299 — zip 안이 비었다)은 풀지 않고 0장으로 보충에 넘긴다.
+        #   unzip 메시지로 가리면 안 된다 — 맥 기본 unzip 은 -O 를 몰라 사용법만 찍고 끝난다(루키치299 첫 실행 멈춤).
+        if not zipfile.ZipFile(zp).namelist():
+            print("  댓글 zip 이 비었다 — 0장으로 보충한다")
+        else:
+            r = subprocess.run(["ditto", "-x", "-k", zp, cdir], capture_output=True)
+            if r.returncode != 0 or not glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True):
+                subprocess.run(["unzip", "-qq", "-O", "cp949", zp, "-d", cdir], check=True)
     pngs = sorted(glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True))
     if len(pngs) < 10:
         # ★2026-09-03 사장님: 카드가 모자라면 같은 형태로 내용 맞춰 제작해 채운다 (Deep04 7장 사건)
