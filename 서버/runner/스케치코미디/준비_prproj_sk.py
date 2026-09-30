@@ -1059,6 +1059,10 @@ def main():
     from s2pipe import 번인관문 as 관
     _src카드 = src_orig if os.path.exists(src_orig) else dst_src
     박스들 = 관.카드상자들(_src카드, log=print) if b.get("avoid_burned_subs") else []
+    # ★원본 화면 캡션(2026-09-29 점심이네2 «6월 14일→1월 03일») — 굽기와 같은 사각형을 조각 «가림» 에 붙인다(메모리 사본만 —
+    #   준비는 계획을 저장하지 않는다). 아래 기하 관문·가림피하기·완성본 crop 관문이 모두 이 가림을 본다.
+    캡션 = 관.캡션들(_src카드, log=print)
+    segs = [관.캡션붙인조각(s, 캡션) for s in segs]
 
     def 컷사각(i):
         seg, pic = segs[i], picture[i]
@@ -1158,7 +1162,7 @@ def main():
     assert not 기하잔존, f"컷 상자 안에 박힌 자막 글자가 든다 — {관.글(기하잔존)} (s2pipe/번인관문.py)"
     # 납품 mp4 쪽(굽기 beats.json 의 crop 전부)도 같은 함수로 — 예전 코드로 구운 편(2026-09-27 수리 전)이 여기서 멈춘다
     _bj = os.path.join(wdir, "beats.json")
-    if 박스들 and os.path.exists(_bj):
+    if (박스들 or 캡션) and os.path.exists(_bj):
         _log = json.load(open(_bj, encoding="utf-8"))
         _crops, _미 = 관.beats_crops(_log, 1920, 1080)
         _전 = 관.걸림(박스들, _crops, 관.가림목록(segs))

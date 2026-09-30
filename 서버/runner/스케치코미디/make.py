@@ -321,6 +321,21 @@ def check(proj, path):
         except Exception as _e:                            # noqa: BLE001
             warn.append(f"원문화면 박힌 자막 검사 못 함: {str(_e)[:60]}")
 
+    # ★원본 화면 캡션 (2026-09-29 점심이네2 — 가운데 날짜 캡션 «6월 14일→1월 03일»(원본 21.52~25.78)이 1차 완성본 9~12초에
+    #   나갔는데 make·굽기·⑦ 준비 관문이 모두 통과했다. 자막띠 밖 캡션은 카드도 «가림» 도 아니라 비교 대상이 없었다).
+    #   글자 인식 + agy 판정(s2pipe/화면글자.py)으로 찾은 캡션이 조각에 걸리면 굽기 전에 본다:
+    #   전체화면 조각 · 굽기(framing.가림경계)가 피해도 쓸 세로가 절반이 안 되는 캡션(가운데 큰 캡션) = 반려, 나머지 = 주의(굽기가 피한다).
+    if os.path.exists(_src암):
+        try:
+            from s2pipe import 번인관문 as _관2
+            _b2, _w2 = _관2.캡션조각검사(_src암, segs, CFG["layout"].get("video_box") or {}, log=print)
+            bad += _b2
+            warn += _w2
+        except SystemExit:
+            raise
+        except Exception as _e:                            # noqa: BLE001
+            bad.append(f"★원본 화면 캡션 검사 못 함 — {str(_e)[:120]} (조용히 넘기지 않는다 · s2pipe/화면글자.py)")
+
     if segs[-1].get("phase") != 5:
         bad.append(f"마지막 조각이 Phase 5(Punchline)가 아니다 — P{segs[-1].get('phase')}")
     elif segs[-1].get("punch", 0) < PHASES[5]["min_punch"]:

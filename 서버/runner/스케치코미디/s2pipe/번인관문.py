@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """원본에 박힌(번인) 자막 «상자»가 완성본 화면에 들어오지 않게 — 카드마다 잰 한계와 최종 관문.
 
-    python -m s2pipe.번인관문 <원본.mp4> <beats.json> [--prproj timeline_sk.json]   # 재기만(종료코드 1 = 걸림)
+    python -m s2pipe.번인관문 <원본.mp4> <beats.json> [--proj projects/<슬러그>.json]   # 재기만(종료코드 1 = 걸림)
+                                                   # --proj: 조각 «가림» 과 화면 캡션(화면글자)까지 본다
 
 ★2026-09-27 전수 점검(배치로그/잔존점검_결과.md) — 싱글266 26.7~27.9초(높이 뜬 한 줄 카드 · 글자 윗선 938 ·
   상자 윗변 918)·싱글188 68.7~71.5초(날짜 캡션 윗선 952)에 원본 자막 글자가, 85편에 반투명 상자 윗단(948)이
@@ -18,6 +19,20 @@
 한계(알려짐): 카드 검출 띠(높이 80~90% · 가운데 60%) 밖의 캡션(싱글268 좌상단 «2524년 대한민국» 류)은 카드가
   아니다 — 조각 표식 «가림» [[x0,y0,x1,y1,t0,t1], …] 로 사람이 잰 사각형을 넘기면 굽기(framing.가림경계)가 피하고
   같은 관문이 확인한다.
+  → ★2026-09-29 이 한계를 사람 손에서 뺐다(점심이네2 «6월 14일→1월 03일» 가운데 캡션이 1차 완성본 9~12초에 나갔다).
+
+★2026-09-29 점심이네 배치 — «박힌 글자 인식이 한 가지 모양만 안다» (s2pipe/화면글자.py 머리 주석에 사례·숫자):
+  카드(자막띠시각._카드재기)와 상자 윗변(_한카드)은 «아래 띠 안 · 밝은 픽셀 곁 어두운 픽셀» 모양으로만 글자를 알아서
+  (b) 그림자만 있는 흰 자막을 놓치고(점심이네3 «너넨 뒤졌어» 202.0~204.6 — 카드 0장) (c) 밝은 물건 가장자리를 카드로
+  잡았다(11 219~222 운동화 · 5 13.3 의자 · 21 20.1 파란 탁자 · 52 247.2 냄비 · 37 식탁·흰 티). (a) 띠 밖의 원본 캡션은
+  아예 재지 않았다.
+  수리: 글자가 있는지는 글자 인식기(화면글자 — macOS Vision)가 정한다.
+    ① 카드상자들: 카드마다 그 시간에 대사 자막 자리 글줄이 읽히는지 본다 — 안 읽히면 «가짜»(캐시엔 남기고 돌려주지 않는다),
+       카드가 없는데 자막 글줄이 읽힌 시간은 «글자인식» 카드로 채운다. 글자 윗선을 못 잰 카드는 읽힌 글줄 윗변으로 잰다.
+    ② 화면캡션(화면글자.화면캡션 — agy 가 «얹은 글자/장면 글자» 판정): 조각 «가림» 에 «화면캡션» 사각형으로 붙인다
+       (캡션붙인조각). 굽기는 framing.가림경계 로 피하고, 굽기·준비·make 가 이 파일의 걸림 으로 같은 사각형을 막는다.
+  왜 예전 관문을 지났나: 걸림 은 «카드 상자» 와 사람이 적은 «가림» 만 비교했다 — 띠 밖 캡션은 둘 다 아니라 비교 대상에
+    없었다(«겹침 0» 이 참이었다). ⑦ 준비의 «컷 하단 잔존 번인 자막» 은 컷 아래 밴드의 노란·흰 글자 픽셀만 본다.
 """
 import json
 import os
@@ -26,7 +41,7 @@ import sys
 
 import numpy as np
 
-판 = 8                     # 잰 방법이 바뀌면 올린다(캐시 무효)
+판 = 9                     # 잰 방법이 바뀌면 올린다(캐시 무효) — 9: 글자 인식으로 카드 확인·채우기(2026-09-29)
 상자여유 = 20               # 글자 윗선 → 상자 윗변 최소 거리(한 줄 카드 968→948 · 266 높은 카드 938→918 실측)
 상자최대 = 45               # 이보다 위로 잰 상자 윗변은 이상치(어두운 장면에서 안/밖 비교가 흐려짐) — 여기서 멈춘다
 못잰윗선 = 824              # 카드인데 글자를 못 잰 경우 — 띠 윗끝(864) − 40 (가장 보수적 · 새는 쪽으로 버리지 않는다)
@@ -171,12 +186,13 @@ def 카드상자들(src, log=None):
     src = os.path.abspath(os.path.expanduser(src))
     cards = 띠.카드들(src)
     st = os.stat(src)
-    key = f"{st.st_size}:{int(st.st_mtime)}:{len(cards)}:{판}"
+    from . import 화면글자 as _글
+    key = f"{st.st_size}:{int(st.st_mtime)}:{len(cards)}:{판}:{'ocr' if _글.인식기() else 'px'}"
     cache = src + ".카드상자.json"
     try:
         c = json.load(open(cache, encoding="utf-8"))
         if c.get("key") == key:
-            return c["boxes"]
+            return [b for b in c["boxes"] if not b.get("가짜")]
     except (OSError, ValueError, KeyError):
         pass
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
@@ -187,6 +203,7 @@ def 카드상자들(src, log=None):
         res = list(ex.map(lambda c: _한카드(src, c[0], c[1], W, H), cards))
     boxes = [{"t0": c[0], "t1": c[1], "top": r_[0], "gtop": r_[1], "x0": r_[2], "x1": r_[3], "how": r_[4]}
              for c, r_ in zip(cards, res)]
+    boxes = _글자확인(src, boxes, W, H, log)
     try:
         tmp = cache + f".{os.getpid()}"
         json.dump({"key": key, "W": W, "H": H, "boxes": boxes}, open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
@@ -194,11 +211,146 @@ def 카드상자들(src, log=None):
     except OSError:
         pass
     if log:
-        n이상 = sum(1 for b in boxes if "이상치" in b["how"] or "못" in b["how"])
-        log(f"    박힌 자막 카드 {len(boxes)}장 상자 윗변 잼 — 가장 높은 {min((b['top'] for b in boxes), default='-')}"
-            f" · 중앙 {sorted(b['top'] for b in boxes)[len(boxes) // 2] if boxes else '-'}"
-            + (f" · 보수값/1장 {n이상}장" if n이상 else ""))
+        n이상 = sum(1 for b in boxes if ("이상치" in b["how"] or "못" in b["how"]) and not b.get("가짜"))
+        n가짜 = sum(1 for b in boxes if b.get("가짜"))
+        n채움 = sum(1 for b in boxes if b.get("출처") == "글자인식")
+        참 = [b for b in boxes if not b.get("가짜")]
+        log(f"    박힌 자막 카드 {len(참)}장 상자 윗변 잼 — 가장 높은 {min((b['top'] for b in 참), default='-')}"
+            f" · 중앙 {sorted(b['top'] for b in 참)[len(참) // 2] if 참 else '-'}"
+            + (f" · 보수값/1장 {n이상}장" if n이상 else "")
+            + f" · 글자 인식 확인: 가짜 {n가짜}장 뺌 · 놓친 자막 {n채움}장 채움")
+    return [b for b in boxes if not b.get("가짜")]
+
+
+def _인식없음():
+    """인식기가 없는 컴퓨터(맥 아님) — S2_NO_SCREENTEXT=1 일 때만 옛 방식(픽셀 카드만)으로 간다. 아니면 멈춘다."""
+    if os.environ.get("S2_NO_SCREENTEXT") == "1":
+        print("    [주의] 화면글자 인식기 없음(S2_NO_SCREENTEXT=1) — 카드 확인·화면 캡션 관문을 건너뛴다(2026-09-29 전 방식)",
+              flush=True)
+        return True
+    return False
+
+
+def _글자확인(src, boxes, W, H, log=None):
+    """★2026-09-29 — 픽셀 모양 카드를 글자 인식으로 확인한다(머리 주석 (b)(c)).
+    · 카드 시간(±0.3초)에 대사 자막 자리 글줄이 읽혔으면 «확인». 2fps 훑기에 없으면 카드 가운데(길면 앞·뒤도) 한 장씩 더 읽고,
+      그래도 없으면 «가짜» (운동화·탁자·냄비 가장자리 — 글줄이 안 읽힌다).
+    · 글자 윗선을 못 잰 카드(보수값 824 · 이상치)는 읽힌 글줄 윗변 − 상자여유 로 잰다.
+    · 카드가 덮지 않은 시간에 자막 글줄이 읽혔으면 «글자인식» 카드로 채운다(표본 ±0.5초)."""
+    from . import 화면글자 as 글
+    if 글.인식기() is None and _인식없음():
+        return boxes
+    띠 = 글._띠(src)
+    c = 글._캐시(src)
+    표본 = 글.자막표본(c["frames"], 띠)             # (t, 줄) — 가운데 대사 자막 자리의 «글자 있음» 글줄
+
+    def 읽힘(b, 목록):
+        return [l for t, l in 목록 if b["t0"] - 0.3 <= t <= b["t1"] + 0.3]
+    남은 = [b for b in boxes if not 읽힘(b, 표본)]
+    시각 = []
+    for b in 남은:
+        d = b["t1"] - b["t0"]
+        ts = [b["t0"] + d / 2] + ([b["t0"] + 0.15, b["t1"] - 0.15] if d > 1.0 else [])
+        시각 += [(id(b), t) for t in ts]
+    더 = 글.시각들읽기(src, [t for _k, t in 시각]) if 시각 else []
+    더본 = {}
+    for (k, _t), (t, rows) in zip(시각, 더):
+        for _t2, l in 글.자막표본([(t, rows)], 띠):
+            더본.setdefault(k, []).append(l)
+    for b in boxes:
+        ls = 읽힘(b, 표본) or 더본.get(id(b), [])
+        b["출처"] = "카드"
+        if not ls:
+            b["가짜"] = True
+            b["how"] += "·글자없음"
+            continue
+        if b.get("gtop") is None or "이상치" in b["how"]:
+            gt = int(min(l["y"] for l in ls) * H)
+            b["gtop"], b["top"] = gt, gt - 상자여유
+            b["x0"] = int(min(l["x"] for l in ls) * W)
+            b["x1"] = int(max(l["x"] + l["w"] for l in ls) * W) + 1
+            b["how"] += "·글자위치"
+    참 = [b for b in boxes if not b.get("가짜")]
+    빈 = sorted(((t, l) for t, l in 표본 if not any(b["t0"] - 0.3 <= t <= b["t1"] + 0.3 for b in 참)), key=lambda x: x[0])
+    묶음, 여 = [], 0.5 / 1.0 + 0.01             # 이웃 표본(0.5초 간격)끼리 한 카드
+    for t, l in 빈:
+        if 묶음 and t - 묶음[-1][-1][0] <= 여:
+            묶음[-1].append((t, l))
+        else:
+            묶음.append([(t, l)])
+    for g in 묶음:
+        gt = int(min(l["y"] for _t, l in g) * H)
+        boxes.append({"t0": round(max(0.0, g[0][0] - 0.5), 2), "t1": round(g[-1][0] + 0.5, 2), "top": gt - 상자여유,
+                      "gtop": gt, "x0": int(min(l["x"] for _t, l in g) * W),
+                      "x1": int(max(l["x"] + l["w"] for _t, l in g) * W) + 1, "how": "글자인식",
+                      "출처": "글자인식", "글": g[0][1]["s"]})
+    boxes.sort(key=lambda b: b["t0"])
     return boxes
+
+
+def 확인된카드들(src):
+    """[(t0, t1)] — 글자 인식으로 확인된 «픽셀 카드» 만(가짜 빼고, 채운 카드는 시각이 ±0.5초 어림이라 뺀다).
+    카드경계검사처럼 «문장이 화면에 떠 있는 시각» 이 필요한 곳이 쓴다."""
+    return [(b["t0"], b["t1"]) for b in 카드상자들(src) if b.get("출처", "카드") == "카드"]
+
+
+def 캡션들(src, log=None):
+    """원본 화면 캡션(편집자가 얹은 글자 · 대사 자막 자리 밖) — [{t0,t1,x0,y0,x1,y1,글}] 원본 픽셀. s2pipe/화면글자.py."""
+    from . import 화면글자 as 글
+    if 글.인식기() is None and _인식없음():
+        return []
+    return 글.화면캡션(src, log=log)
+
+
+def 캡션붙인조각(seg, 캡션):
+    """조각의 «가림» 에 그 조각 시간과 겹치는 화면 캡션 사각형을 붙인 «사본» (원문화면 조각은 그대로 — 화면 글이 내용).
+    «글자허용»: ["사조참치", …] 에 든 글(판정키 부분 일치)은 붙이지 않는다(agy 가 장면 글자를 캡션으로 잘못 본 때 사람이 푼다).
+    가림 항목 = [x0, y0, x1, y1, t0, t1, "화면캡션:글"] — framing.가림경계 는 앞 여섯 칸만 본다."""
+    if seg.get("원문화면") or not 캡션:
+        return seg
+    from .화면글자 import 판정키
+    허용 = [판정키(x) for x in seg.get("글자허용") or [] if 판정키(x)]
+    # 조각과 0.1초(관문겹침) 넘게 겹치는 캡션만 — 경계에 몇 ms 걸친 캡션(점심이네29 «4차 이슈 발생» 끝 204.75 · 조각 204.744~)까지
+    #   붙이면 굽기가 조각 전체를 그 캡션 밖으로 피하느라 쓸 자리가 반토막 난다
+    붙 = [[c["x0"], c["y0"], c["x1"], c["y1"], c["t0"], c["t1"], "화면캡션:" + c["글"]] for c in 캡션
+         if min(c["t1"], seg["t1"]) - max(c["t0"], seg["t0"]) > 관문겹침 and not any(h in 판정키(c["글"]) for h in 허용)]
+    if not 붙:
+        return seg
+    return dict(seg, 가림=list(seg.get("가림") or []) + 붙)
+
+
+def 캡션조각검사(src, segs, box, log=None):
+    """make ① 굽기 전 검사 — (반려 목록, 주의 목록). 조각(원문화면 제외)에 원본 화면 캡션이 0.1초 넘게 걸리면:
+    전체화면 조각이거나, 굽기(framing.가림경계 — 같은 함수)가 피해도 쓸 세로가 원본 높이 절반이 안 되면(가운데 큰 캡션) 반려,
+    아니면 주의(굽기가 피하고 굽기 끝 관문이 다시 본다). ★2026-09-29 점심이네2 «6월 14일→1월 03일»."""
+    from . import framing as _fr
+    캡 = 캡션들(src, log=log)
+    bad, warn = [], []
+    if not 캡:
+        return bad, warn
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                        "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
+    W, H = (int(v) for v in r.stdout.strip().split(",")[:2])
+    ratio = float(box.get("w", 1080)) / float(box.get("h", 908))
+    uh = int(H * box.get("sub_zone_top", 0.872))
+    for k, s in enumerate(segs):
+        if s.get("원문화면"):
+            continue
+        s2 = 캡션붙인조각(s, 캡)
+        붙 = [g for g in (s2.get("가림") or []) if len(g) >= 7 and str(g[6]).startswith("화면캡션:")
+             and min(g[5], s["t1"]) - max(g[4], s["t0"]) > 관문겹침]
+        if not 붙:
+            continue
+        글_ = " · ".join(f"«{str(g[6])[5:][:12]}» {max(g[4], s['t0']):.1f}~{min(g[5], s['t1']):.1f}" for g in 붙[:4])
+        x0, y0, x1, y1 = _fr.가림경계((0, 0, W, H), s2, s["t0"], s["t1"], uh, ratio)
+        ch = min(min(y1, uh) - y0, (x1 - x0) / ratio)
+        if s.get("전체화면") or ch < H * 0.5:
+            bad.append(f"★조각 {k}({s['t0']:.1f}~{s['t1']:.1f})에 원본 화면 캡션 {글_} — "
+                       + ("전체화면이라 그대로 보인다" if s.get("전체화면") else f"피하면 세로 {max(ch, 0):.0f}px 만 남는다(가운데 큰 캡션)")
+                       + ". 캡션 샷을 조각에서 빼라(원본 시각을 옮긴다). 장면 속 글자(휴대폰·포장지)면 조각 «글자허용»")
+        else:
+            warn.append(f"조각 {k}에 원본 화면 캡션 {글_} — 굽기가 가림으로 피한다(세로 {ch:.0f}px)")
+    return bad, warn
 
 
 def 겹친카드(boxes, t0, t1, 여유=시각여유):
@@ -236,7 +388,8 @@ def 걸림(boxes, crops, 가림=None):
                 continue
             if bx0 < g["x1"] and bx1 > g["x0"] and by0 < g["y1"] and by1 > g["y0"]:
                 out.append({"이름": c.get("이름"), "t": round(max(g["t0"], c["t0"]), 2), "겹초": round(겹초, 2),
-                            "밑변": by1, "상자윗변": g["y0"], "침범px": None, "종류": "가림", "글자": True})
+                            "밑변": by1, "상자윗변": g["y0"], "침범px": None, "종류": g.get("종류", "가림"),
+                            "글자": True, **({"글": g["글"]} if g.get("글") else {})})
     return out
 
 
@@ -264,7 +417,11 @@ def 가림목록(segs):
     for s in segs:
         for r in s.get("가림") or []:
             t0, t1 = (r[4], r[5]) if len(r) >= 6 else (s["t0"], s["t1"])
-            out.append({"t0": t0, "t1": t1, "x0": r[0], "y0": r[1], "x1": r[2], "y1": r[3]})
+            g = {"t0": t0, "t1": t1, "x0": r[0], "y0": r[1], "x1": r[2], "y1": r[3]}
+            if len(r) >= 7 and str(r[6]).startswith("화면캡션:"):
+                g["종류"], g["글"] = "화면캡션", str(r[6])[5:]
+            if g not in out:                            # 한 캡션이 여러 조각에 붙어도 한 번만
+                out.append(g)
     return out
 
 
@@ -276,7 +433,8 @@ def 멈춤(걸):
 
 
 def 글(걸):
-    return "; ".join(f"{g['이름']} {g['t']}초 밑변 {g['밑변']} > {g['종류']} 윗변 {g['상자윗변']}" for g in 걸[:6]) \
+    return "; ".join(f"{g['이름']} {g['t']}초 밑변 {g['밑변']} > {g['종류']}{('«' + g['글'] + '»') if g.get('글') else ''}"
+                     f" 윗변 {g['상자윗변']}" for g in 걸[:6]) \
         + (f" 외 {len(걸) - 6}건" if len(걸) > 6 else "")
 
 
@@ -288,6 +446,12 @@ if __name__ == "__main__":
                         "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
     W, H = (int(v) for v in r.stdout.strip().split(",")[:2])
     crops, 미기록 = beats_crops(log, W, H)
-    걸 = 걸림(boxes, crops)
+    가 = []
+    if "--proj" in sys.argv:                       # 조각 «가림» + 화면 캡션까지 (굽기 관문과 같은 재료)
+        _pj = json.load(open(sys.argv[sys.argv.index("--proj") + 1], encoding="utf-8"))
+        _cap = 캡션들(src, log=print)
+        가 = 가림목록([캡션붙인조각(s, _cap) for s in _pj["segments"] if s.get("keep", True)])
+        print(f"화면 캡션 {len(_cap)}개 — " + " · ".join(f"«{c['글'][:10]}» {c['t0']}~{c['t1']}" for c in _cap[:12]))
+    걸 = 걸림(boxes, crops, 가)
     print(("걸림 " + str(len(걸)) + f"(글자 {len(멈춤(걸))}) — " + 글(걸)) if 걸 else "걸림 0", "· 한장구도 미기록 조각", 미기록)
     sys.exit(1 if 걸 else 0)
