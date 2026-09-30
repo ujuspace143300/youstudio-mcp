@@ -29,6 +29,47 @@ def vcodec(path):
     return out.stdout.decode().strip()
 
 
+def _옆편_댓글본보기(folder, work, vid, 최소=10):
+    """댓글 카드가 0장인 편 — 같은 시리즈의 옆 편(번호가 가까운 순) zip 에서 카드 모양 본보기를 꺼낸다.
+    본보기는 work/<슬러그>_댓글본보기/ 에 따로 둔다(이 편 댓글 폴더에 섞지 않는다 — 옆 편 글이 나가면 안 된다)."""
+    import unicodedata
+    부모 = os.path.dirname(os.path.abspath(folder.rstrip("/")))
+    나 = unicodedata.normalize("NFC", os.path.basename(folder.rstrip("/")))
+    m = re.match(r"0*(\d+)\.", 나)
+    내번호 = int(m.group(1)) if m else 0
+    옆 = []
+    for d in os.listdir(부모):
+        dn = unicodedata.normalize("NFC", d)
+        mm = re.match(r"0*(\d+)\.", dn)
+        if mm and dn != 나:
+            옆.append((abs(int(mm.group(1)) - 내번호), d))
+    out = os.path.join(work, f"{vid}_댓글본보기")
+    for _거리, d in sorted(옆):
+        # 맥은 한글 이름을 NFD 로 준다 — glob 의 «댓글»(NFC) 과 안 맞는다. 아래 main 과 같이 NFC 로 맞춰 고른다
+        zs = [os.path.join(부모, d, f) for f in os.listdir(os.path.join(부모, d))
+              if "댓글" in unicodedata.normalize("NFC", f) and f.endswith(".zip")]
+        if not zs:
+            continue
+        shutil.rmtree(out, ignore_errors=True)
+        os.makedirs(out)
+        if subprocess.run(["ditto", "-x", "-k", zs[0], out], capture_output=True).returncode != 0:
+            subprocess.run(["unzip", "-qq", "-O", "cp949", zs[0], "-d", out], capture_output=True)
+        pngs = sorted(glob.glob(os.path.join(out, "**", "*.png"), recursive=True))
+        if len(pngs) >= 최소:
+            print(f"  댓글 0장 — 옆 편 «{unicodedata.normalize('NFC', d)}» 카드 {len(pngs)}장을 모양 본보기로(글은 새로 씀)")
+            return pngs
+    raise SystemExit("★댓글 0장인데 같은 시리즈 옆 편에도 본보기 카드(10장+)가 없다 — 사장님께 여쭌다")
+
+
+def _파악요약(vid):
+    """배치가 미리 받은 agy 파악 답(배치로그/agy파악*/<슬러그>.md)의 «1. 한 줄 요약» — 보충 댓글 내용의 근거. 없으면 빈 값."""
+    for p in glob.glob(os.path.expanduser(f"~/Desktop/스케치코미디/배치로그/agy파악*/{vid}.md")):
+        글 = open(p, encoding="utf-8").read()
+        m = re.search(r"(?ms)^\W*1\s*[.)].*?(?=^\W*2\s*[.)])", 글)
+        return (m.group(0) if m else 글)[:800].strip()
+    return ""
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("folder")
@@ -188,14 +229,18 @@ def main():
         os.makedirs(cdir, exist_ok=True)
         r = subprocess.run(["ditto", "-x", "-k", zp, cdir], capture_output=True)
         if r.returncode != 0 or not glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True):
-            subprocess.run(["unzip", "-qq", "-O", "cp949", zp, "-d", cdir], check=True)
+            # ★빈 zip 은 unzip 이 1 을 낸다(2026-09-30 루키치 271~278·299 — zip 안이 비었다) — 멈추지 않고 0장으로 보충에 넘긴다
+            r2 = subprocess.run(["unzip", "-qq", "-O", "cp949", zp, "-d", cdir], capture_output=True, text=True)
+            if r2.returncode != 0 and "zipfile is empty" not in (r2.stdout + r2.stderr):
+                raise SystemExit(f"★댓글 zip 풀기 실패: {zp}\n{r2.stderr[-300:]}")
     pngs = sorted(glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True))
     if len(pngs) < 10:
         # ★2026-09-03 사장님: 카드가 모자라면 같은 형태로 내용 맞춰 제작해 채운다 (Deep04 7장 사건)
+        # ★2026-09-30 사장님(루키치 댓글 0장 9편): «규격과 디자인 맞춰서 알아서 생성해서 진행» — 0장이면 본보기가 없어
+        #   카드생성이 죽었다. 같은 시리즈 옆 편 zip 의 카드를 «모양 본보기»로만 쓰고(글은 지우고 새로 씀), 내용은 agy 파악 답의 요약으로.
         from 댓글보충 import 보충
-        logline = ""
-        pj = os.path.join(HERE, "..", "..", "..")  # logline 은 아직 없을 수 있다(계획 전) — 빈 값 허용
-        pngs = 보충(cdir, logline)
+        본보기 = [] if pngs else _옆편_댓글본보기(a.folder, work, vid)
+        pngs = 보충(cdir, _파악요약(vid), 본보기=본보기)
     assert len(pngs) >= 10, f"댓글 PNG 가 10장 미만이다(보충 후에도): {len(pngs)}"
 
     # ⑤ 로고·제목 후보

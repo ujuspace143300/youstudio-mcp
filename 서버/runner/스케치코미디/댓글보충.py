@@ -129,11 +129,15 @@ def 댓글문구(logline, n):
         return 기본[:n]
 
 
-def 보충(cdir, logline, 최소=10, 여유=2):
-    """폴더의 카드가 최소 미만이면 부족분+여유 만큼 같은 형태로 만들어 채운다."""
+def 보충(cdir, logline, 최소=10, 여유=2, 본보기=None):
+    """폴더의 카드가 최소 미만이면 부족분+여유 만큼 같은 형태로 만들어 채운다.
+    본보기 = 모양만 빌릴 카드(이 편 카드가 0장일 때 — 2026-09-30 루키치). 주면 이 편 카드 대신 그걸 본으로 쓴다."""
     pngs = sorted(glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True))
     if len(pngs) >= 최소:
         return pngs
+    본 = pngs or list(본보기 or [])
+    if not 본:
+        raise SystemExit("★댓글 카드 0장 — 모양 본보기가 없어 같은 형태로 못 만든다(본보기= 를 준다)")
     n = 최소 - len(pngs) + 여유
     print(f"댓글 카드 {len(pngs)}장 < {최소}장 — 같은 형태로 {n}장 제작해 보충한다 (2026-09-03 사장님)")
     문구들 = 댓글문구(logline, n)
@@ -141,7 +145,7 @@ def 보충(cdir, logline, 최소=10, 여유=2):
     out = []
     for k, 문구 in enumerate(문구들):
         p = os.path.join(cdir, f"댓글_보충{k + 1:02d}.png")
-        카드생성(문구, pngs, p)
+        카드생성(문구, 본, p)
         out.append(p)
         print(f"  + {os.path.basename(p)}  「{문구[:30]}」")
     return sorted(glob.glob(os.path.join(cdir, "**", "*.png"), recursive=True))
