@@ -292,25 +292,131 @@ _물음 = """너는 영상 편집 검수자다. 아래 번호 붙은 그림은 �
 JSON 만: {"items":[{"i":번호,"kind":"overlay"|"scene"}]}"""
 
 
-def _후보그림(src, a, W, H, p):
+def _후보그림(src, a, W, H, p, 좁게=False):
+    """후보 그림 — 온 화면(640폭)에 빨간 네모. 좁게=True 면 글줄 자리만(글줄 높이만큼 둘레 여유) 잘라 네모 없이 —
+    얼굴·몸이 안 들어가게(구글 안전 필터 대안 길 ①)."""
     from PIL import Image, ImageDraw
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{a['대표']['t']:.3f}", "-i", src, "-frames:v", "1",
-                        "-vf", "scale=640:-2", "-f", "image2", "-vcodec", "png", "-"], capture_output=True, check=True)
     import io
+    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{a['대표']['t']:.3f}", "-i", src, "-frames:v", "1",
+                        "-f", "image2", "-vcodec", "png", "-"], capture_output=True, check=True)
     im = Image.open(io.BytesIO(r.stdout)).convert("RGB")
     w, h = im.size
     l = a["대표"]
+    if 좁게:
+        m = l["h"] * h * 0.6
+        im = im.crop((int(max(0, l["x"] * w - m)), int(max(0, l["y"] * h - m)),
+                      int(min(w, (l["x"] + l["w"]) * w + m)), int(min(h, (l["y"] + l["h"]) * h + m))))
+        if im.width > 640:
+            im = im.resize((640, max(1, int(im.height * 640 / im.width))))
+        im.save(p)
+        return
+    im = im.resize((640, int(h * 640 / w)))
+    w, h = im.size
     d = ImageDraw.Draw(im)
     d.rectangle([l["x"] * w - 4, l["y"] * h - 4, (l["x"] + l["w"]) * w + 4, (l["y"] + l["h"]) * h + 4],
                 outline=(255, 0, 0), width=3)
     im.save(p)
 
 
+_좁은물음 = """너는 영상 편집 검수자다. 아래 번호 붙은 그림은 한국 스케치 코미디 영상 프레임에서 글자 자리만 잘라낸 것이다.
+각 그림의 글자가 무엇인지 가려라.
+- "overlay": 원본 편집자가 영상 위에 얹은 글자(시간·장소·날짜 캡션, 제목 카드, 대사 자막, 로고) — 매끈한 디지털 글꼴이 장면 위에 떠 있다.
+- "scene": 촬영된 물건에 적힌 글자(휴대폰·모니터·TV 화면, 포장지, 간판, 책, 옷 무늬) — 물건 표면·화면 테두리·원근·조명이 보인다.
+헷갈리면 "overlay". 글자를 답에 옮겨 적지 마라. JSON 만: {"items":[{"i":번호,"kind":"overlay"|"scene"}]}"""
+
+_글물음 = """너는 영상 편집 검수자다. 한국 스케치 코미디 유튜브 원본 한 편에서 글자 인식기가 읽은 «글줄 자취» 목록이다(그림 없음).
+각 자취가 원본 편집자가 영상 위에 얹은 글자("overlay" — 시간·장소·날짜 캡션 «며칠 뒤» «PM 6:07» «강원도 인제», 제목 카드,
+로고)인지, 촬영된 물건에 적힌 글자("scene" — 휴대폰·모니터 화면 문구, 포장지 상표, 간판, 책 글)인지 가려라.
+단서: 얹은 캡션은 짧은 말(시간·장소·날짜·제목)이 크게, 화면 가장자리나 가운데에 떠 있고, 같은 자리·같은 크기로 여러 번 되풀이되며,
+같은 장면에 다른 글줄이 거의 없다. 장면 글자는 상표·화면 UI 문구·긴 문장이 작게 여러 줄 함께 읽히고, 자리·크기가 들쭉날쭉하다.
+헷갈리면 "overlay". 글자를 답에 옮겨 적지 마라. JSON 만: {"items":[{"i":번호,"kind":"overlay"|"scene"}]}
+"""
+
+
+def _자리말(a):
+    xc, yc = (a["x0"] + a["x1"]) / 2, (a["y0"] + a["y1"]) / 2
+    가 = "왼쪽" if xc < 0.35 else "오른쪽" if xc > 0.65 else "가운데"
+    세 = "위" if yc < 0.35 else "아래" if yc > 0.65 else "가운데"
+    return f"{세}·{가}"
+
+
+def _글자취(c, 후보, a, 가림=False):
+    """글 길 한 줄 — 글자(가림=True 면 ○)·자리·크기·시간·되풀이·함께 읽힌 글줄 수."""
+    같은틀 = sum(1 for b in 후보 if b is not a and _iou(a, b) >= 0.6)
+    같은글 = sum(1 for b in 후보 if b is not a and 판정키(b["글"]) == 판정키(a["글"]))
+    t = a["대표"]["t"]
+    함께 = next((len(rows) for tt, rows in c["frames"] if abs(tt - t) < 1e-6), 0) - 1
+    글 = re.sub(r"[가-힣A-Za-z]", "○", a["글"]) if 가림 else a["글"]
+    return (f"글자 «{글[:40]}»(한글·숫자 {len(re.findall(r'[가-힣0-9]', a['글']))}자) · 자리 {_자리말(a)}"
+            f" (x {a['x0']:.2f}~{a['x1']:.2f} · y {a['y0']:.2f}~{a['y1']:.2f}) · 글줄 높이 화면의 {a['대표']['h']:.2f}"
+            f" · {a['t1'] - a['t0'] + 0.5:.1f}초 동안 {a['n']}장에서 읽힘 · 인식 확신 {a['c']:.1f}"
+            f" · 이 원본에서 같은 자리·같은 크기 글줄 {같은틀}번 더 · 같은 글 {같은글}번 더 · 같은 장면에 함께 읽힌 다른 글줄 {max(함께, 0)}개")
+
+
+def _필터(글):
+    """구글 안전 필터 차단인가 — plan.거절종류 와 같은 문구(2026-09-30 점심이네34 «content safety filters … sensitive words»)."""
+    return bool(re.search(r"필터 차단|content safety|sensitive words|PROHIBITED_CONTENT|blocked by Gemini|\bSAFETY\b", 글 or "", re.I))
+
+
+CALLER = "스케치코미디/화면글자"
+
+
+def _묻기(parts, n, log):
+    """agy 한 번 → ({번호: kind}, None) · 필터면 (None, "필터"). 그 밖의 실패는 멈춘다(EvoLink 로 넘기지 않는다 —
+    2026-09-26 사장님 결정 2: 그림 판정 · 글 길도 그림 판정의 대신이라 같은 규칙)."""
+    from . import gem
+    jr = gem.judge_run
+    payload = {"contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 800, "responseMimeType": "application/json"}}
+    까닭 = ""
+    for _시도 in range(2):                               # 답 형식이 모자라면 한 번 더
+        try:
+            resp, 까닭 = jr.agy_먼저(payload, CALLER, limit_min=5, log=log)
+        except jr.판정멈춤 as e:
+            if _필터(str(e)):
+                return None, "필터"
+            raise
+        if resp is None:
+            if _필터(까닭):
+                jr.기록(CALLER, "agy_fail_stop", 0, "화면 글자 판정 — 필터 차단 → EvoLink 안 감 · 다음 대안 길(plan 글 길 전례와 같은 route) — " + 까닭[:200])
+                return None, "필터"
+            jr.기록(CALLER, "agy_fail_stop", 0, "화면 글자 판정 — EvoLink 로 안 넘김(멈춤) — " + 까닭)
+            raise jr.판정멈춤(f"화면 글자 판정 agy 실패 — EvoLink 로 넘기지 않고 멈춘다: {까닭}")
+        txt = gem.agy_gemini.text_of(resp)
+        if _필터(txt):
+            return None, "필터"
+        try:
+            m = re.search(r"\{.*\}", txt or "", re.S)
+            got = {int(it["i"]): it["kind"] for it in json.loads(m.group(0))["items"] if it.get("kind") in ("overlay", "scene")}
+            if all(j in got for j in range(n)):
+                return got, None
+        except (ValueError, KeyError, TypeError, AttributeError):
+            pass
+        까닭 = "답 형식 모자람: " + (txt or "")[:120]
+    raise RuntimeError(f"화면 글자 판정(agy) 답이 모자라다 — {까닭}. 멈춘다(EvoLink 로 넘기지 않음)")
+
+
+def _그림조각(src, c, 묶, d, 좁게=False):
+    parts = [{"text": _좁은물음 if 좁게 else _물음}]
+    for j, (k, a) in enumerate(묶):
+        p = os.path.join(d, f"{'n' if 좁게 else 'w'}{j}_{abs(hash(k)) % 10**8}.png")
+        _후보그림(src, a, c["W"], c["H"], p, 좁게=좁게)
+        parts.append({"text": f"[{j}]"})
+        parts.append({"inline_data": {"mime_type": "image/png", "data": base64.b64encode(open(p, "rb").read()).decode()}})
+    return parts
+
+
 def 판정(src, log=print):
-    """캡션 후보마다 overlay/scene — 글자(판정키)별로 한 번만 묻고 캐시에 둔다. {판정키: kind}"""
+    """캡션 후보마다 overlay/scene — 글자(판정키)별로 한 번만 묻고 캐시에 둔다. {판정키: kind}
+    ★구글 안전 필터 대안 길 (2026-09-30 점심이네34 — 온 화면 그림 5장 묶음이 «content safety filters … sensitive words» 로
+      막혀 «그림 판정은 EvoLink 안 감 → 멈춤» 에 섰다. 필터 차단은 일시 오류가 아니라 그 편에서 매번 되풀이된다):
+      묶음 그림 → (필터) 후보마다 한 장씩 온 화면 → 글줄 자리만 좁게 자른 그림(얼굴·몸 없음) → 글 길(글자·자리·크기·시간·
+      되풀이 — 그림 없음) → 글자를 ○ 로 가린 글 길 → 그래도 필터면 멈춤. 필터 아닌 실패는 전처럼 곧장 멈춘다(EvoLink 금지 그대로).
+      어느 길로 정했는지는 캐시 «판정근거» 에 남긴다(없으면 «그림» — 이 수리 전 판정)."""
     c = _캐시(src)
     후보 = 캡션후보(src)
     판 = c.setdefault("판정", {})
+    근거 = c.setdefault("판정근거", {})
     남은, 본 = [], set()
     for a in 후보:
         k = 판정키(a["글"])
@@ -320,39 +426,37 @@ def 판정(src, log=print):
         남은.append((k, a))
     if not 남은:
         return 판
-    from . import gem
-    from .cfg import CFG
-    models = CFG.get("gemini", {}).get("models", ["gemini-3.5-flash"])
     d = tempfile.mkdtemp(prefix="screentext_j_")
     try:
         for s0 in range(0, len(남은), 판정묶음):
             묶 = 남은[s0:s0 + 판정묶음]
-            parts = [{"text": _물음}]
-            for j, (k, a) in enumerate(묶):
-                p = os.path.join(d, f"{s0 + j}.png")
-                _후보그림(src, a, c["W"], c["H"], p)
-                parts.append({"text": f"[{j}]"})
-                parts.append({"inline_data": {"mime_type": "image/png", "data": base64.b64encode(open(p, "rb").read()).decode()}})
-            payload = {"contents": [{"role": "user", "parts": parts}],
-                       "generationConfig": {"maxOutputTokens": 800, "responseMimeType": "application/json"}}
-            got = None
-            for _시도 in range(2):
-                txt, _r, _m = gem.ask(payload, models, timeout=300, log=log)
-                try:
-                    m = re.search(r"\{.*\}", txt or "", re.S)
-                    items = json.loads(m.group(0))["items"]
-                    got = {int(it["i"]): it["kind"] for it in items if it.get("kind") in ("overlay", "scene")}
-                    if len(got) == len(묶):
-                        break
-                except (ValueError, KeyError, TypeError, AttributeError):
-                    got = None
-            if not got or len(got) != len(묶):
-                raise RuntimeError(f"화면 글자 판정(agy) 답이 모자라다 — {len(got or {})}/{len(묶)}. 멈춘다(EvoLink 로 넘기지 않음)")
-            for j, (k, a) in enumerate(묶):
-                판[k] = got[j]
+            got, 막 = _묻기(_그림조각(src, c, 묶, d), len(묶), log)
+            if got is not None:
+                for j, (k, a) in enumerate(묶):
+                    판[k], 근거[k] = got[j], "그림"
+            else:
+                if log:
+                    log(f"    화면 글자 판정 — 그림 {len(묶)}장 묶음이 구글 안전 필터에 막힘 → 후보마다 대안 길")
+                for k, a in 묶:
+                    for 길, 만들기 in (("그림1장", lambda: _그림조각(src, c, [(k, a)], d)),
+                                     ("글자자리그림", lambda: _그림조각(src, c, [(k, a)], d, 좁게=True)),
+                                     ("글", lambda: [{"text": _글물음 + "\n[0] " + _글자취(c, 후보, a)}]),
+                                     ("가린글", lambda: [{"text": _글물음 + "\n[0] " + _글자취(c, 후보, a, 가림=True)}])):
+                        g1, 막1 = _묻기(만들기(), 1, log)
+                        if g1 is not None:
+                            판[k], 근거[k] = g1[0], 길
+                            break
+                        if log:
+                            log(f"      «{a['글'][:12]}» {길} — 필터")
+                    else:
+                        _저장(src, c)
+                        from . import gem
+                        gem.judge_run.기록(CALLER, "agy_fail_stop", 0, f"화면 글자 판정 — 모든 대안 길이 필터에 막힘 «{k[:20]}»(멈춤)")
+                        raise gem.judge_run.판정멈춤(f"화면 글자 판정 — «{a['글'][:20]}» 이 그림·좁은 그림·글·가린 글 모두 구글 안전"
+                                                    f" 필터에 막혔다. 멈춘다(EvoLink 로 넘기지 않음) — 사람이 조각에서 빼거나 판정을 적는다")
             if log:
-                log("    화면 글자 판정 " + " · ".join(f"«{a['글'][:12]}» {got[j]}" for j, (k, a) in enumerate(묶)))
-        _저장(src, c)
+                log("    화면 글자 판정 " + " · ".join(f"«{a['글'][:12]}» {판[k]}({근거[k]})" for k, a in 묶))
+            _저장(src, c)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return 판
