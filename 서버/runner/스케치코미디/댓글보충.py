@@ -115,6 +115,8 @@ def 댓글문구(logline, n):
         payload = {"contents": [{"role": "user", "parts": [{"text":
             (f"숏폼 내용: {logline}\n이 영상에 달릴 법한 유튜브 댓글 {n}개를 써라.\n"
              f"- 실제 시청자처럼 자연스럽게(웃음 ㅋㅋ·공감·경험담·드립). 한 개 20~60자.\n"
+             f"- ★반전·결말·마지막에 밝혀지는 사실은 절대 쓰지 마라 — 댓글은 영상 초반부터 화면에 뜬다(2026-09-30 루키치299 호텔·카드 반전 스포 5장).\n"
+             f"  인물·상황·연기·공감 이야기만.\n"
              f"- 이모지 남발 금지. JSON 만: {{\"comments\":[\"...\"]}}")}]}],
             "generationConfig": {"maxOutputTokens": 1500, "responseMimeType": "application/json"}}
         txt, _r, _m = gem.ask(payload, models, timeout=300)
