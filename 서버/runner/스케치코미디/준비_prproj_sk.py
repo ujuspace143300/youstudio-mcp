@@ -740,9 +740,11 @@ def main():
         for f in (0.3, 0.5, 0.7):
             try:
                 rgb = grab(t0 + (t1 - t0) * f, f"f{tag}_{int(f*10)}")
-                faces = FR._faces_yunet(rgb, score=b.get("face_score", 0.45))
-                if faces is not None and len(faces):
-                    best = max(faces, key=lambda r: r[4] if len(r) > 4 else 0)
+                # ★굽기와 같은 얼굴 고르기(2026-09-29 점심이네 «가짜 얼굴») — 예전엔 max(r[4]) 로 골랐는데 r[4] 는 점수가
+                #   아니라 «두 눈 중점의 x» 다(framing 이 눈 좌표를 실은 뒤로) — 가장 오른쪽 얼굴(흐린 뒤통수·무늬 포함)이 뽑혔다.
+                faces = FR.얼굴고르기(rgb, b, 1080)
+                if faces:
+                    best = faces[0]
                     x, y, w_, h_ = best[:4]
                     pts.append((x + w_ / 2, y + h_ / 2))
             except Exception:
@@ -1089,7 +1091,7 @@ def main():
         for k in range(9):
             try:
                 rgb = grab(t0 + (t1 - t0) * (0.1 + 0.1 * k), f"g{i}_{k}")
-                faces = [f[:4] for f in FR._faces_yunet(rgb, score=b.get("face_score", 0.45))]
+                faces = [f[:4] for f in FR.얼굴고르기(rgb, b, 1080)]     # 가짜·흐린 얼굴 거름(굽기와 같은 곳 · 2026-09-29)
             except Exception:
                 faces = []
             if faces:

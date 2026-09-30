@@ -110,11 +110,16 @@ def 재기(work_dir, src, 완성본=None, 로그=None):
         Fo, _ = _읽기(os.path.join(work_dir, "cut.mp4"))
     Do = G.차이열(Fo)
     걸림 = []
-    # 원본 D — 조각마다 한 번에(64x36)
+    # 원본 D — 조각마다 한 번에(64x36). 프레임(F)도 함께 둔다 — 번쩍임(조명 깜빡임)은 전환이 아니다(2026-09-29 점심이네20:
+    #   비트 계획과 같은 자(프레임격자.날카로운 + F)로 재야 계획이 번쩍임을 경계로 안 삼은 것을 «구도 어긋남» 으로 오판하지 않는다)
+    def _원본(lo, hi):
+        F = G.프레임들(src, g, lo, hi)
+        return (lo, G.차이열(F), F)
+
     원본D, 창들 = {}, {}
     for 창 in 창목록:
         lo = max(0, 창["f0"] - 4)
-        원본D[창["i"]] = (lo, G.차이열(G.프레임들(src, g, lo, 창["f0"] + 창["M"] + 4)))
+        원본D[창["i"]] = _원본(lo, 창["f0"] + 창["M"] + 4)
         창들[창["i"]] = 창
 
     # 완성본 프레임 j → (조각, 원본 프레임) — 멈춤 장은 원본 걸음 0 (같은 장) 으로 본다
@@ -126,9 +131,9 @@ def 재기(work_dir, src, 완성본=None, 로그=None):
                 대응[c["b0"] + j] = (c["i"], c["f0"] + r)
 
     def 원본전환(i, k):
-        lo, D = 원본D[i]
+        lo, D, F = 원본D[i]
         j = k - lo
-        return 0 < j < len(D) and G.날카로운(D, j)
+        return 0 < j < len(D) and G.날카로운(D, j, F=F)
 
     첫창 = None
     for b, 종류, si, kp, kn, 바뀜, 창 in 경계:
@@ -138,7 +143,7 @@ def 재기(work_dir, src, 완성본=None, 로그=None):
             앞창 = next((c for c in 창들.values() if c["b0"] + c["N"] == b), None)
             if 앞창 is not None and 앞창["i"] not in 원본D:
                 lo = max(0, 앞창["f0"] - 4)
-                원본D[앞창["i"]] = (lo, G.차이열(G.프레임들(src, g, lo, 앞창["f0"] + 앞창["M"] + 4)))
+                원본D[앞창["i"]] = _원본(lo, 앞창["f0"] + 앞창["M"] + 4)
             머리 = [k for k in (kn + 1, kn + 2) if k < 창["f0"] + 창["M"] and 원본전환(창["i"], k)]
             꼬리 = []
             if 앞창 is not None:
@@ -155,7 +160,7 @@ def 재기(work_dir, src, 완성본=None, 로그=None):
                 앞창 = next((c for c in 창들.values() if c["b0"] + c["N"] == b), None)
                 if 앞창 is not None and 앞창["i"] not in 원본D:
                     lo = max(0, 앞창["f0"] - 4)
-                    원본D[앞창["i"]] = (lo, G.차이열(G.프레임들(src, g, lo, 앞창["f0"] + 앞창["M"] + 4)))
+                    원본D[앞창["i"]] = _원본(lo, 앞창["f0"] + 앞창["M"] + 4)
                 옆 = [kn + d for d in (-2, -1) if 앞창 is not None and kn + d > 앞창["f0"] and 원본전환(앞창["i"], kn + d)]
                 옆 += [kn + d for d in (1, 2) if kn + d < 창["f0"] + 창["M"] and 원본전환(창["i"], kn + d)]
             else:
@@ -180,7 +185,7 @@ def 재기(work_dir, src, 완성본=None, 로그=None):
                 if σ is None:
                     continue
                 i_, k_ = σ
-                lo, D = 원본D[i_]
+                lo, D, _F = 원본D[i_]
                 원 = float(D[k_ - lo]) if 0 < k_ - lo < len(D) else 0.0
                 if 원 < 0.2 * float(Do[j]):
                     수상.append((j - b, float(Do[j]), 원))
