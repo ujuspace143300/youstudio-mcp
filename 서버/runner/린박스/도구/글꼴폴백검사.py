@@ -15,6 +15,7 @@
   python 글꼴폴백검사.py <captions.ass> <글꼴방>
   종료코드 0 = 다 제 글꼴 · 1 = 폴백이 있다
 """
+import atexit, shutil, tempfile
 import argparse
 import io
 import os
@@ -31,8 +32,11 @@ P.add_argument('--맛보기글', default='가나다라마바사')
 P.add_argument('--겹침문턱', type=float, default=90.0, help='이보다 겹치면 폴백으로 본다(%%)')
 A = P.parse_args()
 
-tmp = '/tmp/_글꼴폴백검사'
-os.makedirs(tmp, exist_ok=True)
+# ★편마다 따로 쓰는 임시 자리 (2026-09-30 사장님 승인). 전에는 '/tmp/_글꼴폴백검사' 고정 자리여서 두 편을 동시에 구우면
+#   글자 폭을 재는 임시 파일을 서로 덮어 엉뚱한 편의 글자로 쟀다(2026-09-29 신병 EP71 가짜 «화면을 벗어난다»).
+#   윈도우에는 /tmp 가 없어 이 방식이 양쪽 다 맞다.
+tmp = tempfile.mkdtemp(prefix='_글꼴폴백검사_')
+atexit.register(shutil.rmtree, tmp, True)
 
 머리 = """[Script Info]
 ScriptType: v4.00+

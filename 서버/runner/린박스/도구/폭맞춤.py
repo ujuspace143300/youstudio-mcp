@@ -6,6 +6,7 @@
   그 값으로 비율을 잡으면 덜 좁혀진다. 그래서 2400 폭에 그려 **참 폭**을 잰다.
   (PlayResX 는 그대로 두고 화포만 넓힌다 — 글자 크기는 PlayResX 기준이라 안 변한다.)
 """
+import atexit, shutil, tempfile
 import io
 import os
 import re
@@ -17,8 +18,11 @@ from PIL import Image
 
 ass경로, 글꼴방 = sys.argv[1], sys.argv[2]
 목표 = int(sys.argv[3]) if len(sys.argv) > 3 else 1000
-tmp = '/tmp/_폭맞춤2'
-os.makedirs(tmp, exist_ok=True)
+# ★편마다 따로 쓰는 임시 자리 (2026-09-30 사장님 승인). 전에는 '/tmp/_폭맞춤2' 고정 자리여서 두 편을 동시에 구우면
+#   글자 폭을 재는 임시 파일을 서로 덮어 엉뚱한 편의 글자로 쟀다(2026-09-29 신병 EP71 가짜 «화면을 벗어난다»).
+#   윈도우에는 /tmp 가 없어 이 방식이 양쪽 다 맞다.
+tmp = tempfile.mkdtemp(prefix='_폭맞춤2_')
+atexit.register(shutil.rmtree, tmp, True)
 화포 = 2400
 
 
