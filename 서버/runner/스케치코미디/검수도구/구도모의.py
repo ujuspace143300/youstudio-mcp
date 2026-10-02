@@ -25,7 +25,7 @@ os.environ.setdefault("S2_CONFIG", os.path.expanduser("~/Desktop/스케치코미
 def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조각=None, 굽기=False):
     """조각 = 조각 목록을 바꿔 돌릴 때(시험용 — 예: 사람이 잘라 낸 구간을 되살려 재기).
     굽기=True 면 아무것도 비우지 않고 cut_and_join 을 그대로 돈다(관문 전부 산 채로 · cut.mp4 는 work 폴더에만)."""
-    from s2pipe import build, 튐관문, 번인관문
+    from s2pipe import build, 튐관문, 번인관문, 비침관문
     from s2pipe.cfg import CFG
     proj = json.load(open(os.path.join(CFG["paths"]["projects"], f"{slug}.json"), encoding="utf-8"))
     src = os.path.join(CFG["paths"]["work"], f"{proj['source']['id']}.mp4")
@@ -43,7 +43,7 @@ def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조
         if 출력:
             json.dump(log, open(출력, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         return log, src, segs
-    원 = (build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림)
+    원 = (build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림, 비침관문.재기)
     from s2pipe import framing
     얼굴걸림 = []
     원얼굴관문 = getattr(framing, "얼굴관문", None)
@@ -59,6 +59,7 @@ def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조
     build.probe_dur = lambda p: 0.0
     튐관문.재기 = lambda *a, **k: ([], "모의 — 굽지 않음")
     번인관문.걸림 = lambda *a, **k: []
+    비침관문.재기 = lambda *a, **k: ([], "모의 — 굽지 않음")       # 구운 cut.mp4 가 없다(2026-10-02 완성본 비침 관문)
     _stdout = sys.stdout
     try:
         if 조용히:
@@ -68,7 +69,7 @@ def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조
         if 조용히:
             sys.stdout.close()
         sys.stdout = _stdout
-        build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림 = 원
+        build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림, 비침관문.재기 = 원
         if 원얼굴관문:
             framing.얼굴관문 = 원얼굴관문
     log = json.load(open(os.path.join(work, "beats.json"), encoding="utf-8"))

@@ -254,7 +254,7 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         기본h = int(H * b.get("sub_zone_top", 0.872)) - pad
         if 박스들:
             usable_h = 기본h
-            print(f"    원본 자막 카드 {len(박스들)}장 — 조각마다 겹친 카드의 가장 높은 상자 윗변 − {pad} 까지 쓴다"
+            print(f"    원본 자막 카드 {sum(1 for x in 박스들 if x.get('출처') != '글줄')}장(+ 글줄 {sum(1 for x in 박스들 if x.get('출처') == '글줄')}개) — 조각마다 겹친 카드의 가장 높은 상자 윗변 − {pad} 까지 쓴다"
                   f" (카드 없는 조각 {기본h})", flush=True)
         else:
             # 카드가 하나도 없는 원본(박힌 자막 없음·띠 밖 자막) — 예전 방식 그대로
@@ -626,7 +626,19 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
             raise AssertionError(f"박힌 자막·화면 캡션이 crop 안에 든다 {len(걸)}건 — {관.글(걸)} (s2pipe/번인관문.py)"
                                  + (" · 화면 캡션이면 그 샷을 조각에서 빼거나(원본 시각을 옮긴다) 장면 글자면 조각 «글자허용»"
                                     if any(g["종류"] == "화면캡션" for g in 걸) else ""))
-        print(f"    [OK] 박힌 자막 관문 — crop {len(crops)}개 · 카드 {len(박스들)}장 · 화면 캡션 {len(캡션)}개 겹침 0", flush=True)
+        print(f"    [OK] 박힌 자막 관문 — crop {len(crops)}개 · 카드 {sum(1 for x in 박스들 if x.get('출처') != '글줄')}장 · 글줄 {sum(1 for x in 박스들 if x.get('출처') == '글줄')}개 · 화면 캡션 {len(캡션)}개 겹침 0", flush=True)
+    # ★최종 관문 — 완성본 비침 (2026-10-02 루키치213 첫 완성본 36.9초에 원본 «뭐가 쩔어 븅X아» 가 비쳤다). 위 관문과 조각한계는
+    #   모두 «원본 쪽 기하»(카드상자·crop 기록)로 채점해, 카드를 두 칸 화면 틈·칸 모서리로 잘못 잰 값(윗변 911·991 — 실제 글자
+    #   856)이 스스로를 통과시켰다. 기하와 무관한 자로 — 구운 cut.mp4(우리 자막·틀을 얹기 전)를 글자 인식기로 직접 읽어 원본 대사
+    #   자막과 같은 글줄이 이어진 2장 이상 보이면 멈춘다. 규칙·판정(A 자리·B 글·C 모름)은 s2pipe/비침관문.py 한 곳.
+    if b.get("avoid_burned_subs"):
+        import time as _time
+        from . import 비침관문 as _비
+        _t = _time.time()
+        _비걸, _비요 = _비.재기(dst, src, log)
+        if _비걸:
+            raise AssertionError(f"원본 박힌 자막이 완성본(cut.mp4)에 비친다 {len(_비걸)}곳 — {_비.글(_비걸)}\n" + _비.지침(_비걸))
+        print(f"    [OK] 완성본 비침 관문 — {_비요} ({_time.time() - _t:.1f}초)", flush=True)
     return dst
 
 
