@@ -877,7 +877,7 @@ def plan_beats(src, seg, idx, W, H, usable_h, box, work, cuts=(), prev=None, 머
     return out
 
 
-def 얼굴관문(src, plan, idx, work, usable_h, 확실=0.8, 한계초=0.5):
+def 얼굴관문(src, plan, idx, work, usable_h, 확실=0.8, 한계초=0.5, 준확실=0.72):
     """★영구 관문 (2026-09-29 점심이네 «가짜 얼굴» 클래스) — 비트마다 «확실한 얼굴»(점수 ≥ 0.8 · 세로 6% 이상)이 화면에
     있는데 crop 에 하나도 안 드는 시간이 연달아 한계초(0.5초)를 넘으면 걸림 목록을 돌려준다(build 가 멈춘다).
 
@@ -890,6 +890,7 @@ def 얼굴관문(src, plan, idx, work, usable_h, 확실=0.8, 한계초=0.5):
     if not HAS_YN:
         return []
     걸, 연속, 시작 = [], 0.0, None
+    비트들 = []                                  # (a, e, crop, 거른 얼굴 0.6↑) — 준확실 이웃 판정에 앞뒤 비트가 필요하다
     for a, e, _vf, info in plan:
         km = (info["f0"] + info["f1"]) // 2
         from . import 프레임격자 as G
@@ -904,10 +905,28 @@ def 얼굴관문(src, plan, idx, work, usable_h, 확실=0.8, 한계초=0.5):
             gray = _cv.cvtColor(np.ascontiguousarray(rgb), _cv.COLOR_RGB2GRAY)
             sh = [_선명도(gray, q)[0] for q in fs]
             fs = [q for q, s in zip(fs, sh) if s >= max(sh) * 0.18]
+        비트들.append((a, e, info["crop"], fs))
+
+    # ★준확실 얼굴 (2026-10-02 루키치211 — 영상통화 두 칸 화면): 말하는 상대 칸 얼굴이 카메라 필터로 점수 0.73~0.79 라
+    #   «확실(0.8)» 에 못 들어, 그 칸을 담은 crop 이 전부 반려되고 듣는 주인공 얼굴(0.91)만 담는 판만 통과했다(반전이 안 보임).
+    #   가짜 얼굴 실측은 0.45~0.70(얼굴고르기 주석, 2026-09-29 점심이네) — 그 위인 준확실(0.72↑)이고 크기·초점 거름을 지난
+    #   얼굴이 crop 에 들어 있으면 «얼굴을 담은 구도» 로 본다. 같은 얼굴이 한 비트만 0.65~0.71 로 떨어지는 일이 있어(211 177.5초
+    #   0.71 · 188.4초 0.65 — 앞뒤는 0.74~0.78), 바로 앞·뒤 비트의 준확실 얼굴과 같은 자리(IoU 0.3↑)인 0.6↑ 얼굴도 준확실로 친다.
+    #   «가림» 으로 확실한 얼굴을 숨기는 길은 여전히 막힌다(crop 에 아무 얼굴도 없으면 걸린다).
+    def _iou(p, q):
+        ix = max(0, min(p[0] + p[2], q[0] + q[2]) - max(p[0], q[0]))
+        iy = max(0, min(p[1] + p[3], q[1] + q[3]) - max(p[1], q[1]))
+        n = ix * iy
+        return n / max(p[2] * p[3] + q[2] * q[3] - n, 1)
+
+    for k, (a, e, c, fs) in enumerate(비트들):
+        이웃 = [q for j in (k - 1, k + 1) if 0 <= j < len(비트들) for q in 비트들[j][3] if q[6] >= 준확실]
+        준 = [q for q in fs if q[6] >= 준확실 or any(_iou(q, r) >= 0.3 for r in 이웃)]
         fs = [q for q in fs if q[6] >= 확실]
-        c = info["crop"]
-        든 = (not fs) or any(_얼굴든(c, q) or (q[2] > c[0] * 0.9 and c[2] <= q[0] + q[2] / 2 <= c[2] + c[0])
-                            for q in fs)
+
+        def _담김(q):
+            return _얼굴든(c, q) or (q[2] > c[0] * 0.9 and c[2] <= q[0] + q[2] / 2 <= c[2] + c[0])
+        든 = (not fs) or any(_담김(q) for q in fs) or any(_담김(q) for q in 준)
         if 든:
             연속, 시작 = 0.0, None
             continue
