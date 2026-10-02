@@ -429,29 +429,19 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
                f"setpts=N/({g.fps:.9f}*TB)[vx]")
         parts.append(_틀굽기(src, 틀, 영상, os.path.join(work, f"seg{len(parts):03d}.mov"), 겹=True))
 
-    def _안쪽경계(t):
+    def _안쪽경계(t0, t1):
         """프레임-인-프레임(원본 아웃트로가 화면을 절반으로 줄이고 검은 테두리) 감지 —
-        검은 테두리째 구우면 결과물에 검은 띠가 박힌다(2026-09-07 Deep10 컷7 실측:
-        960x540 중앙). 밝기>16 인 실화면 경계를 돌려준다. 테두리가 없으면 None."""
-        import numpy as _np
-        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", src,
-                            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-                           capture_output=True)
-        a = _np.frombuffer(r.stdout, dtype=_np.uint8)
-        if len(a) != W * H:
+        검은 테두리째 구우면 결과물에 검은 띠가 박힌다(2026-09-07 Deep10 컷7 실측: 960x540 중앙).
+        조각 25·50·75% 세 장이 «모두» 테두리 있고 서로 8px 안이며 양축 다 작을 때만 (x, y, w, h). 아니면 None.
+        ★판정은 s2pipe/안쪽경계.py «하나» — 준비(프리미어 컷 상자)와 같은 함수다(2026-10-03 루키치206·172·171).
+          예전 이 자리는 «밝기 16 이하 가장자리 = 테두리» 를 따로 들고 있어, 움직임 적은 어두운 밤 샷이면
+          세 장이 같은 «가짜 상자»로 맞아 화면 속 화면으로 잘려 확대될 수 있었다(준비 쪽에서 실제로 터진 클래스).
+          검은 바탕 글자 카드(밝은 영역 15% 미만 · 2026-09-09 Deep61 «2주 전이다»)는 공용 판정이 None 으로 둔다."""
+        from . import 안쪽경계 as 경계판정
+        장들 = [경계판정.프레임(src, t0 + (t1 - t0) * f) for f in (0.25, 0.5, 0.75)]
+        if any(a is None for a in 장들):
             return None
-        m = a.reshape(H, W) > 16
-        rows, cols = _np.where(m.any(axis=1))[0], _np.where(m.any(axis=0))[0]
-        if not len(rows) or not len(cols):
-            return None
-        x, y = int(cols[0]), int(rows[0])
-        w, h = int(cols[-1] - cols[0] + 1), int(rows[-1] - rows[0] + 1)
-        # ★검은 배경 위 작은 글자 카드(블랙아웃 펀치라인 «2주 전이다»)는 프레임-인-프레임이 아니다
-        #   — 밝은 영역이 화면의 15% 미만이면 타이틀 카드다. 확대하면 글자가 렌즈처럼 뭉개진다
-        #   (2026-09-09 Deep61 실측: 카드를 «전이» 조각으로 확대). 확대하지 않고 원본대로 둔다.
-        if w * h < W * H * 0.15:
-            return None
-        return (x, y, w, h) if w <= W * 0.92 and h <= H * 0.92 else None
+        return 경계판정.굽기판정(장들, 허용=8)
 
     prev = None
     for i, s in enumerate(segs):
@@ -462,9 +452,9 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         앞 = 틀들[i - 1] if i else None
         이어짐 = bool(앞) and 앞["f0"] + 앞["앞멈춤"] + 앞["M"] == 실0 and not 앞["뒤멈춤"] and not 틀["앞멈춤"]
         머리 = ("전환" if G.전환인가(src, g, 실0) else "이어짐") if 이어짐 else "새샷"
-        박들 = [_안쪽경계(s["t0"] + (s["t1"] - s["t0"]) * f) for f in (0.25, 0.5, 0.75)]
-        if all(박들) and max(abs(박들[0][k] - 박들[j][k]) for j in (1, 2) for k in range(4)) <= 8:
-            x, y, w, h = 박들[1]
+        안박 = _안쪽경계(s["t0"], s["t1"])
+        if 안박:
+            x, y, w, h = 안박
             vf = (f"crop={w}:{h}:{x}:{y},scale=-2:908,"
                   f"crop=1080:908:(iw-1080)/2:0,setsar=1")
             p = os.path.join(work, f"seg{len(parts):03d}.mov")
@@ -569,9 +559,9 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         _얼 = framing.얼굴관문(src, plan, i, work, uh)
         if _얼:
             raise AssertionError(
-                f"조각 {i}: 확실한 얼굴이 화면에 있는데 crop 에 안 든 구간 {len(_얼)}곳 — "
-                + "; ".join(f"원본 {x['t0']}~{x['t1']}초 crop {x['crop']} 얼굴 {x['얼굴'][:3]}" for x in _얼[:3])
-                + "\n  수리: framing.얼굴고르기(가짜·흐린 얼굴 거르기) · plan_beats(주인공 고르기·빈 구도 담기)를 먼저 본다."
+                f"조각 {i}: 얼굴이 상자에 제대로 안 담긴 구간 {len(_얼)}곳(구운 상자 궤적 전체를 2장마다 봄) — "
+                + "; ".join(f"[{x.get('종류', '얼굴 잘림')}] 원본 {x['t0']}~{x['t1']}초 crop {x['crop']} 얼굴 {x['얼굴'][:3]}" for x in _얼[:3])
+                + "\n  수리: framing.얼굴고르기(가짜·흐린 얼굴 거르기) · plan_beats(화자고르기·무리고르기·전환 비트 걸음 제한·빈 구도 담기)를 먼저 본다."
                   " 원본이 정말 그 얼굴을 비켜 찍은 샷이면(말하는 사람이 따로 있음) 조각 «가림» 이 아니라 원인을 보고로 남긴다.")
         불가피 = sum(1 for x in plan if x[3]["face"] and x[3].get("face_in") is None)
         띠 = sum(1 for x in plan if tuple(x[3].get("bounds", (0, 0, W, H))) != (0, 0, W, H))
@@ -639,6 +629,18 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         if _비걸:
             raise AssertionError(f"원본 박힌 자막이 완성본(cut.mp4)에 비친다 {len(_비걸)}곳 — {_비.글(_비걸)}\n" + _비.지침(_비걸))
         print(f"    [OK] 완성본 비침 관문 — {_비요} ({_time.time() - _t:.1f}초)", flush=True)
+    # ★최종 관문 — 화면 캡션 «배경판» 잘림 (2026-10-03 루키치163 40.4~41.2초 흰 말풍선 · 265 회색 말풍선 · 161 39.2초 삽입 일정표 —
+    #   테두리가 완성본 끝에 비쳤다). 위 걸림 은 굽기가 피한 «같은 사각형» 으로 채점하고(자가 채점), 비침 관문은 대사 자막 글만 읽어
+    #   글 없는 판 테두리를 못 본다. 비트가 실제로 움직이는 crop(시작crop→crop)과 그 프레임에서 «다시 잰» 배경판을 맞댄다.
+    if 캡션:
+        import time as _time
+        from . import 비침관문 as _비
+        _t = _time.time()
+        _판걸, _판요 = _비.판재기(src, log, segs, 출력=lambda m: print(m, flush=True))
+        if _판걸:
+            raise AssertionError(f"원본 화면 캡션의 배경판(말풍선·알림 상자·삽입 그림)이 crop 에 든다 {len(_판걸)}곳 — "
+                                 f"{_비.판글(_판걸)}\n" + _비.판지침(_판걸))
+        print(f"    [OK] 배경판 잘림 관문 — {_판요} ({_time.time() - _t:.1f}초)", flush=True)
     return dst
 
 

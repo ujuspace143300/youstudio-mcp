@@ -10,6 +10,7 @@
 
   --가림빼기  조각의 «가림»(사람이 프레임을 보고 넣은 구도 우회 사각형)을 빼고 돈다 — 가림 없이 구도가 맞는지 재는 용도.
   --굽기      비우지 않고 실제로 cut.mp4 를 굽는다(튐·박힌 자막·얼굴·프레임 수 관문이 모두 산다) — --작업 폴더에만 쓴다.
+  배경판 관문(비침관문.판재기 — 말풍선·알림 상자·삽입 그림 테두리가 crop 에 드는가)은 굽지 않아도 실제와 같이 돈다(2026-10-03).
 """
 import copy
 import json
@@ -74,6 +75,12 @@ def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조
             framing.얼굴관문 = 원얼굴관문
     log = json.load(open(os.path.join(work, "beats.json"), encoding="utf-8"))
     log["_얼굴관문"] = 얼굴걸림
+    # ★배경판 잘림 관문(2026-10-03 루키치163·265·161 — 말풍선·삽입 그림 테두리가 완성본 끝에 비쳤는데 모의가 걸림·비침을 비워 둬서
+    #   굽기 전에 못 봤다). 이 관문은 원본 프레임과 beats.json 만 쓰므로 굽지 않고도 실제 굽기 끝과 같은 판정을 낸다.
+    try:
+        log["_판관문"], log["_판요약"] = 비침관문.판재기(src, log, segs, 출력=lambda m: None)
+    except Exception as e:                          # noqa: BLE001 — 모의는 끝까지 돈다(인식기 없음 등은 결과에 적는다)
+        log["_판관문"], log["_판요약"] = [], f"판 관문 못 돎 — {e}"
     if 출력:
         json.dump(log, open(출력, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return log, src, segs
@@ -93,5 +100,9 @@ if __name__ == "__main__":
     for f in log.get("frames", []):
         print(f"조각{f['seg']:2d} {f['t0']:8.3f}~{f['t1']:8.3f} {f['kind']} crop {f['crop']}")
     for x in log.get("_얼굴관문", []):
-        print(f"★얼굴 관문 걸림 조각{x['조각']} {x['t0']}~{x['t1']}초 crop {x['crop']} 얼굴 {x['얼굴'][:3]}")
+        print(f"★얼굴 관문 걸림 조각{x['조각']} {x.get('종류', '')} {x['t0']}~{x['t1']}초 crop {x['crop']} 얼굴 {x['얼굴'][:3]}")
     print(f"얼굴 관문 걸림 {len(log.get('_얼굴관문', []))}곳")
+    from s2pipe import 비침관문 as _비
+    for g in log.get("_판관문", []):
+        print("★배경판 관문 걸림", _비.판글([g]))
+    print(f"배경판 관문 — {log.get('_판요약', '')}")

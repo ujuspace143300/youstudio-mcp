@@ -332,6 +332,7 @@ def 자취들(frames, 약함, 강함, fps=FPS):
                        "글들": [], "n": 0, "강": 0, "c": 0.0, "대표": None}
                 tr.append(hit)
             hit["t1"] = t
+            hit.setdefault("상자들", []).append((t, l["x"], l["y"], l["w"], l["h"], l.get("줄높이", l["h"])))   # 표본마다 글자 상자(배경판 재기용)
             hit["_x0"], hit["_y0"], hit["_x1"], hit["_y1"] = l["x"], l["y"], l["x"] + l["w"], l["y"] + l["h"]
             hit["x0"], hit["y0"] = min(hit["x0"], l["x"]), min(hit["y0"], l["y"])
             hit["x1"], hit["y1"] = max(hit["x1"], l["x"] + l["w"]), max(hit["y1"], l["y"] + l["h"])
@@ -366,11 +367,68 @@ def 자막줄들(src, log=None):
     return 자취들(sorted(장.items()), lambda l: True, 자막글자, c["fps"])
 
 
+무리줄수 = 6             # 작은 글줄(캡션 높이 미만)이 이만큼 이웃해 모이면 «글자판» 후보 — 161 일정표 한 장 50줄 · 보통 장면 0~3줄
+무리틈 = (4.0, 3.0)     # 이웃 = 두 글줄 상자 사이 틈이 큰 줄 높이의 가로 4배 · 세로 3배 안 — 표는 칸 사이가 넓고 인식기가 줄을 빼먹는다
+                        #   (161 일정표 «시간» 열 끝 → «내용» 열 글 ≈3배 · «내용» → «비고» ≈3.3배 · 못 읽은 두 줄 자리 세로 틈 ≈2.3배 —
+                        #    1.5배면 열·줄 마디마다 갈라져 무리 상자가 판 안쪽에 갇히고, 판 둘레를 걷다 글자 획에 막혀 판을 못 잰다)
+
+
+def 글자무리(ls, 띠, W=1920, H=1080):
+    """한 장의 글줄(_줄 dict) 중 작은 글줄(확신 0.3↑ · 캡션 높이 미만 · 자막 자리 밖)을 이웃끼리 묶어 6줄 이상인 무리마다
+    «무리 줄» 하나(상자 = 합집합 · 글 = 위→아래 이은 글 · 줄높이 = 글줄 높이 중앙값 · 무리 = 줄 수)를 돌려준다.
+    ★2026-10-03 루키치161 — 삽입 그림(대부도 일정표) 글줄은 높이 0.019H 라 캡션 후보(0.045H↑)가 아니었고, 그림 테두리가 완성본
+      39.2초 왼쪽 끝에 비쳤다. 작은 글이 빽빽한 판(표·문서·채팅 캡처)은 무리로 묶어 캡션 후보로 올린다(agy 가 얹은 그림/장면 판정)."""
+    작 = [l for l in ls if l["c"] >= 0.3 and l["수"] >= 1 and l["h"] < 후보높이 and not 자막자리(l, 띠)]
+    n = len(작)
+    if n < 무리줄수:
+        return []
+    부 = list(range(n))
+
+    def 뿌리(i):
+        while 부[i] != i:
+            부[i] = 부[부[i]]
+            i = 부[i]
+        return i
+    for i in range(n):
+        a = 작[i]
+        for j in range(i + 1, n):
+            b = 작[j]
+            g = 무리틈[1] * max(a["h"], b["h"])                # 세로 비율 단위 틈
+            gx = 무리틈[0] * max(a["h"], b["h"]) * H / W        # 가로 틈(같은 픽셀 거리를 가로 비율로)
+            if a["x"] - gx < b["x"] + b["w"] and b["x"] - gx < a["x"] + a["w"] \
+                    and a["y"] - g < b["y"] + b["h"] and b["y"] - g < a["y"] + a["h"]:
+                부[뿌리(i)] = 뿌리(j)
+    무 = {}
+    for i in range(n):
+        무.setdefault(뿌리(i), []).append(작[i])
+    out = []
+    for g in 무.values():
+        if len(g) < 무리줄수:
+            continue
+        x0, y0 = min(l["x"] for l in g), min(l["y"] for l in g)
+        x1, y1 = max(l["x"] + l["w"] for l in g), max(l["y"] + l["h"] for l in g)
+        s = " ".join(l["s"] for l in sorted(g, key=lambda l: (round(l["y"], 2), l["x"])))[:80]
+        hs = sorted(l["h"] for l in g)
+        out.append({"c": max(l["c"] for l in g), "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0, "s": s,
+                    "한": len(re.findall(r"[가-힣]", s)), "수": len(re.findall(r"[가-힣0-9]", s)),
+                    "줄높이": hs[len(hs) // 2], "무리": len(g)})
+    return out
+
+
+def _무리붙인(frames, 띠, W, H):
+    """[(t, [줄 dict … + 무리 줄 …])] — 캡션 후보 훑기에 «글자판» 무리를 같이 싣는다."""
+    out = []
+    for t, rows in frames:
+        ls = [_줄(r) for r in rows]
+        out.append((t, ls + 글자무리(ls, 띠, W, H)))
+    return out
+
+
 def 캡션후보(src):
     c = _캐시(src)
     띠 = _띠(src)
     약 = lambda l: l["c"] >= 0.3 and l["수"] >= 1 and l["h"] >= 후보높이 and not 자막자리(l, 띠)   # noqa: E731
-    return [a for a in 자취들(c["frames"], 약, 캡션글자, c["fps"]) if a["n"] >= 후보장수]
+    return [a for a in 자취들(_무리붙인(c["frames"], 띠, c["W"], c["H"]), 약, 캡션글자, c["fps"]) if a["n"] >= 후보장수]
 
 
 # ───────────────────────── agy 판정 ─────────────────────────
@@ -569,9 +627,13 @@ def _가장자리(src, c, a):
     뒤 = [round(a["t1"] - 0.15 + 0.05 * j, 3) for j in range(0, int(round((폭_ + 0.15) / 0.05)) + 1)]
     ts = sorted({t for t in 앞 + 뒤 if t >= 0})
     본 = {}
+    무리 = bool(a.get("대표") and a["대표"].get("무리"))
+    띠 = _띠(src) if 무리 else None
     for t, rows in 시각들읽기(src, ts):
-        for row in rows:
-            l = _줄(row)
+        ls = [_줄(row) for row in rows]
+        if 무리:                                         # 글자판 무리 후보는 다시 읽은 장에서도 무리로 묶어 맞댄다(2026-10-03 161)
+            ls = 글자무리(ls, 띠, c["W"], c["H"])
+        for l in ls:
             # 같은 자리 · 같은 글자 하나 이상(장면 잡음 «1j» 가 가장자리를 넓히지 않게)
             if l["c"] >= 0.3 and set(re.findall(r"[가-힣0-9A-Za-z]", l["s"])) & 같은글 \
                     and _겹침({"_x0": a["x0"], "_y0": a["y0"], "_x1": a["x1"], "_y1": a["y1"]}, l):
@@ -586,6 +648,102 @@ def _가장자리(src, c, a):
     return tuple(가[k])
 
 
+# ───────────────────────── 배경판(말풍선·알림 상자·삽입 그림) ─────────────────────────
+# ★2026-10-03 루키치163·265·161 — «글자 상자 = 가릴 물체» 로 본 구조의 구멍(사장님 승인 «응 먼저 고치고 구워»):
+#   화면 캡션의 가림 사각형이 인식기 «글자 상자» 그대로였다. 말풍선·알림 상자·삽입 그림은 글자보다 큰 배경판·테두리가 있어서
+#   굽기(framing.가림경계)가 글자만 피하고 판은 crop 안에 남겼다 — 163 «근데 누나는 이상형이 뭐야?» 흰 말풍선(판 x1012 · 글자 x1060)이
+#   완성본 40.4~41.2초 오른쪽 끝에 42px(원본) 비쳤고, 265 «그러게 다들 잘자라» 회색 말풍선(판 x1004 · 글자 x1048)도 같았다.
+#   161 대부도 일정표(삽입 그림 x245~820)는 글줄이 작아(높이 0.019H) 캡션 후보조차 아니었다 — 오른쪽 테두리가 crop 왼쪽 끝에 21px.
+#   관문(번인관문.걸림)도 같은 글자 사각형으로 채점해 «겹침 0» 이 참이었다(자가 채점).
+#   수리(구조): 글자 상자를 씨앗으로 그 둘레의 «배경판» 을 실제 프레임에서 잰다 — 글자 바로 바깥 고리가 한 색(판 색)이고, 네 변마다
+#   글줄을 따라 바깥으로 걸어가 «판 색이 아닌 픽셀이 6px 넘게 이어지는» 첫 자리(테두리)가 곧게(70% 이상이 ±3px 안) 서 있어야
+#   판이다. 한 변이라도 열려 있거나(한계 안에 테두리 없음 — 벽 위 글자) 들쭉날쭉하면(사람 윤곽) 판이 아니다 → 글자 상자 그대로.
+#   판이면 가림·관문 사각형 = 판 + 그림자 여유. 1~4px 선(표 칸 선·글자 삐침)은 판 안으로 보고 건너뛴다(6px 이어짐 규칙).
+판색차 = 24              # 판 색과 «같은 색» 으로 볼 채널 최대 차 — 163 흰 판 255 vs 벽 204~221 · 265 회색 111 vs 벽 211
+판고리 = 0.2             # 판 색을 재는 글자 바깥 고리 두께(줄높이 배) — 163 판 안 여백 0.48배 · 161 표 칸 여백 ≈0.3배
+판한색 = 0.6             # 고리 픽셀 중 판 색과 같은 몫이 이 이상이어야 판 후보(표 칸 선·글자 삐침이 섞여도)
+판이어짐 = 6             # 판 색 아닌 픽셀이 이만큼 이어지면 테두리(그보다 얇으면 판 안의 선)
+판한계 = (2.5, 24, 0.2)  # 한 변에서 테두리를 찾는 최대 거리 = max(줄높이 × 2.5, 24px, 글자 상자 긴 변 × 0.2) — 163 48px(0.64배) ·
+                        #   161 일정표 30px(1.5배) · 작은 글 여러 줄 판(161 124초 문서 위 여백 76px = 줄높이 3.8배 · 상자 긴 변 807 의 0.09)
+판곧음 = 0.7             # 한 변의 «멈춘 줄» 몫과, 그중 중앙값 ±3px 안 몫의 하한 — 곧은 테두리
+판그림자 = (0.35, 6)     # 테두리 바깥 그림자를 찾는 폭 = 줄높이 × 0.35 + 6px — 그 너머 6px 를 «바깥 배경» 으로 보고, 배경과
+                        #   채널 차 10 넘게 다른 마지막 자리까지를 그림자로 잰다(163 흰 말풍선 그림자 ≈12px · 265 회색 말풍선 0px)
+판여유 = 8               # 판(+그림자) 바깥 최소 여유(px) — 둥근 모서리 꼬리(265 말풍선 꼬리가 글줄 높이 테두리보다 7px 밖)·안티에일리어싱
+판최대 = 0.5             # 판 넓이가 화면의 이 몫을 넘으면 판이 아니다(장면 배경)
+
+
+def 배경판(rgb, 상자, 줄높이, 여유=True):
+    """글자 상자(x0,y0,x1,y1 · 원본 px)를 둘러싼 배경판(말풍선·알림 상자·삽입 그림) → (x0,y0,x1,y1), 판이 아니면 None.
+    rgb = 원본 해상도 프레임(H×W×3). 줄높이 = 글줄 하나의 높이(px · 여러 줄 무리면 한 줄 높이).
+    여유=True(굽기가 피할 사각형): 테두리 + 잰 그림자 + 3px(최소 8px). 여유=False(관문이 잴 사각형): 테두리 + 잰 그림자만 —
+    피하는 쪽이 재는 쪽보다 3px 이상 넉넉해야 반올림 한두 px 로 관문이 가짜로 걸리지 않는다."""
+    import numpy as np
+    from numpy.lib.stride_tricks import sliding_window_view as _창
+    a = np.asarray(rgb).astype(np.int16)
+    H, W = a.shape[:2]
+    x0, y0, x1, y1 = (int(round(v)) for v in 상자)
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    r = max(3, int(판고리 * 줄높이))
+    gx0, gy0, gx1, gy1 = max(0, x0 - r), max(0, y0 - r), min(W, x1 + r), min(H, y1 + r)
+    고리 = np.ones((gy1 - gy0, gx1 - gx0), bool)
+    고리[y0 - gy0:y1 - gy0, x0 - gx0:x1 - gx0] = False
+    px = a[gy0:gy1, gx0:gx1][고리]
+    if len(px) < 20:
+        return None
+    색 = np.median(px, axis=0)
+    if (np.abs(px - 색).max(axis=1) <= 판색차).mean() < 판한색:
+        return None
+    L = int(max(판한계[0] * 줄높이, 판한계[1], 판한계[2] * max(x1 - x0, y1 - y0)))
+    S = int(판그림자[0] * 줄높이) + 판그림자[1]
+    L2 = L + S + 6                                             # 띠 길이 = 테두리 찾기 L + 그림자 S + 바깥 배경 6px
+    허용 = max(3, int(0.04 * 줄높이))
+
+    def 변(띠, 끝까지):
+        """띠: (줄 수 × 거리) 픽셀(안 → 밖 · 길이 ≤ L2). → (테두리까지 거리 중앙값, 바깥 여유) · 판이 아니면 None.
+        끝까지 = 띠가 화면 끝에서 잘렸다(한계 L 보다 짧다) — 끝까지 판 색이면 화면 끝이 테두리."""
+        k = min(띠.shape[1], L)
+        if k == 0:
+            return (0, 0) if 끝까지 else None
+        먼 = np.abs(띠 - 색).max(axis=2) > 판색차
+        n = 먼.shape[0]
+        멈춤 = np.full(n, -1)
+        if 먼.shape[1] >= 판이어짐:
+            이어 = _창(먼, 판이어짐, axis=1).all(axis=2)[:, :k]    # 이어[i, j] = j 부터 6px 모두 판 색 아님(테두리는 L 안에서만)
+            있 = 이어.any(axis=1)
+            멈춤[있] = 이어[있].argmax(axis=1)
+        if 끝까지 and 띠.shape[1] <= L:
+            멈춤[(멈춤 < 0) & ~먼[:, -판이어짐:].any(axis=1)] = 띠.shape[1]   # 화면 끝까지 판 색 — 화면 끝이 테두리
+        ds = 멈춤[멈춤 >= 0]
+        if len(ds) < 판곧음 * n:
+            return None                                        # 열린 변 — 한계 안에 테두리가 없다(벽 위 글자)
+        m = int(np.median(ds))
+        if (np.abs(ds - m) <= 허용).mean() < 판곧음:
+            return None                                        # 들쭉날쭉 — 곧은 테두리가 아니다(사람 윤곽·장면)
+        # 그림자: 테두리 m 바깥 S px 중 «바깥 배경»(m+S ~ m+S+6 의 줄마다 중앙값)과 채널 차 10 넘게 다른 마지막 자리
+        sw = 0
+        if 띠.shape[1] >= m + S + 6:
+            배경 = np.median(띠[:, m + S:m + S + 6], axis=1)       # 줄마다 바깥 배경색(벽의 밝기 기울기를 따라간다)
+            다름 = np.abs(띠[:, m:m + S] - 배경[:, None, :]).max(axis=2) > 10
+            끝 = np.where(다름.any(axis=1), S - 다름[:, ::-1].argmax(axis=1), 0)
+            sw = int(np.median(끝))
+        return m, (max(판여유, sw + 3) if 여유 else sw)
+
+    rows = slice(y0, y1)
+    cols = slice(x0, x1)
+    왼 = 변(a[rows, max(0, x0 - L2):x0][:, ::-1], x0 - L < 0)
+    오 = 변(a[rows, x1:min(W, x1 + L2)], x1 + L > W)
+    위 = 변(a[max(0, y0 - L2):y0, cols][::-1].transpose(1, 0, 2), y0 - L < 0)
+    아 = 변(a[y1:min(H, y1 + L2), cols].transpose(1, 0, 2), y1 + L > H)
+    if None in (왼, 오, 위, 아):
+        return None
+    p0, q0, p1, q1 = x0 - 왼[0], y0 - 위[0], x1 + 오[0], y1 + 아[0]
+    if (p1 - p0) * (q1 - q0) > 판최대 * W * H:
+        return None
+    return (max(0, p0 - 왼[1]), max(0, q0 - 위[1]), min(W, p1 + 오[1]), min(H, q1 + 아[1]))
+
+
 def _iou(a, b):
     ix = min(a["x1"], b["x1"]) - max(a["x0"], b["x0"])
     iy = min(a["y1"], b["y1"]) - max(a["y0"], b["y0"])
@@ -595,12 +753,10 @@ def _iou(a, b):
     return ix * iy / u
 
 
-def 화면캡션(src, log=print, 판정하기=True):
-    """원본에 얹힌 화면 캡션 — [{t0,t1,x0,y0,x1,y1,글}] (원본 픽셀·원본 초). 시각은 훑기 간격만큼 앞뒤로 넓힌다
-    (2fps: 첫·끝 표본 ±0.5초 + 0.25초 — 사이에 떠 있던 시간을 놓치지 않게). scene 판정은 뺀다."""
+def 캡션자취들(src, log=print, 판정하기=True):
+    """원본에 얹힌 화면 캡션의 «자취»(캡션후보 중 overlay 판정 · 같은 틀) — 화면캡션 과 판 잘림 관문(비침관문.판재기)이 같이 쓴다."""
     c = _캐시(src)
     판 = 판정(src, log=log) if 판정하기 else c.get("판정", {})
-    W, H = c["W"], c["H"]
     후 = 캡션후보(src)
     틀 = [a for a in 후 if 판.get(판정키(a["글"]), "overlay") == "overlay"]
     out = []
@@ -611,12 +767,75 @@ def 화면캡션(src, log=print, 판정하기=True):
         #   같은 자리 «PM 6:07·PM 1:13» 은 overlay).
         if 판.get(k, "overlay") != "overlay" and not any(_iou(a, b) >= 0.6 for b in 틀):
             continue
-        e0, e1 = _가장자리(src, c, a)
-        out.append({"t0": round(max(0.0, e0), 2), "t1": round(e1, 2),
-                    "x0": int(a["x0"] * W) - 6, "y0": int(a["y0"] * H) - 6,
-                    "x1": int(a["x1"] * W) + 6, "y1": int(a["y1"] * H) + 6, "글": a["글"]})
+        out.append(a)
     return out
 
+
+def 프레임rgb(src, t, W, H):
+    """원본 t 초 프레임 한 장(원본 해상도 RGB numpy) — 못 읽으면 None."""
+    import numpy as np
+    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
+                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
+    if len(r.stdout) != W * H * 3:
+        return None
+    return np.frombuffer(r.stdout, np.uint8).reshape(H, W, 3)
+
+
+def 표본판(src, c, 상자, sf=None):
+    """자취 표본 하나(t,x,y,w,h,줄높이 — 비율) → 그 프레임의 배경판 (x0,y0,x1,y1) 원본 px · 판이 없으면 None."""
+    W, H = c["W"], c["H"]
+    t, x, y, w, h, lh = 상자
+    sf = sf or 원본fps(src)
+    n = round(훑기시각(t, c["fps"], sf) * sf)                # 훑기 표본이 실제로 담은 프레임 번호 — 그 프레임을 정확히 읽는다
+    rgb = 프레임rgb(src, (n - 0.3) / sf, W, H)
+    if rgb is None:
+        return None
+    return 배경판(rgb, (x * W, y * H, (x + w) * W, (y + h) * H), lh * H)
+
+
+판표본수 = 4            # 캡션 하나의 배경판을 재는 표본 수(처음·끝·사이 고르게) — 판 위치가 바뀌는 자취(163 말풍선 두 개)도 덮게
+
+
+def _판상자(src, c, a):
+    """캡션 자취 a 의 배경판 합집합(원본 px) — 표본 어느 것에서도 판이 없으면 None. 캐시(«배경판»)."""
+    k = f"p3:{a['t0']}:{a['t1']}:{a['x0']:.3f}:{a['y0']:.3f}"
+    판들 = c.setdefault("배경판", {})
+    if k in 판들:
+        return 판들[k]
+    ss = a.get("상자들") or []
+    if len(ss) > 판표본수:
+        ss = [ss[round(i * (len(ss) - 1) / (판표본수 - 1))] for i in range(판표본수)]
+    sf = 원본fps(src)
+    합 = None
+    for 상자 in ss:
+        p = 표본판(src, c, 상자, sf)
+        if p:
+            합 = list(p) if 합 is None else [min(합[0], p[0]), min(합[1], p[1]), max(합[2], p[2]), max(합[3], p[3])]
+    판들[k] = 합
+    _저장(src, c)
+    return 합
+
+
+def 화면캡션(src, log=print, 판정하기=True):
+    """원본에 얹힌 화면 캡션 — [{t0,t1,x0,y0,x1,y1,글,판,종류}] (원본 픽셀·원본 초). 시각은 훑기 간격만큼 앞뒤로 넓힌다
+    (2fps: 첫·끝 표본 ±0.5초 + 0.25초 — 사이에 떠 있던 시간을 놓치지 않게). scene 판정은 뺀다.
+    ★2026-10-03 사각형 = 글자 상자 ±6px ∪ 배경판(말풍선·알림 상자·삽입 그림 — 배경판() 머리 주석). 판=True 면 판까지 넓혔다.
+      종류 «글자판» = 작은 글줄 무리(표·문서·채팅 캡처 — 글자무리) — 전체화면 조각에선 통째로 보여 잘리지 않으므로 가림을 안 붙인다.
+    ★캐시는 판정(agy)이 끝난 «뒤에» 읽는다 — 판정 앞에 읽은 사본을 _가장자리·_판상자 가 저장하면 방금 쓴 판정이 지워져 다음 번에
+      agy 를 또 부른다(2026-10-03 161 시험에서 같은 판정을 두 번 물음 · 이 수리 전부터 있던 구멍)."""
+    자취 = 캡션자취들(src, log=log, 판정하기=판정하기)
+    c = _캐시(src)
+    W, H = c["W"], c["H"]
+    out = []
+    for a in 자취:
+        e0, e1 = _가장자리(src, c, a)
+        x0, y0, x1, y1 = int(a["x0"] * W) - 6, int(a["y0"] * H) - 6, int(a["x1"] * W) + 6, int(a["y1"] * H) + 6
+        판 = _판상자(src, c, a)
+        if 판:
+            x0, y0, x1, y1 = min(x0, 판[0]), min(y0, 판[1]), max(x1, 판[2]), max(y1, 판[3])
+        out.append({"t0": round(max(0.0, e0), 2), "t1": round(e1, 2), "x0": x0, "y0": y0, "x1": x1, "y1": y1,
+                    "글": a["글"], "판": bool(판), "종류": "글자판" if a["대표"].get("무리") else "글자"})
+    return out
 
 if __name__ == "__main__":
     src = sys.argv[1]
@@ -630,3 +849,7 @@ if __name__ == "__main__":
     for a in 캡션후보(src):
         print(f"  후보 {a['t0']:7.1f}~{a['t1']:7.1f} x{a['x0']:.2f}~{a['x1']:.2f} y{a['y0']:.2f}~{a['y1']:.2f} n{a['n']:2d}"
               f" c{a['c']:.1f} {판_.get(판정키(a['글']), '?'):7s} {a['글'][:30]}")
+    if "--판정" in sys.argv:                        # 판정이 있으면 굽기가 피할 사각형(글자 ∪ 배경판)까지 보인다(2026-10-03)
+        for k in 화면캡션(src, log=print, 판정하기=False):
+            print(f"  캡션 {k['t0']:7.2f}~{k['t1']:7.2f} 가림 [{k['x0']},{k['y0']},{k['x1']},{k['y1']}]"
+                  f" {'판' if k['판'] else '글자만'} {k['종류']} «{k['글'][:24]}»")

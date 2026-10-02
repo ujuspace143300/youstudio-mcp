@@ -897,56 +897,22 @@ def main():
         return s_i, xf, yf
 
     def 안쪽경계(seg):
-        """검은 테두리 감지 — 분류를 돌려준다 (2026-09-08 Deep14 사장님 «수차례 반복» 캡쳐):
-        ('안쪽', bbox)  = 양축 «다» 작음(≤0.92) — 진짜 프레임-인-프레임. 자막은 테두리 밖.
+        """검은 테두리 분류 — 판정은 s2pipe/안쪽경계.py «하나»(굽기와 같은 함수)에 있다.
+        ('안쪽', bbox)  = 양축 «다» 작음 — 진짜 프레임-인-프레임. 자막은 테두리 밖.
         ('레터박스', bbox) = 한 축만 작음 — 자막이 그림 «안»에 있다! 잔존 면제 금지,
-                             테두리만 걷고 일반 번인 배제를 태운다.
-        None = 테두리 없음. ★예전엔 «둘 다 클 때만 제외»(OR 구멍)라 레터박스가 프레임-인-
-        프레임으로 오분류돼 번인 자막·검은 바가 그대로 나갔다(굽기 쪽은 AND 조건이라 무사 —
-        경로마다 조건이 달랐던 것 자체가 사고). 표본 5장 «교집합»으로 가변 테두리 방어."""
-        import numpy as np
-        박들 = []
-        for f in (0.15, 0.35, 0.5, 0.65, 0.85):
-            try:
-                a = grab(seg["t0"] + (seg["t1"] - seg["t0"]) * f,
-                         f"fb{seg['t0']:.0f}_{f}").astype(int).mean(axis=2)
-            except Exception:
-                return None
-            m = a > 16
-            rows, cols = np.where(m.any(axis=1))[0], np.where(m.any(axis=0))[0]
-            if not len(rows) or not len(cols):
-                continue        # 통암전 프레임(여운 연장) — 표본에서 뺀다
-            bx = (int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1)
-            # ★테두리는 «균일한 순흑»이어야 한다 (2026-09-08 스캔 실측: 어두운 옷·밤 침실
-            #   가장자리를 테두리로 오인) — 바깥 여백의 최대 밝기까지 검어야 인정
-            여백 = []
-            if bx[1] > 4: 여백.append(a[:bx[1], :])
-            if bx[3] < a.shape[0] - 4: 여백.append(a[bx[3]:, :])
-            if bx[0] > 4: 여백.append(a[:, :bx[0]])
-            if bx[2] < a.shape[1] - 4: 여백.append(a[:, bx[2]:])
-            if 여백 and max(float(z.max()) for z in 여백) > 26:
-                continue                                    # 진짜 검은 띠가 아니다
-            박들.append(bx)
-        if len(박들) < 3:
+                             테두리만 걷고 일반 번인 배제를 태운다(2026-09-08 Deep14).
+        None = 테두리 없음.
+        ★2026-10-03 (루키치206·172·171): 예전 이 자리의 판정은 «밝기 16 이하 가장자리 = 테두리»였고, 테두리 없는
+        표본(전체 화면)까지 상자로 세어 교집합을 냈다 — 표본 한 장만 어두운 밤 장면이어도 컷 전체가 좁아져
+        컷 상자 밑변이 박힌 자막까지 내려왔다(206 밤 운동장 «안쪽 1674x958» · 171 밤 골목 «레터박스 1161x1080»).
+        이제 띠는 «디지털 순흑 + 곧은 그림 경계» 둘 다일 때만 인정하고, 테두리 있는 표본끼리만 교집합을 낸다.
+        원본 크기도 실제 프레임에서 잰다(1920x960 원본 Deep61 이 1080 기준이라 전 컷 레터박스로 나오던 것)."""
+        from s2pipe import 안쪽경계 as 경계판정
+        장들 = [경계판정.프레임(dst_src, seg["t0"] + (seg["t1"] - seg["t0"]) * f)
+                for f in (0.15, 0.35, 0.5, 0.65, 0.85)]
+        if any(a is None for a in 장들):
             return None
-        x0 = max(p[0] for p in 박들); y0 = max(p[1] for p in 박들)
-        x1 = min(p[2] for p in 박들); y1 = min(p[3] for p in 박들)
-        w, h = x1 - x0, y1 - y0
-        if w <= 0 or h <= 0:
-            return None
-        W2, H2 = 1920, 1080
-        # ★작은 글자 카드(블랙아웃 펀치라인)는 프레임-인-프레임이 아니다 — 확대하면 뭉개진다
-        #   (2026-09-09 Deep61 «2주 전이다» 카드). build.py 와 같은 기준. 원본대로 둔다.
-        if w * h < W2 * H2 * 0.15:
-            return None
-        가로작음, 세로작음 = w <= W2 * 0.92, h <= H2 * 0.92
-        if 가로작음 and 세로작음:
-            return ("안쪽", (x0, y0, w, h))
-        if 가로작음 or 세로작음:
-            if (W2 - w) + (H2 - h) < 60:                   # 테두리가 사실상 없음 — 잡음
-                return None
-            return ("레터박스", (x0, y0, w, h))
-        return None
+        return 경계판정.판정(장들)
 
     안쪽컷 = set()
     for i, (seg, pic) in enumerate(zip(segs, picture)):
