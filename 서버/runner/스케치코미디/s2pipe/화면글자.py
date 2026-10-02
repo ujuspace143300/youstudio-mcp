@@ -116,6 +116,25 @@ def 시각들읽기(src, times, width=폭):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def 원본fps(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                        "-of", "csv=p=0", path], capture_output=True, text=True)
+    try:
+        a, b = r.stdout.strip().split(",")[0].split("/")
+        return float(a) / float(b or 1)
+    except (ValueError, ZeroDivisionError):
+        return 30.0
+
+
+def 훑기시각(t, 훑기fps, 영상fps):
+    """훑기 표본 시각 t 가 실제로 담은 프레임의 시각.
+    ★2026-10-02 실측(합성 영상 — 프레임마다 밝기 = 번호): ffmpeg fps 필터는 [t−½간격, t+½간격) 안의 «마지막» 프레임을 낸다 —
+      2fps·23.976 원본에서 표본 t = 원본 t+0.209~0.212초, 4fps 에서 t+0.083~0.085초. 루키치299 149.5초 표본이 읽은 «오빠» 는
+      실제로 149.70초에 처음 뜬 자막이었다(조각 끝 149.65 — 안 보였다). 훑기 캐시 시각은 그대로 두고(카드 확인 ±0.3초 창이 이
+      치우침 위에서 맞춰졌다) 시각을 정확히 써야 하는 곳(번인관문 글줄 자·비침관문)이 이 함수로 고친다."""
+    return t + 0.5 / 훑기fps - 1.0 / 영상fps
+
+
 def _wh(src):
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                         "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
@@ -194,6 +213,77 @@ def 자막표본(frames, 띠):
             if abs((x0 + x1) / 2 - 0.5) <= 자막가운데:
                 out += [(t, l) for l in g]
     return out
+
+
+확실확신 = 0.9          # 한 장만 읽힌 자막 표본을 «확실» 로 볼 확신(짧은 자막 «어?» 는 한 장 · 확신 1.0 — 루키치213 111.5초)
+확실높이 = (0.6, 1.6)   # 원본 자막 표본 높이 중앙값의 이 배수 안 — 버스·포장지 큰 글씨(점심이네46 «빵빠레» 환산 1.8배)를 뺀다
+
+
+def 확실한자막표본(표본):
+    """자막표본 중 «박힌 대사 자막이 확실한» 것만 — 위치를 잴 때(번인관문._위치보정·글줄)와 완성본 비침 판정(비침관문)용.
+    ★2026-10-02 비침관문 회귀(납품 155편) — 자막 자리 가운데에 든 장면 글자가 한 장씩 자막 표본에 섞였다: 점심이네46 아이스크림
+      «빵빽»(401.5초 · 확신 0.3 · 한 장) · 59 컵라면 «쌀짬뽈»(315.0 · 0.5 · 한 장) · 35 게임 화면 «스낌이 아직…»(252.5 · 0.3 · 한 장).
+      박힌 자막은 1초 넘게 같은 높이에 떠 있어 이웃 표본(±0.6초 · 높이 차 0.015 안 · 글줄 높이 비 0.7~1.4)이 있거나, 짧아도 확신이
+      높다(0.9↑). 글줄 높이도 그 원본 자막 높이 중앙값의 0.6~1.6배 안이다. 이 셋으로 거른다.
+    카드 확인(가짜 가르기)·놓친 자막 채우기는 예전처럼 모든 표본을 쓴다 — 거기서 빼면 진짜 카드를 버리는 쪽으로 샌다."""
+    if not 표본:
+        return []
+    hs = sorted(l["h"] for _t, l in 표본)
+    med = hs[len(hs) // 2]
+    out = []
+    for t, l in 표본:
+        if not (확실높이[0] * med <= l["h"] <= 확실높이[1] * med):
+            continue
+        if l["c"] >= 확실확신 or any(0 < abs(t2 - t) <= 0.6 and abs(l2["y"] - l["y"]) <= 0.015
+                                    and 0.7 <= l2["h"] / max(l["h"], 1e-6) <= 1.4 for t2, l2 in 표본):
+            out.append((t, l))
+    _윗선고르기(out, med)
+    return out
+
+
+def _비슷한글(a, b):
+    ca, cb = re.findall(r"[가-힣0-9]", a), re.findall(r"[가-힣0-9]", b)
+    if not ca or not cb:
+        return True
+    짧, 긴 = (ca, list(cb)) if len(ca) <= len(cb) else (cb, list(ca))
+    n = 0
+    for ch in 짧:
+        if ch in 긴:
+            긴.remove(ch)
+            n += 1
+    return n >= 0.5 * len(짧)
+
+
+부푼상자 = 1.25        # 글줄 상자 높이가 자막 높이 중앙값의 이 배수를 넘으면 «부푼 상자» — 윗선을 아래 끝에서 잰다
+부푼여유 = 1.1         # 부푼 상자의 윗선 = 아래 끝 − 중앙값 × 1.1
+
+
+def 윗선추정(l, med):
+    """글줄 하나의 글자 윗선(화면 비율) — 부푼 상자(높이 > 중앙값 1.25배)는 아래 끝 − 중앙값 × 1.1 (아래 _윗선고르기 주석)."""
+    return l["y"] if l["h"] <= 부푼상자 * med else max(l["y"], l["y"] + l["h"] - 부푼여유 * med)
+
+
+def _윗선고르기(표본, med):
+    """같은 자막(이웃 표본 0.6초 안 · 윗선 차 0.04 안 · 글 절반 이상 같음)끼리 묶어 윗선 중앙값을 l["ys"] 에 둔다.
+    ★2026-10-02 루키치296 161.0초 — 인식기가 «고마워요 오빠 예쁘게 봐줘서» 한 장만 상자를 위로 24px 크게 잡았다(y 0.830 · 앞뒤 0.852).
+      한 장의 상자 흔들림이 카드 윗변·글줄 자를 끌어올려 가짜 걸림을 내지 않게, 위치는 자막 하나의 여러 장 중앙값으로 잰다.
+    ★부푼 상자(같은 날 점심이네35 255.5·257.0초 — «야 나 좀 살려줘»·«안돼 안돼 안돼» 상자 윗선 900·901 · 높이 0.099 = 중앙값 1.5배,
+      실제 글자 윗선 ≈940 · 같은 원본 보통 자막은 윗선 936·높이 0.063): 인식기 상자 «아래 끝» 은 흔들리지 않는다(0.933 · 보통 0.930) —
+      높이가 중앙값 1.25배를 넘으면 윗선 = 아래 끝 − 중앙값 × 1.1 로 잰다(213 보통 자막은 높이 ≈ 중앙값이라 그대로)."""
+    자취 = []
+    for t, l in sorted(표본, key=lambda x: x[0]):
+        for a in 자취:
+            t2, l2 = a[-1]
+            if 0 < t - t2 <= 0.6 and abs(l["y"] - l2["y"]) <= 0.04 and _비슷한글(l["s"], l2["s"]):
+                a.append((t, l))
+                break
+        else:
+            자취.append([(t, l)])
+    for a in 자취:
+        ys = sorted(윗선추정(l, med) for _t, l in a)
+        m = ys[len(ys) // 2] if len(ys) % 2 else (ys[len(ys) // 2 - 1] + ys[len(ys) // 2]) / 2
+        for _t, l in a:
+            l["ys"] = m
 
 
 def 캡션글자(l):
