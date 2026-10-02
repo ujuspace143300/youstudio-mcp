@@ -27,6 +27,11 @@ ffprobe -v error -show_entries stream=width,height:format=duration -of compact "
 $PY 검수도구/검은띠재기.py "$M" 2>&1 | tail -1
 $PY -m s2pipe.이음매관문 "$PJ" | tail -1
 $PY make.py "$PJ" --check 2>&1 | grep -E "상단 제목|통과|반려 [0-9]" | tail -1
+# ★클립 끝·경계 관문 (2026-10-02 규칙 12 · 사장님 A안) — 모든 클립 Start/End 가 시퀀스 프레임 격자 위이고 V1 끝(영상 끝)을
+#   넘는 클립이 없어야 NAS 에 쓴다. 예전 납품.sh 엔 이 검사가 없어 30fps 시퀀스에 60fps 격자로 지은 prproj(경계가 반 프레임 ·
+#   루키치 90편 전부, 그중 45편은 영상 끝까지 N.5장)가 그대로 나갔다. 자는 검수도구/prproj끝검사.py(조립 되읽기 관문과 같은 함수).
+PRJ=~/Desktop/스케치코미디/프리미어_$S/스케치_$S.prproj
+$PY 검수도구/prproj끝검사.py "$PRJ" || { echo "★$S prproj 클립 끝·경계가 격자 밖이거나 영상 끝을 넘는다 — FROM=7 체인.sh 로 prproj 를 다시 지어라(NAS 에 안 씀)"; exit 1; }
 echo "마스터 효과 항목 수: $($PY ~/Desktop/유스튜디오-규격서/스크립트/린박스/키트/도구/마스터효과심기.py ~/Desktop/스케치코미디/프리미어_$S/스케치_$S.prproj --확인만 2>&1 | grep -cE '멀티밴드|선택적 제한')"
 BASE="$OUTBASE"
 # ★같은 편 폴더가 이미 있으면 그 폴더에 덮어쓴다 (2026-09-28 싱글369 — 옛 납품(09-10)은 옛 제목으로 폴더 이름이 붙어 있어
@@ -55,4 +60,6 @@ PYEOF
 )
 [ -z "$MP" ] && MP="완성본_$ORIG.mp4"
 $PY NAS이관_sk.py ~/Desktop/스케치코미디/프리미어_$S/스케치_$S.prproj "$D" 2>&1 | head -1
+# 두 판(맥·윈도우)을 NAS 에서 되읽어 같은 자로 다시 잰다 — 이관이 시간 값을 건드리지 않았음을 확인
+$PY 검수도구/prproj끝검사.py "$D/스케치_$S.prproj" "$D/스케치_${S}_윈도우.prproj" || { echo "★$S NAS prproj 두 판 끝 관문 실패"; exit 1; }
 cp "$M" "$D/$MP" && [ "$(md5 -q "$M")" = "$(md5 -q "$D/$MP")" ] && echo "완성본 납품 대조 일치 → $D"

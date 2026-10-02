@@ -33,13 +33,19 @@ DONOR = {
              "V3": "ffd682c9-5d83-4631-971b-05617160dbff", "V4": "e02aa9b4-902f-4c19-8f2f-3c3f4641cc39",
              "V5": "12b91a7e-57e9-4d20-bc47-d71176d6e733", "A1": "ef3342f0-dcb7-4d31-88f0-7d17541ba09e",
              "A2": "391fadd0-3fd0-489a-bd03-bb54b05af6ca", "A3": "45501eac-bc31-4519-a4eb-c05b0aa1e815"},
-    "FRAME": 4233600000,          # 60fps 시퀀스 (실측)
+    # ★시퀀스 프레임 = 30fps (도너 VideoTrackGroup <FrameRate> 8467200000 틱 · 도너 클립 End 63개 전부 30fps 정수 장).
+    #   2026-10-02 수리 — 예전 값 4233600000(주석 «60fps 시퀀스 (실측)»)은 틀렸다. 30fps 시퀀스에 60fps 격자로 반올림해
+    #   클립 경계가 반 프레임(.5)에 떨어졌다: 루키치 300~211 90편 전부 안쪽 경계 41~116개, 그중 45편은 영상 끝까지
+    #   N.5장(루키치290 78.746초 → 4725/60 = 2362.5/30). 키트 제목끝맞춤.py 가 «넘는 End [N.5]» 로 8편을 잡았다.
+    #   이제 이 값을 도너 파일에서 되읽어 맞는지 확인한다(main 첫머리) — 도너를 바꿔도 격자가 몰래 어긋나지 않게.
+    "FRAME": 8467200000,
     "미디어키": {"원본": "구간_원본_가로", "템플릿": "그래픽_템플릿"},
 }
 FRAME = DONOR["FRAME"]
 
 
 def frame_ticks(sec):
+    """초 → 시퀀스 프레임 격자 위의 틱(가장 가까운 장). 모든 클립 Start/End 는 이 함수만 지난다."""
     return int(round(float(sec) * TPS / FRAME)) * FRAME
 
 
@@ -237,7 +243,20 @@ def main():
     alloc = Alloc(doc)
     T = DONOR["트랙"]
     seq_uid = re.search(r'<Sequence ObjectUID="([0-9a-f-]+)"', doc.xml).group(1)
+    # ★격자 관문(2026-10-02) — 도너 시퀀스 프레임이 FRAME 과 같아야 한다(다르면 모든 경계가 반 프레임에 떨어진다)
+    _tg = re.search(r'^\t<VideoTrackGroup ObjectID="\d+"[^>]*>.*?<FrameRate>(\d+)</FrameRate>', doc.xml, re.M | re.S)
+    assert _tg and int(_tg.group(1)) == FRAME, (
+        f"도너 시퀀스 프레임 {_tg and _tg.group(1)} 틱 ≠ 조립 격자 FRAME {FRAME} — DONOR['FRAME'] 을 도너에 맞춰라")
+    # ★영상 끝 = V1 마지막 컷 끝(2026-10-02) — 모든 클립(A1·나레·효과음·껍데기·제목·나레 자막·대사)의 끝을 여기로
+    #   묶는다(끝맞춤). 규칙 12 «제목·자막·소리 클립이 영상 끝 프레임을 넘지 않는다» 를 생성 단계에서 보장한다.
+    영상끝 = frame_ticks(tl["picture"][-1]["t1"])
     total = frame_ticks(tl["total_s"])
+    if total != 영상끝:
+        print(f"  주의  총길이 {total / FRAME:g}장 ≠ V1 끝 {영상끝 / FRAME:g}장 — V1 끝을 쓴다", file=sys.stderr)
+        total = 영상끝
+
+    def 끝맞춤(t1):
+        return min(t1, 영상끝)
     box = tl["box"]
 
     # 견본 (각 트랙 첫 아이템)
@@ -264,6 +283,10 @@ def main():
         cbox = cut.get("box", box)
         cut_params = {"위치": cbox["pos"], "비율 조정": cbox["scale"], "폭 비율 조정": cbox["scale"]}
         t0, t1 = frame_ticks(cut["t0"]), frame_ticks(cut["t1"])
+        # 격자 반올림으로 컷이 실제 길이보다 한 장 넘게 길어지면 마지막 장이 원본의 다음 샷(번쩍임)이다 — 막는다
+        _실길이 = int((cut["t1"] - cut["t0"]) * TPS)
+        assert t1 - t0 >= FRAME and t1 - t0 - FRAME < _실길이, (
+            f"컷 「{cut['name']}」 격자 길이 {(t1 - t0) / FRAME:g}장 vs 실제 {cut['t1'] - cut['t0']:.4f}s — 반올림이 컷을 비우거나 다음 샷까지 문다")
         si = int(cut["src_in"] * TPS)
         so = si + (t1 - t0)
         vi, _b, _u = clone_item(doc, tpl_v1, alloc, new_blocks, span=(t0, t1), inout=(si, so),
@@ -321,7 +344,10 @@ def main():
         tick_rate = TPS // rate
         dur_ticks = nframes * tick_rate
         t0 = frame_ticks(nar["t0"])
-        length = min(frame_ticks(nar["t1"]) - t0, (dur_ticks // FRAME) * FRAME)
+        length = min(끝맞춤(frame_ticks(nar["t1"])) - t0, (dur_ticks // FRAME) * FRAME)
+        if length < FRAME:
+            print(f"  ★{소리트랙} 「{nar['text'][:20]}」 영상 끝 뒤라 뺌 (시작 {t0 / FRAME:g}장)", file=sys.stderr)
+            continue
         t1 = t0 + length
         # 나레는 마스터클립·미디어까지 통째 복제해야 파일을 갈아 끼울 수 있다 — stop 없이 전부
         ids, uids = collect_lineage(doc, [tpl_a2, cpi_nar])
@@ -375,9 +401,21 @@ def main():
     # 제목 = **화면 안** 텍스트 그래픽 (2026-09-08 사장님 A안 — «프리미어에서 수정할 수 있어야 해»).
     #   줄별 1장, 위치·크기·색·폰트는 준비가 큐에 실어 보낸다(규격 layout.title → 신병4 실측 환산).
     #   화면 밖 y1.8 로 숨기고 껍데기에 굽던 2026-09-01 구조는 폐기 — 눈에 보이는 제목이 곧 수정 자리다.
-    for cue in tl["cues"]:
+    # 같은 레인(나레 자막·대사)의 다음 큐 시작 — 격자 반올림·최소 1장 늘림이 다음 큐를 덮지 않게 끝을 거기서 자른다.
+    #   제목은 줄마다 다른 트랙에 같은 시간으로 깔리므로 제외.
+    다음시작 = {}
+    for _lane in ("narr", "dlg"):
+        _qs = sorted((k for k, c in enumerate(tl["cues"]) if c["lane"] == _lane), key=lambda k: tl["cues"][k]["t0"])
+        for _a, _b in zip(_qs, _qs[1:]):
+            다음시작[_a] = frame_ticks(tl["cues"][_b]["t0"])
+    for _ci, cue in enumerate(tl["cues"]):
         lane = cue["lane"]
-        t0, t1 = frame_ticks(cue["t0"]), max(frame_ticks(cue["t1"]), frame_ticks(cue["t0"]) + FRAME)
+        t0 = frame_ticks(cue["t0"])
+        t1 = 끝맞춤(min(max(frame_ticks(cue["t1"]), t0 + FRAME), 다음시작.get(_ci, 영상끝)))
+        if t1 - t0 < FRAME:
+            assert lane != "title", f"제목 큐가 영상 끝 뒤다: {cue}"
+            print(f"  ★{lane} 큐 「{cue['text'][:20]}」 한 장도 안 남아 뺌 ({t0 / FRAME:g}장)", file=sys.stderr)
+            continue
         texts = [cue["text"]] + [""] * (runs[lane] - 1)
         gi = GRAPHIC_IN
         if lane == "title":
@@ -984,7 +1022,14 @@ def main():
     tpl_ok = tpl_dur + 1e-3 >= tl["total_s"]
     res["checks"].append({"check": "템플릿 길이 ≥ 시퀀스 총길이", "pass": tpl_ok,
                           "detail": f"템플릿 {tpl_dur:.2f}s vs 총 {tl['total_s']:.2f}s"})
-    ok = res["pass"] and not blob_bad and not 층색오류 and tpl_ok and not 제목오류
+    # 되읽기 게이트(2026-10-02 규칙 12) — 저장된 파일에서 모든 클립 Start/End 가 시퀀스 프레임 격자 위이고
+    #   V1 끝(영상 끝)을 넘는 클립이 없어야 한다. 납품.sh 도 같은 자(검수도구/prproj끝검사.py)로 NAS 에 쓰기 전에 다시 잰다.
+    sys.path.insert(0, os.path.join(HERE, "검수도구"))
+    import prproj끝검사 as _끝
+    _끝r = _끝.재기(open(out_path, "rb").read())
+    res["checks"].append({"check": "클립 끝·경계 = 시퀀스 격자 · 영상 끝 넘음 0 (규칙 12)", "pass": not _끝r["탈"],
+                          "detail": _끝.한줄(_끝r)})
+    ok = res["pass"] and not blob_bad and not 층색오류 and tpl_ok and not 제목오류 and not _끝r["탈"]
     for c in res["checks"]:
         print(("  [OK] " if c["pass"] else "  [X] ") + str(c["check"]) + "  " + str(c.get("detail", "")))
     print(f"저장 {out_path}: 컷 {len(v_refs)} · 나레 {len(a2_refs)} · 제목 {len(refs['title'])} · "
