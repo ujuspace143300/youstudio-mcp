@@ -279,6 +279,52 @@ def check(proj, path):
             bad.append(f"★규격 글꼴 없음({_k}): {_fp} — 자산스테이징.sh 로 복원하라"
                        f" (조용한 폴백 금지)")
 
+    # ★글자 모양 게이트 (2026-10-02 루키치185 «라잌»·«오 쉣» 이 완성본에 빈칸) — sub.ttf·title.ttf 는 한글 11,172자가
+    #   cmap 에 다 있지만 8,822자는 모양(윤곽)이 비어 있다(완성형 2,350자만 그려짐). cmap 만 보는 폴백 검사는 «있다» 로
+    #   통과시켜 빈칸이 그대로 나갔다(감사: Deep87 깄 · 루키치198 줜 · 싱글147·172 쉣 · 싱글211 읎 · 싱글251 쌰 · 싱글160 제목 퇼).
+    #   화면에 박히는 글(자막·나레 자막·제목·하단 원제)의 글자마다 그 글꼴에 윤곽이 있는지 잰다 — 없으면 반려.
+    def _빈글자(fp, 글):
+        if not fp or not os.path.exists(fp) or not 글:
+            return []
+        try:
+            from fontTools.ttLib import TTFont
+            from fontTools.pens.boundsPen import BoundsPen
+        except ImportError:
+            return []
+        _c = _빈글자.__dict__.setdefault("캐시", {})
+        if fp not in _c:
+            _t = TTFont(fp)
+            _c[fp] = (_t.getBestCmap(), _t.getGlyphSet(), {})
+        cm, gs, memo = _c[fp]
+        out = []
+        for ch in sorted(set(글)):
+            if ch.isspace() or not ch.isprintable():
+                continue
+            if ch not in memo:
+                g = cm.get(ord(ch))
+                if g is None:
+                    memo[ch] = True
+                else:
+                    bp = BoundsPen(gs)
+                    gs[g].draw(bp)
+                    memo[ch] = bp.bounds is None and ch not in " 　"
+            if memo[ch]:
+                out.append(ch)
+        return out
+    _lay = CFG["layout"]
+    _제목글 = proj.get("title") or []
+    _제목글 = "".join(_제목글 if isinstance(_제목글, list) else [str(_제목글)])
+    _검사 = [("자막", (_lay.get("subtitle") or {}).get("font"), "".join(s.get("text", "") for s in proj.get("subs", []))),
+            ("나레 자막", (_lay.get("narration_sub") or {}).get("font") or (_lay.get("subtitle") or {}).get("font"),
+             "".join(s.get("narration") or "" for s in segs)),
+            ("제목", (_lay.get("title") or {}).get("font"), _제목글),
+            ("하단 원제", (_lay.get("credit") or {}).get("font"), (proj.get("credit") or {}).get("title") or "")]
+    for _이름, _fp, _글 in _검사:
+        _빈 = _빈글자(_fp, _글)
+        if _빈:
+            bad.append(f"★글꼴에 모양이 없는 글자({_이름}): {''.join(_빈)} — 완성본에 빈칸으로 나간다. "
+                       f"보통 글자로 풀어 써라(예: 잌→크 · 쉣→쉐엣 · 줜나→존X · 읎→없) — {os.path.basename(_fp)}")
+
     # ★조각 안 통암전 — 굽기 전에 잡는다 (2026-09-27 싱글236: 원본 화면 전환용 검은 화면이 조각에 들어가
     #   ⑦ 준비의 같은 관문에서야 걸려 유료 굽기를 한 번 더 했다). 준비_prproj_sk.py 통암전 게이트와 같은 기준 —
     #   1초 간격 표본 2개 연속 «평균<12 이고 밝은 픽셀(>60) 거의 없음»(글자 카드는 통암전 아님).
