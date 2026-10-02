@@ -258,7 +258,10 @@ def main():
     # ★작표 캐시 (2026-09-04 실측: 재실행마다 모델이 새로 굴려 «사보타지»→«서버타지» 퇴행.
     #   입력(단어·로그라인)이 같으면 지난 결과를 그대로 쓴다 — 게이트만 다시 돈다.)
     import hashlib as _hl
-    작표키 = _hl.md5((json.dumps([w["w"] for w in words], ensure_ascii=False)
+    # ★2026-10-02 루키치225 — 키가 낱말 «글자»만 봐서, 조각 경계를 옮겨 다시 구웠는데 글이 같으면 옛 줄 시각을 그대로 썼다
+    #   (결말 3줄 0.78초 이름). 캐시 줄 시각은 뒤에서 다시 재지 않는다 — 키에 낱말 시작 시각(0.01초)을 넣어, 시각이 바뀌면
+    #   다시 작표한다. 아래 «줄 시작 = 낱말 시작» 관문이 이 클래스를 영구로 막는다.
+    작표키 = _hl.md5((json.dumps([[w["w"], round(float(w["t"]), 2)] for w in words], ensure_ascii=False)
                       + proj.get("logline", "")).encode()).hexdigest()[:12]
     캐시 = proj.get("_작표캐시") or {}
     if 캐시.get("key") == 작표키 and 캐시.get("lines"):
@@ -274,6 +277,18 @@ def main():
         from s2pipe import asr as _asr
         dlg = [{"t": round(float(l["t"]), 2), "text": 정돈(l["text"])}
                for l in _asr.to_lines(words, 14) if 정돈(l["text"])]
+    # ★영구 관문 (2026-10-02 루키치225 «작표 캐시 시각 낡음» 클래스): 대사 줄 시작은 반드시 지금 완성본 낱말 하나의
+    #   시작 시각이다(작표·쉼 묶음 모두 낱말 시각을 그대로 쓴다). 아니면 어디선가 옛 시각이 섞인 것 — 멈춘다.
+    _시작들 = sorted(round(float(w["t"]), 2) for w in words if w.get("type") != "punctuation")
+    import bisect as _bs
+    _밖 = []
+    for d in dlg:
+        k = _bs.bisect_left(_시작들, d["t"] - 0.02)
+        if not (k < len(_시작들) and abs(_시작들[k] - d["t"]) <= 0.02):
+            _밖.append((d["t"], d["text"]))
+    if _밖:
+        raise SystemExit(f"★대사 줄 {len(_밖)}개가 지금 완성본 낱말 시작 위에 없다(옛 시각 섞임) {_밖[:3]} — "
+                         "projects json 의 `_작표캐시` 를 지우고 FROM=4 로 다시 돈다(s2pipe/sync.py 작표 캐시 키·이 관문 참고).")
     print(f"대사 자막 {len(dlg)}줄 — {출처}")
 
     # ── ② 괄호 효과자막 — 옛 모델 표에서 가져와 강근거 정렬로 시각 매핑 ────────
