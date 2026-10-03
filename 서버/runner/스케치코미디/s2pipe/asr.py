@@ -30,13 +30,45 @@ def multipart(fields, files):
     return b"".join(out), f"multipart/form-data; boundary={b}"
 
 
-def req(url, data=None, ctype=None, method=None):
+class _벽시계초과(Exception):
+    pass
+
+
+def _벽시계(signum, frame):
+    raise _벽시계초과()
+
+
+def req(url, data=None, ctype=None, method=None, 한계=None):
+    """★2026-10-04 루키치 밤 배치 — 상태 조회가 연결된 채(ESTABLISHED) CPU 0% 로 32~44분 멈춘 일이 네 번(90·115·118·124).
+       urlopen timeout=300 은 소켓 한 번 읽기마다라 끝없이 기다릴 수 있었고, wait() 의 900초 한도는 요청과 요청 «사이» 만 쟀다.
+       이제 요청마다 벽시계 한도(올리기 600초 · 조회 60초)를 SIGALRM 으로 걸고, 조회(GET)는 3번까지 다시 묻는다.
+       올리기(POST)는 다시 보내면 두 번 과금될 수 있어 다시 묻지 않고 실패로 올린다."""
+    import signal, threading
     h = {"Authorization": f"Bearer {KEY}"}
     if ctype:
         h["Content-Type"] = ctype
-    r = urllib.request.Request(url, data=data, headers=h, method=method)
-    with urllib.request.urlopen(r, timeout=300) as res:
-        return json.loads(res.read().decode())
+    한계 = 한계 or (600 if data is not None else 60)
+    본쓰레드 = threading.current_thread() is threading.main_thread()
+    for 시도 in range(1 if data is not None else 3):
+        r = urllib.request.Request(url, data=data, headers=h, method=method)
+        옛 = signal.signal(signal.SIGALRM, _벽시계) if 본쓰레드 else None
+        if 본쓰레드:
+            signal.alarm(한계)
+        try:
+            with urllib.request.urlopen(r, timeout=min(한계, 300)) as res:
+                return json.loads(res.read().decode())
+        except (_벽시계초과, TimeoutError, urllib.error.URLError, ConnectionError) as e:
+            if 본쓰레드:
+                signal.alarm(0)          # 쉬는 동안 시계가 또 울리지 않게 먼저 끈다
+            if data is not None:
+                raise RuntimeError(f"Speechmatics 올리기 {한계}초 안에 응답 없음 — 다시 돌려라: {e!r}")
+            print(f"  Speechmatics 응답 없음({한계}초) — 다시 묻는다 {시도 + 1}/3: {e!r}", flush=True)
+        finally:
+            if 본쓰레드:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, 옛)
+        time.sleep(5)
+    raise RuntimeError(f"Speechmatics 조회 3번 모두 응답 없음: {url}")
 
 
 def load_vocab(slug, proj=None, channel=None):
