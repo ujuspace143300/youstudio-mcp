@@ -369,6 +369,81 @@ def 나레창(proj, wdir):
     return round(t0, 3), round(t0 + dur, 3), total
 
 
+# ── 자막 표의 나레 줄(kind=narr) — «조각에서 파생» 한 곳 ───────────────────────────────────────────
+# ★2026-10-03 루키치165·204 (사장님 «남은 도구 오류는 지금 개선해»).
+#   클래스 (가): 검수도구/초안자막쪼갬.py 가 줄 종류를 안 가리고 14자 넘는 줄을 둘로 갈라 나레 줄까지 두 개가 됐다
+#     (나레 자막은 노란 한 줄 · 최대 26자 — 대사 14자 규칙과 다르다). 납품 편 669편 중 85편 subs 의 나레 줄이 갈린 채 남았다.
+#   클래스 (나): 나레 줄 시각·문구가 subs/subs_before_sync 에 «따로 저장» 돼, 조각을 다시 짜면(계획고침·이음매수리·경계제안)
+#     옛 자리에 남았다 — 납품 편 274편이 나레 조각 머리와 0.05초 넘게, 110편이 1초 넘게 달랐다. sync 는 그 옛 줄을
+#     subs_before_sync 에서 그대로 베껴 와 고쳐지지 않았고, 에이전트가 편마다 손으로 옮겼다(204·167·170 …).
+#   수리: 나레 줄은 저장값이 아니라 segments[].narration(+ 조각 머리)에서 언제나 다시 만든다 — 아래 나레줄().
+#     make.py main(①⑤ 검사·②⑥ 굽기 직전)이 나레줄맞춤()으로 저장본을 덮고, sync 도 이 함수로 나레 줄을 만든다.
+#     최종 관문은 make check 의 나레줄검사() 하나(«나레 줄 수 = 나레 조각 수 · 시작 = 조각 머리 ±0.05초 · 문구 = 나레»).
+#   굽기(build.write_ass)·프리미어(준비 nar_t0)는 이미 조각에서 나레 자리를 만들었다 — 이 줄들이 쓰이는 곳은 sync 의
+#     «자막 시간 밖 말» 나레 창 면제와 검사·대조 도구다. 그래서 겉으로 안 보이고 손 작업만 늘었다.
+나레줄허용 = 0.05       # 나레 줄 시작과 조각 머리의 허용 차(초)
+
+
+def 나레줄(proj, wdir=None):
+    """나레 조각마다 자막 표용 나레 줄 [{"t", "text", "kind": "narr"}] — 문구 = 그 조각 narration 그대로(가르지 않는다),
+    시각 = 그 조각 머리(wdir 의 beats.json 이 keep 조각과 맞으면 굽기 실측, 아니면 계획 길이 누적 — 조각머리() 규칙)."""
+    자리 = 나레자리(proj)
+    if not 자리:
+        return []
+    keep = [k for k, s in enumerate(proj["segments"]) if s.get("keep", True)]
+    머리 = None
+    if wdir:
+        try:
+            머리, _총, _실 = 조각머리(proj, wdir)
+        except Exception:                                # noqa: BLE001 — 실측을 못 읽으면 계획 길이로
+            머리 = None
+    out = []
+    for i, at, t in 자리:
+        if 머리 is not None and i in keep and keep.index(i) < len(머리):
+            at = 머리[keep.index(i)]
+        out.append({"t": round(at, 2), "text": t, "kind": "narr"})
+    return out
+
+
+def 나레줄맞춤(proj, wdir=None):
+    """proj["subs"]·proj["subs_before_sync"] 의 나레 줄을 나레줄() 로 갈아 끼운다. 대사 줄은 손대지 않는다.
+    돌려주는 값 = 바뀐 칸 설명 목록(비면 이미 맞았다)."""
+    새 = 나레줄(proj, wdir)
+    바뀜 = []
+    for 칸 in ("subs", "subs_before_sync"):
+        if 칸 not in proj:
+            continue
+        옛 = [x for x in proj[칸] if x.get("kind") == "narr"]
+        if [(round(x.get("t", 0), 2), x.get("text")) for x in 옛] == [(x["t"], x["text"]) for x in 새]:
+            continue
+        바뀜.append(f"{칸} 나레 줄 {len(옛)}개 " + ",".join(f"{x.get('t', 0):.2f}" for x in 옛)
+                    + f" → {len(새)}개 " + ",".join(f"{x['t']:.2f}" for x in 새))
+        proj[칸] = sorted([x for x in proj[칸] if x.get("kind") != "narr"] + [dict(x) for x in 새],
+                          key=lambda x: x["t"])
+    return 바뀜
+
+
+def 나레줄검사(proj, wdir=None):
+    """반려 사유 목록 — 나레 줄 수 = 나레 조각 수 · 시작 = 조각 머리(±나레줄허용) · 문구 = 그 조각 narration.
+    subs 와 (있으면) subs_before_sync 둘 다 본다."""
+    새 = 나레줄(proj, wdir)
+    bad = []
+    for 칸 in ("subs", "subs_before_sync"):
+        if 칸 not in proj:
+            continue
+        옛 = sorted([x for x in proj[칸] if x.get("kind") == "narr"], key=lambda x: x["t"])
+        if len(옛) != len(새):
+            bad.append(f"{칸} 나레 줄 {len(옛)}개 ≠ 나레 조각 {len(새)}개"
+                       + (" (나레 줄이 갈렸다 — 나레는 가르지 않는다)" if len(옛) > len(새) else ""))
+            continue
+        for x, y in zip(옛, 새):
+            if abs(x["t"] - y["t"]) > 나레줄허용:
+                bad.append(f"{칸} 나레 줄 시작 {x['t']:.2f}초 ≠ 나레 조각 머리 {y['t']:.2f}초(옛 자리)")
+            if (x.get("text") or "").strip() != y["text"]:
+                bad.append(f"{칸} 나레 줄 문구 「{(x.get('text') or '')[:16]}」 ≠ 조각 나레 「{y['text'][:16]}」")
+    return bad
+
+
 def 프리미어색(dlg_cues, 번호, proj, wdir, pad, 조각, 옛키조각=None, log=print):
     """⑦ 용 — 판정 입력은 ⑥ 과 «똑같은» 큐(나레창·여운 뺀 총길이)로 만들고, 색은 줄 번호로 ⑦ 큐에 옮긴다.
 

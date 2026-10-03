@@ -251,7 +251,12 @@ def main():
 
     # 옛 모델 표 — 괄호 효과자막의 출처이자, 재실행 시 항상 같은 원천
     src = proj.get("subs_before_sync") or proj.get("subs", [])
-    narr = [s for s in src if s.get("kind") == "narr"]
+    # ★나레 줄은 옛 표에서 베끼지 않고 조각(narration + 굽기 실측 조각 머리)에서 다시 만든다 (2026-10-03 루키치204 등 —
+    #   조각을 다시 짠 뒤 subs_before_sync 의 옛 나레 줄 시각이 그대로 남아 «자막 시간 밖 말» 나레 창이 엉뚱한 자리를
+    #   면제했다. 규칙·근거는 s2pipe/화자색.py 나레줄() · 최종 관문은 make check 나레줄검사()).
+    from s2pipe import 화자색 as _HS
+    from s2pipe.cfg import CFG as _C0
+    narr = _HS.나레줄(proj, os.path.join(HERE, _C0["paths"]["work"], proj.get("slug", "")))
     model_dlg = sorted([dict(s) for s in src if s.get("kind") != "narr"], key=lambda x: x["t"])
 
     # ── ① 대사 자막 — 시각 = 시작 단어 실측, 경계·문구 = 모델 (실패 시 쉼 기준 묶음) ──

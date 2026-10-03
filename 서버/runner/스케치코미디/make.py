@@ -483,6 +483,33 @@ def check(proj, path):
                 else:
                     c[1] = max(c[0] + 0.3, min(cap, c[0] + 0.12 * len(c[3]) + 0.3))
         허용 = proj.get("결말절단허용") or []
+
+        # ★결말 «늘려라» 의 벽 — 원본 암전·아웃트로 로고 (2026-10-03 루키치164: agy 큐 끝은 1~3초 늦게 잡혀 결말 말끝이
+        #   로고 뒤로 가 있었다 — 이 주의가 «t1 을 암전 전까지 늘려라» 라며 실제로는 암전·로고 쪽으로 늘리라고 권했다.
+        #   사람이 프레임으로 보고 끝을 로고 164.54 앞 164.45 로 두었다). 벽 = 조각 _엔드카드시작 · build.엔드카드시작(굽기·준비와
+        #   같은 검출) · t1 뒤 첫 암전 프레임(s2pipe/경계자리.암전시각들 — 프레임마다). 이미 벽 앞이면 늘리라고 하지 않는다.
+        _벽캐시 = {}
+
+        def _끝벽(a, b):
+            if "아웃트로" not in _벽캐시:
+                _e = [x.get("_엔드카드시작") for x in segs if x.get("_엔드카드시작")]
+                if _e:
+                    _벽캐시["아웃트로"] = float(min(_e))
+                else:
+                    try:
+                        from s2pipe.build import 엔드카드시작 as _엔드
+                        _벽캐시["아웃트로"] = _엔드(_src, float(proj["source"].get("dur") or 0)) if os.path.exists(_src) else None
+                    except (Exception, SystemExit):           # noqa: BLE001
+                        _벽캐시["아웃트로"] = None
+            벽 = [w for w in [_벽캐시["아웃트로"]] if w is not None and w > a - 0.05]
+            if os.path.exists(_src):
+                try:                                       # 프레임마다(로고 앞 암전이 한 프레임뿐일 수 있다 — 164 164.539)
+                    from s2pipe.경계자리 import 암전시각들 as _암전
+                    벽 += [d for d in _암전(_src, a + 0.01, b)][:1]
+                except Exception:                          # noqa: BLE001
+                    pass
+            return min(벽) if 벽 else None
+
         for si, s in enumerate(segs):
             for c0, c1, tx, 글2 in 큐들:
                 if len(글2) < 3 or not (s["t0"] <= c0 < s["t1"]) or c1 >= s["t1"] + 3.0:
@@ -490,9 +517,20 @@ def check(proj, path):
                 끝추정 = "(실측)" if 가짜끝 else ""
                 if si == len(segs) - 1:
                     if c1 + 0.7 > s["t1"] + 0.02:          # 0.02 = 부동소수 여유(304.2+0.7 > 304.9 오판)
+                        벽 = _끝벽(s["t1"], c1 + 0.7)
                         if any(abs(c0 - h) < 0.3 for h in 허용):
                             warn.append(f"결말 발화 「{tx[:16]}」 {c0:.1f}~{c1:.1f}{끝추정} 가 t1={s['t1']:.1f} 에"
                                         f" 걸리지만 «결말절단허용» 명시로 통과")
+                        elif 벽 is not None and 벽 <= s["t1"] + 0.3:
+                            warn.append(f"결말 발화 「{tx[:16]}」 큐 끝 {c1:.1f}초{끝추정} 가 t1={s['t1']:.2f} 뒤지만 원본이"
+                                        f" {벽:.2f}초부터 암전·로고다 — 더 늘릴 자리 없음(큐 끝이 늦게 잡힌 것 · 늘리지 말 것)."
+                                        f" 결말 말끝 잘림은 ④ 이음매 관문(완성본 낱말)이 본다")
+                        elif 벽 is not None:
+                            절단판정.append(f"★결말 발화 끝 절단{agy표} — 마지막 조각이 {s['t1']:.1f}초에"
+                                       f" 끝나는데 발화 「{tx[:16]}」 큐가 {c1:.1f}초{끝추정}까지다."
+                                       f" t1 을 늘리되 원본 암전·로고 {벽:.2f}초 앞까지만(넘으면 로고·검은 화면이 들어온다)"
+                                       f" (카드 위 보이스오버 등 사람이 확인한 예외만 결말절단허용: [{c0:.1f}])")
+                            break
                         else:
                             절단판정.append(f"★결말 발화 끝 절단{agy표} — 마지막 조각이 {s['t1']:.1f}초에"
                                        f" 끝나는데 발화 「{tx[:16]}」 큐가 {c1:.1f}초{끝추정}까지다."
@@ -648,6 +686,18 @@ def check(proj, path):
     bad += _b
     warn += _w
 
+    # ── ★나레 줄 = 나레 조각 (2026-10-03 루키치165 «초안자막쪼갬 이 나레 줄도 14자로 둘로 가름» · 204 «조각을 다시 짠 뒤
+    #   나레 줄 시각이 옛 자리에 남음» — 납품 669편 중 갈림 85 · 옛 자리 274). 자막 표의 나레 줄은 조각에서 파생되는 값이라
+    #   main() 이 검사·굽기 직전에 화자색.나레줄맞춤() 으로 덮는다 — 이 관문은 그 뒤에도 어긋난 것(다른 길로 들어온 값)을 막는
+    #   최종 관문이다: 나레 줄 수 = 나레 조각 수 · 시작 = 조각 머리 ±0.05초 · 문구 = 조각 narration (subs·subs_before_sync).
+    try:
+        from s2pipe import 화자색 as _HS2
+        for _m in _HS2.나레줄검사(proj, os.path.join(HERE, CFG["paths"]["work"], proj.get("slug", ""))):
+            bad.append(f"★나레 줄 어긋남 — {_m}. 나레 줄은 조각에서 만든다: make.py 로 다시 돌리면 저절로 맞춘다"
+                       " (s2pipe/화자색.py 나레줄맞춤)")
+    except Exception as _e:                               # noqa: BLE001
+        bad.append(f"나레 줄 관문 못 돎: {str(_e)[:80]}")
+
     # ── 원본·fps
     src = proj.get("source", {})
     if not src.get("fps"):
@@ -666,6 +716,15 @@ def main():
         return 1
     path = args[0] if os.path.isabs(args[0]) else os.path.join(HERE, args[0])
     proj = json.load(open(path, encoding="utf-8"))
+
+    # ★나레 줄은 조각에서 파생 — 검사·굽기 직전 «한 곳» 에서 저장본을 조각 기준으로 덮는다 (2026-10-03 루키치165·204 —
+    #   조각을 다시 짠 뒤 에이전트가 편마다 손으로 나레 줄 시각을 옮기고, 갈린 나레 줄을 손으로 지웠다). 대사 줄은 그대로.
+    from s2pipe import 화자색 as _HS
+    _바뀜 = _HS.나레줄맞춤(proj, os.path.join(HERE, CFG["paths"]["work"], proj.get("slug", "")))
+    if _바뀜:
+        json.dump(proj, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        for _m in _바뀜:
+            print(f"  나레 줄을 조각에서 다시 맞춤 — {_m}")
 
     bad, warn = check(proj, path)
     print(f"─ {os.path.basename(path)}")

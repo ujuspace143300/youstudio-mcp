@@ -10,18 +10,25 @@
    · 뒤 조각 시작(t0) 바로 앞 0.25초에 말소리가 있으면 → 말 머리가 잘린 것 — t0 을 앞으로, 같은 기준으로 당긴다.
   «조용함» = 말대역(300~3500Hz) 소리가 그 둘레 6초의 바닥(20% 백분위)+6dB 아래. 숨(0.1초 안팎)은 0.2초를 못 넘는다.
   반영 뒤에는 ② 굽기부터 다시(FROM=2) — 재전사가 다시 돌고 이음매 관문이 다시 본다.
+
+  ★2026-10-03 루키치161 — 앞 조각 끝을 130.59→131.40 으로 늘리자고 했는데 130.589 가 화면 전환이라 다음 샷(아빠)의 대사까지
+    들어올 뻔했다(«샷을 모르는 알려진 한계» — 배치 지침에 «같은 샷 안으로 옮기면 화면이 튄다 · 원본 화면 전환 자리 우선» 으로만
+    적혀 있었다). 같은 클래스(경계 고침 도구가 샷 전환·암전·로고를 모르고 소리 크기만 본다)를 경계제안.py 와 함께
+    s2pipe/경계자리.py 한 곳으로 고쳤다: 옮길 자리는 같은 샷 안 · 암전·아웃트로 앞 · 조용한 골 0.25초↑(샷 전환 자리는 0.1초↑) ·
+    박힌 카드 한가운데가 아닌 곳. 자리가 없으면 옮기지 않고 «반려가 가짜인지 원본 소리로 확인 → 이음매허용(근거)» 또는
+    «사람이 조각을 다시 짠다» 를 찍는다(161 은 실제로 완성본 전사가 엄마 말끝을 다음 낱말에 붙여 들은 가짜 반려였다).
 """
-import json, os, subprocess, sys
-import numpy as np
+import json, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from s2pipe import 이음매관문  # noqa: E402
 
-slug = sys.argv[1]
+arg = [a_ for a_ in sys.argv[1:] if not a_.startswith("--")][0]
 쓰기 = "--쓰기" in sys.argv
 W = os.path.expanduser("~/Desktop/스케치코미디")
-pj = f"{W}/projects/{slug}.json"
+pj = arg if os.sep in arg else f"{W}/projects/{arg}.json"   # 경로를 주면 그 판을 잰다(쓰기는 그 파일에)
 proj = json.load(open(pj, encoding="utf-8"))
+slug = proj.get("slug") or os.path.basename(pj)
 
 # ★체인이 도는 중이면 고치지 않는다 (2026-09-26 — 도는 체인이 옛 내용을 덮어써 고친 값이 사라진 사건)
 def _체인중인가(pj):
@@ -37,48 +44,8 @@ def _체인중인가(pj):
 if _체인중인가(pj):
     sys.exit(f"★{os.path.basename(pj)} 체인이 도는 중이다 — 끝난 뒤 고친다(고쳐도 체인이 덮어쓴다)")
 src = f"{W}/work/{proj['source']['id']}.mp4"
-r = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
-                   capture_output=True, check=True)
-x = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768
-dur = len(x) / 16000
-FR = 320                                              # 20ms
-f = np.fft.rfftfreq(FR, 1 / 16000)
-sel = (f > 300) & (f < 3500)
-han = np.hanning(FR)
-n = len(x) // FR
-spec = np.abs(np.fft.rfft(x[:n * FR].reshape(n, FR) * han, axis=1))[:, sel].sum(axis=1)
-E = 20 * np.log10(spec + 1e-9)                         # 20ms 마다 말대역 dB
-
-
-def 조용(i):
-    a, b = max(0, i - 150), min(n, i + 150)            # 둘레 6초
-    return E[i] < np.percentile(E[a:b], 20) + 6.0
-
-
-def 말이어짐(t0, t1):
-    i0, i1 = int(t0 / 0.02), int(t1 / 0.02)
-    return sum(0 if 조용(i) else 1 for i in range(max(0, i0), min(n, i1))) >= max(1, (i1 - i0) // 2)
-
-
-def 조용한데까지(t, 방향, 최대=3.5, 연속=0.2):
-    """t 에서 방향(+1 뒤로 / -1 앞으로)으로 가며 조용함이 «연속» 초 이어지는 첫 자리의 가운데."""
-    i = int(t / 0.02)
-    need = int(연속 / 0.02)
-    run = 0
-    for k in range(int(최대 / 0.02)):
-        j = i + 방향 * k
-        if j < 0 or j >= n:
-            break
-        run = run + 1 if 조용(j) else 0
-        if run >= need:
-            mid = j - 방향 * (need // 2)
-            return round(mid * 0.02, 2)
-    # 끝까지 0.2초 조용함이 없으면(배경음이 계속 깔린 자리) 범위 안 가장 조용한 0.1초의 가운데로
-    js = [i + 방향 * k for k in range(int(최대 / 0.02)) if 0 <= i + 방향 * k < n - 5]
-    if not js:
-        return None
-    j = min(js, key=lambda j_: float(E[j_:j_ + 5].mean()))
-    return round((j + 2) * 0.02, 2)
+from s2pipe.경계자리 import 원본자리  # noqa: E402
+자리 = 원본자리(src, proj, log=print)
 
 
 bad, _warn = 이음매관문.검사(proj)
@@ -93,17 +60,16 @@ print(f"{slug}: 반려 이음매 {len(반려J)}곳")
 고침 = []
 for J, i in 반려J:
     a, b2 = segs[i], segs[i + 1]
-    꼬리 = 말이어짐(a["t1"], a["t1"] + 0.25)
-    머리 = 말이어짐(b2["t0"] - 0.25, b2["t0"])
-    if 꼬리:
-        새 = 조용한데까지(a["t1"], +1)
-        if 새:
-            고침.append((a, "t1", a["t1"], 새, "앞 조각 끝 뒤로 말이 이어짐 — 말끝 뒤 조용한 곳까지"))
-    if 머리:
-        새 = 조용한데까지(b2["t0"], -1)
-        if 새:
-            고침.append((b2, "t0", b2["t0"], 새, "뒤 조각 시작 앞에 말 머리 — 말 시작 앞 조용한 곳까지"))
-    if not 꼬리 and not 머리:
+    나레앞 = bool((b2.get("narration") or "").strip())
+    결과 = 자리.이음매고침(a["t1"], b2["t0"], 나레앞=나레앞)
+    for k, 옛, 새, 까닭 in 결과:
+        s_ = a if k == "t1" else b2
+        if 새 is None:
+            print(f"  이음매 {J:.2f} {k} {옛:.2f} 그대로 — ★{까닭}. 반려가 가짜인지(완성본 전사가 앞뒤 낱말을 붙여 들음)"
+                  f" 원본 소리로 확인해 이음매허용(근거)으로 두거나, 사람이 조각을 다시 짠다")
+        else:
+            고침.append((s_, k, 옛, 새, 까닭))
+    if not 결과:
         print(f"  이음매 {J:.2f} — 양쪽 다 조용하다(완성본 전사가 붙여 들음) — 손대지 않음")
 for s, k, a0, b0, why in 고침:
     print(f"  {k} {a0:.2f} → {b0:.2f}  ({why})")

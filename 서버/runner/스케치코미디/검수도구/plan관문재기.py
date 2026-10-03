@@ -69,6 +69,7 @@ for n in n목록:
             캐시[sid] = None
         json.dump(캐시, open(카드캐시, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     카드 = 캐시[sid]
+    카드줄 = G.카드줄읽기(os.path.join(W, "work", f"{sid}.mp4"), 만들기=False)   # ⑦ 설명시각 시계(2026-10-03) — 캐시만 읽는다
     초, 출처 = 초안(slug, 최종)
     행 = {"slug": slug, "초안출처": 출처, "카드": 카드, "파악로고": (파악 or {}).get("로고"), "파악": "json" if jp and os.path.exists(jp) else "md",
          "꼭남길수": len((파악 or {}).get("꼭남길", []))}
@@ -76,7 +77,7 @@ for n in n목록:
         if pj is None:
             행[이름] = None
             continue
-        bad, warn, 값 = G.검사(pj, 큐, 파악, 카드, fp)
+        bad, warn, 값 = G.검사(pj, 큐, 파악, 카드, fp, 카드줄=카드줄)
         행[이름] = {"반려": [[d, g] for d, g in bad], "값": 값}
     줄들.append(행)
     f = lambda x: "-" if x is None else ",".join(sorted({d for d, _g in x["반려"]})) or "통과"
