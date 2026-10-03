@@ -501,14 +501,17 @@ def check(proj, path):
                         _벽캐시["아웃트로"] = _엔드(_src, float(proj["source"].get("dur") or 0)) if os.path.exists(_src) else None
                     except (Exception, SystemExit):           # noqa: BLE001
                         _벽캐시["아웃트로"] = None
-            벽 = [w for w in [_벽캐시["아웃트로"]] if w is not None and w > a - 0.05]
+            # ★벽 판정은 s2pipe/경계자리.결말벽 한 곳 (2026-10-03 — 준비 여운 상한·prproj끝검사 납품 관문과 같은 자: 아웃트로 카드 ·
+            #   첫 암전 프레임 · 카드 로고/바탕이 먼저 뜬 프레임 · 그 앞 페이드). 원본이 없으면 아웃트로만.
+            _아 = _벽캐시["아웃트로"]
             if os.path.exists(_src):
-                try:                                       # 프레임마다(로고 앞 암전이 한 프레임뿐일 수 있다 — 164 164.539)
-                    from s2pipe.경계자리 import 암전시각들 as _암전
-                    벽 += [d for d in _암전(_src, a + 0.01, b)][:1]
+                try:
+                    from s2pipe.경계자리 import 결말벽 as _결말벽
+                    벽, _까닭 = _결말벽(_src, a + 0.01, b, 아웃트로=_아)
+                    return 벽
                 except Exception:                          # noqa: BLE001
                     pass
-            return min(벽) if 벽 else None
+            return _아 if _아 is not None and _아 > a - 0.05 else None
 
         for si, s in enumerate(segs):
             for c0, c1, tx, 글2 in 큐들:

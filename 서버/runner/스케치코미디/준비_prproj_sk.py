@@ -168,8 +168,18 @@ def main():
     try:
         _카드 = build.엔드카드시작(src_orig, proj["source"]["dur"], _막["t0"] + 2.0)
     except Exception:
-        _카드 = _막.get("_엔드카드시작")
-    여운_상한 = _카드 if _카드 else (proj["source"]["dur"] - 0.3)
+        _카드 = None
+    if _막.get("_엔드카드시작"):                          # 굽기가 잰 값과 둘 중 이른 것(감지가 None 을 내도 굽기 값은 쓴다)
+        _카드 = min(x for x in (_카드, float(_막["_엔드카드시작"])) if x is not None)
+    # ★끝 벽 = 아웃트로 카드 «앞» 의 암전·페이드·로고 겹침까지 (2026-10-03 루키치156·159·164·273 — 카드 감지 하나로만 벽을 정해
+    #   여운이 한 장 암전·밝아지는 카드·풍경 위 로고를 담았다. 배치 에이전트가 거의 매 편 손으로 «여운: 0» 을 넣었다).
+    #   판정은 s2pipe/경계자리.결말벽 한 곳 — make 결말 주의·prproj끝검사 납품 관문이 같은 함수를 부른다.
+    from s2pipe import 경계자리 as _벽
+    _여운창 = float(proj.get("여운", 1.8)) + 0.2
+    결말벽, 결말벽까닭 = _벽.결말벽(src_orig, _막["t1"], _막["t1"] + _여운창, 아웃트로=_카드)
+    if 결말벽 is not None:
+        print(f"  결말 벽 {결말벽:.3f}s — {결말벽까닭} (이야기 끝 {_막['t1']:.3f}s · 여운은 그 1프레임 앞까지)")
+    여운_상한 = 결말벽 if 결말벽 is not None else (proj["source"]["dur"] - 0.3)
     # ★결말확인 편(스토리가 원본 끝보다 앞에서 완결 — 뒤는 무관한 다른 스킷)은 여운을 끈다:
     #   여운은 원본을 앞으로 더 재생하는데 그 뒤가 다른 스킷이면 엉뚱한 장면이 붙는다
     #   (2026-09-10 싱글369: 합의금 결말 160.7s 뒤 바로 택시 꼰대 스킷 162s).
@@ -233,6 +243,12 @@ def main():
             _f0 = _격.번호(_s["t0"])
             _N = int(round((_e["out_dur"] if _e else (_s["t1"] - _s["t0"])) * _격.fps))
         컷창.append((_f0, _N))
+    _여운전끝 = 컷창[-1][0] + 컷창[-1][1]                  # 이야기 마지막 프레임 다음 번호(여운이 시작하는 자리)
+    if ext and 결말벽 is not None:
+        # 벽 프레임 «1장 앞» 까지만 — 벽 바로 앞 한 장은 암전·카드로 섞여 드는 첫 장일 수 있다(안전 여유 1프레임)
+        _벽장 = _격.번호(결말벽) - _여운전끝 - 1
+        if int(ext * _격.fps + 1e-6) > _벽장:
+            ext = _격.길이(_여운전끝, _여운전끝 + _벽장) if _벽장 > 0 else 0.0
     if ext:
         # ★여운은 프레임 단위로, 마지막 샷 안에서만 (2026-09-28) — 여운이 화면 전환을 넘으면 «마지막 컷 연장» 이 아니라
         #   다른 샷이 붙고, 끝 1~2장에 걸리면 번쩍임이다. 전환 프레임 앞에서 끝낸다.
@@ -243,6 +259,12 @@ def main():
             print(f"  여운 안 원본 {_격.시작(min(_전)):.3f}s 에 화면 전환 — 여운 {_n}장 → {min(_전) - _k1}장 (마지막 샷 안에서만)")
             _n = min(_전) - _k1
         ext = _격.길이(_k1, _k1 + _n) if _n > 0 else 0.0
+    # 관문: 여운 끝 ≤ 결말 벽 − 1프레임 (위 상한이 뒤에서 다른 길로 풀리면 여기서 멈춘다 — 2026-10-03 156·159)
+    if 결말벽 is not None:
+        _여운장 = int(round(ext * _격.fps)) if ext else 0
+        assert _여운전끝 + _여운장 <= _격.번호(결말벽) - 1 or _여운장 == 0, (
+            f"여운 끝(원본 {_격.시작(_여운전끝 + _여운장):.3f}s)이 결말 벽 {결말벽:.3f}s({결말벽까닭})를 넘는다 — "
+            f"s2pipe/경계자리.결말벽 상한이 풀렸다")
     if ext:
         segs[-1] = dict(segs[-1], t1=segs[-1]["t1"] + ext, _여운전t1=segs[-1]["t1"])
         total = round(total + ext, 4)
@@ -1155,7 +1177,10 @@ def main():
           "src_audio_tickrate": src_info["audio_tickrate"],
           "template": dst_tpl,
           "box": {"scale": scale, "pos": f"0.5:{cy}"},
-          "picture": picture, "narration": narration, "sfx": sfx, "cues": cues}
+          "picture": picture, "narration": narration, "sfx": sfx, "cues": cues,
+          # 여운 기록 — 납품 관문(검수도구/prproj끝검사.py)이 «이야기 끝 ~ 프리미어 끝» 사이만 결말 벽을 다시 잰다(2026-10-03)
+          "여운": {"전_src_end": round(_격.시작(_여운전끝), 4), "초": round(ext, 4),
+                 "벽": 결말벽, "까닭": 결말벽까닭}}
     out = os.path.join(out_root, "timeline_sk.json")
     json.dump(tl, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("생성:", out)

@@ -17,6 +17,9 @@
   · 영상 끝 = V1(비디오 트랙 그룹 첫 트랙) 클립 End 의 최댓값.
   · 탈 ① 영상 끝을 넘는 End (규칙 12)  ② 영상 끝이 프레임 격자 밖  ③ 격자 밖 Start/End (반 프레임 경계)
   셋 중 하나라도 있으면 종료코드 1. 윈도우판(*_윈도우.prproj)은 경로만 바꾼 사본이라 같은 자로 잰다.
+  탈 ④ (2026-10-03) 마지막 컷이 원본 «결말 벽»(아웃트로 카드·암전·카드 로고/바탕이 먼저 뜬 프레임·그 앞 페이드 —
+     s2pipe/경계자리.결말벽)을 넘는다 — 프리미어 끝에 로고·암전이 든다(루키치156·159·164·273). prproj 옆 timeline_sk.json 의
+     마지막 컷 원본 구간과 «여운» 기록(이야기 끝)으로 잰다. 옆에 timeline·원본이 없으면(NAS 사본) 안 잰다.
 
 쓰는 법
   python prproj끝검사.py <prproj> [<prproj> …] [--자세히]
@@ -91,6 +94,41 @@ def 한줄(r):
             f" · 격자 밖 경계 {len(r['격자밖'])}개")
 
 
+def 원본벽재기(prproj):
+    """★2026-10-03 루키치156·159·164·273 — 프리미어 끝 여운이 원본의 로고 앞 암전·페이드·로고 겹침을 넘어 프리미어 파일 끝에
+    로고·암전이 들어갔다(배치 에이전트가 매 편 손으로 «여운: 0» 을 넣어 다시 지음). 준비가 여운을 결말 벽 앞에서 끊지만, 이 관문은
+    만들어진 결과(timeline_sk.json 의 마지막 컷 원본 구간)를 같은 자(s2pipe/경계자리.결말벽)로 다시 잰다.
+    → {"재": bool, "탈": bool, "글": str}. prproj 옆에 timeline_sk.json · 소스/원본.mp4 가 없으면 재지 않는다(NAS 사본 등)."""
+    import json
+    import os
+    d = os.path.dirname(os.path.abspath(prproj))
+    tp, src = os.path.join(d, "timeline_sk.json"), os.path.join(d, "소스", "원본.mp4")
+    if not (os.path.exists(tp) and os.path.exists(src)):
+        return {"재": False, "탈": False, "글": "원본 결말 벽: timeline_sk.json·소스/원본.mp4 없음 — 안 잼"}
+    tl = json.load(open(tp, encoding="utf-8"))
+    pc = (tl.get("picture") or [None])[-1]
+    if not pc:
+        return {"재": False, "탈": False, "글": "원본 결말 벽: 컷 없음 — 안 잼"}
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from s2pipe import 경계자리, 프레임격자 as G
+    끝 = float(pc["src_in"]) + float(pc["t1"]) - float(pc["t0"])
+    기록 = tl.get("여운") or {}
+    옛판 = "전_src_end" not in 기록
+    a = float(기록["전_src_end"]) if not 옛판 else max(float(pc["src_in"]), 끝 - 1.9)
+    if 끝 - a < 0.02:
+        return {"재": True, "탈": False, "글": "원본 결말 벽: 여운 없음"}
+    g = G.얻기(src)
+    벽, 까닭 = 경계자리.결말벽(src, a, 끝 + 0.05, 아웃트로=경계자리.아웃트로찾기(src, a))
+    넘음 = 벽 is not None and g.번호(벽) < g.번호(끝)
+    글 = (f"원본 결말 벽 {'%.3f' % 벽 if 벽 is not None else '없음'}"
+         f"{(' (' + 까닭 + ')') if 까닭 else ''} · 프리미어 끝 = 원본 {끝:.3f}s")
+    if 넘음:
+        글 += f" ★벽을 {g.번호(끝) - g.번호(벽)}장 넘음"
+    if 옛판:                                        # 여운 시작 기록이 없는 옛 timeline — 끝 1.9초를 보니 이야기 속 암전일 수 있다
+        글 += " (옛 timeline — 여운 시작 기록 없음 · 주의만)"
+    return {"재": True, "탈": 넘음 and not 옛판, "글": 글}
+
+
 def main(argv):
     자세히 = "--자세히" in argv
     paths = [a for a in argv if not a.startswith("--")]
@@ -98,9 +136,17 @@ def main(argv):
         print(__doc__)
         return 2
     나쁨 = 0
+    벽본 = {}
     for p in paths:
         r = 재기(open(p, "rb").read())
         print(("[OK] " if not r["탈"] else "[X] ") + f"{p}: " + 한줄(r))
+        # ★원본 결말 벽 (2026-10-03 156·159·273 — 프리미어 끝에 로고·암전) — 한 폴더의 맥판·윈도우판은 같은 timeline 이라 한 번만
+        _폴더 = __import__("os").path.dirname(__import__("os").path.abspath(p))
+        if _폴더 not in 벽본:
+            벽본[_폴더] = 원본벽재기(p)
+            w = 벽본[_폴더]
+            print(("  [OK] " if not w["탈"] else "  [X] ") + w["글"])
+            나쁨 += bool(w["탈"])
         if 자세히 and r["탈"]:
             f = r["frame"]
             for n, e in r["넘음"][:20]:

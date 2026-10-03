@@ -124,6 +124,18 @@ def 엔드카드시작(src, dur, 하한=0.0):
         if a is None or b is None:
             return False
         return float(_np.abs(a - b).mean()) <= 0.15
+    # ★길이는 «파일 실제 길이» 를 넘지 않게 (2026-10-03 루키치159·157 — 준비·make 는 계획 JSON 의 source.dur(0.1초 반올림 ·
+    #   341.4)를 넘겼는데 실제는 341.357 이라 아래 «꼬리 정지» 첫 판정이 파일 끝 너머를 읽어 None → 카드가 없는 편으로 알고
+    #   여운 상한이 «원본 끝 −0.3초» 가 됐다. 159 는 그래서 여운 1.8초가 로고 위로 들어갔다. 굽기는 ffprobe 길이를 넘겨서 몰랐다.
+    #   부르는 쪽마다 고치지 않고 여기 한 곳에서 맞춘다 — 계획 JSON 의 dur 를 넘겨도 같은 답이 나온다(루키치 67편 모의:
+    #   계획 dur 로 카드를 못 찾던 12편이 맞춤 뒤 찾음).
+    try:
+        _실 = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
+                                  capture_output=True, text=True).stdout.strip() or 0)
+        if _실 > 0:
+            dur = min(float(dur), _실)
+    except (OSError, ValueError):
+        pass
     시작 = dur - 0.6              # 끝-0.1 은 마지막 키프레임 뒤라 프레임이 안 나온다(2026-09-09 실측)
     if not _정지(시작):           # 꼬리가 정지 카드가 아니면(=실내용으로 끝남) 카드 없음
         return None
