@@ -44,7 +44,7 @@ def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조
         if 출력:
             json.dump(log, open(출력, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         return log, src, segs
-    원 = (build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림, 비침관문.재기)
+    원 = (build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림, 비침관문.재기, 비침관문.판재기)
     from s2pipe import framing
     얼굴걸림 = []
     원얼굴관문 = getattr(framing, "얼굴관문", None)
@@ -61,6 +61,10 @@ def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조
     튐관문.재기 = lambda *a, **k: ([], "모의 — 굽지 않음")
     번인관문.걸림 = lambda *a, **k: []
     비침관문.재기 = lambda *a, **k: ([], "모의 — 굽지 않음")       # 구운 cut.mp4 가 없다(2026-10-02 완성본 비침 관문)
+    # ★굽기 끝 판 관문도 비운다 — 아래에서 «멈추지 않고» 따로 돌려 결과에 적는다. 비우지 않으면 판이 걸린 편은 cut_and_join 이
+    #   AssertionError 로 죽어 beats.json·비트 줄·얼굴 관문 줄이 하나도 안 나왔다(2026-10-03 루키치158 «grep 으로 넘기면 비트·관문 줄이
+    #   안 보인다» — 실제로는 판 관문 걸림으로 모의가 중간에 죽은 것이었다. 터미널에선 긴 굽기 출력 끝 오류만 보여 «조용한» 것처럼 보였다).
+    비침관문.판재기 = lambda *a, **k: ([], "모의 — 아래에서 따로 잼")
     _stdout = sys.stdout
     try:
         if 조용히:
@@ -70,7 +74,7 @@ def 모의(slug, 가림빼기=False, work=None, 출력=None, 조용히=True, 조
         if 조용히:
             sys.stdout.close()
         sys.stdout = _stdout
-        build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림, 비침관문.재기 = 원
+        build._틀굽기, build.run, build.probe_dur, 튐관문.재기, 번인관문.걸림, 비침관문.재기, 비침관문.판재기 = 원
         if 원얼굴관문:
             framing.얼굴관문 = 원얼굴관문
     log = json.load(open(os.path.join(work, "beats.json"), encoding="utf-8"))
@@ -105,4 +109,4 @@ if __name__ == "__main__":
     from s2pipe import 비침관문 as _비
     for g in log.get("_판관문", []):
         print("★배경판 관문 걸림", _비.판글([g]))
-    print(f"배경판 관문 — {log.get('_판요약', '')}")
+    print(f"배경판 관문 — {log.get('_판요약', '')}", flush=True)
