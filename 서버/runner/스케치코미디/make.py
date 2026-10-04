@@ -491,27 +491,22 @@ def check(proj, path):
         _벽캐시 = {}
 
         def _끝벽(a, b):
-            if "아웃트로" not in _벽캐시:
-                _e = [x.get("_엔드카드시작") for x in segs if x.get("_엔드카드시작")]
-                if _e:
-                    _벽캐시["아웃트로"] = float(min(_e))
-                else:
-                    try:
-                        from s2pipe.build import 엔드카드시작 as _엔드
-                        _벽캐시["아웃트로"] = _엔드(_src, float(proj["source"].get("dur") or 0)) if os.path.exists(_src) else None
-                    except (Exception, SystemExit):           # noqa: BLE001
-                        _벽캐시["아웃트로"] = None
-            # ★벽 판정은 s2pipe/경계자리.결말벽 한 곳 (2026-10-03 — 준비 여운 상한·prproj끝검사 납품 관문과 같은 자: 아웃트로 카드 ·
-            #   첫 암전 프레임 · 카드 로고/바탕이 먼저 뜬 프레임 · 그 앞 페이드). 원본이 없으면 아웃트로만.
-            _아 = _벽캐시["아웃트로"]
+            # ★벽 판정은 s2pipe/경계자리.결말벽판정 한 곳 «같은 인자» (2026-10-04 루키치87 — 예전엔 make 만 아웃트로를 계획 dur ·
+            #   하한 0 으로, 창을 큐 끝+0.7 로 따로 정했다. 준비 여운 상한·prproj끝검사 납품 관문과 같은 함수·같은 인자로 부른다:
+            #   이야기끝 = 이 조각 t1 · 굽기카드 = 계획의 _엔드카드시작). 원본이 없으면 굽기카드만.
+            _e = [x.get("_엔드카드시작") for x in segs if x.get("_엔드카드시작")]
+            _굽 = float(min(_e)) if _e else None
             if os.path.exists(_src):
                 try:
-                    from s2pipe.경계자리 import 결말벽 as _결말벽
-                    벽, _까닭 = _결말벽(_src, a + 0.01, b, 아웃트로=_아)
-                    return 벽
+                    if a not in _벽캐시:
+                        from s2pipe.경계자리 import 결말벽판정 as _판정
+                        from s2pipe import 프레임격자 as _G
+                        _g = _G.얻기(_src)                  # 이야기끝은 준비처럼 «여운이 시작하는 프레임» 시각으로
+                        _벽캐시[a] = _판정(_src, _g.시작(_g.번호(a)), _굽)["벽"]
+                    return _벽캐시[a]
                 except Exception:                          # noqa: BLE001
                     pass
-            return _아 if _아 is not None and _아 > a - 0.05 else None
+            return _굽 if _굽 is not None and _굽 > a - 0.05 else None
 
         for si, s in enumerate(segs):
             for c0, c1, tx, 글2 in 큐들:
