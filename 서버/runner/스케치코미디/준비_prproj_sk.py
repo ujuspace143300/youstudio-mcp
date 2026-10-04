@@ -16,6 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from s2pipe.cfg import CFG  # noqa: E402  (--config 인자를 걷어간다)
 from s2pipe import build    # noqa: E402
+from s2pipe import ff       # noqa: E402  ffmpeg·ffprobe 스레드 상한 한 곳 (2026-10-04 · 검수도구/ffmpeg스레드시험.py)
 from prproj_lib_probe import ffprobe_info  # noqa: E402
 
 
@@ -236,8 +237,8 @@ def main():
     if ext:
         _t = _막["t1"]
         while _t < _막["t1"] + ext:
-            _r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{_t:.2f}", "-i", src_orig, "-frames:v", "1",
-                                 "-vf", "scale=64:36", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+            _r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{_t:.2f}", "-i", src_orig, "-frames:v", "1",
+                                 "-vf", "scale=64:36", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]),
                                 capture_output=True).stdout
             _k = len(_r) // 3
             if _k:
@@ -288,8 +289,8 @@ def main():
     지원코덱 = {"h264", "hevc", "prores", "qtrle", "mpeg4", "mjpeg", "dnxhd"}
 
     def vcodec(path):
-        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                              "-show_entries", "stream=codec_name", "-of", "csv=p=0", path],
+        out = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                              "-show_entries", "stream=codec_name", "-of", "csv=p=0", path]),
                              check=True, capture_output=True)
         return out.stdout.decode().strip()
 
@@ -302,10 +303,10 @@ def main():
             shutil.copy2(src_orig, dst_src)
         else:
             print(f"원본 코덱 {vcodec(src_orig)} — 프리미어 미지원 → H.264 변환 (수 분)")
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src_orig,
+            subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", src_orig,
                             "-vf", "fps=24000/1001", "-c:v", "libx264", "-preset", "fast",
                             "-crf", "16", "-pix_fmt", "yuv420p",
-                            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", dst_src], check=True)
+                            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", dst_src]), check=True)
     assert vcodec(dst_src) in 지원코덱, "원본 변환 실패 — 코덱 " + vcodec(dst_src)
     dst_nar = os.path.join(sdir, "나레_00.wav")
     # ★나레 wav 이름은 나레가 붙은 조각 번호를 따른다(narr01·narr02…) — 하드코딩 금지
@@ -320,8 +321,8 @@ def main():
                                  "plan 에서 나레를 한 조각에만 남기고 다시 구워라")
     나레들 = [os.path.join(wdir, f"narr{_나레조각[0]:02d}.wav")]
     assert os.path.isfile(나레들[0]), f"나레 wav 가 없다: {나레들[0]} — make 굽기를 먼저 돌려라"
-    run(["ffmpeg", "-y", "-v", "error", "-i", 나레들[0],
-         "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dst_nar])
+    run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", 나레들[0],
+         "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dst_nar]))
     # ★나레도 내용 지문 이름 — 같은 이름 제자리 교체는 프리미어 캐시와 섞인다
     #   (2026-09-03 템플릿 화면 뒤섞임 사건과 같은 함정)
     import hashlib as _hl0
@@ -452,7 +453,7 @@ def main():
         cmt_overlays.append((띠png, a0, a1, 0, b["y1"] - 띠h))
         print(f"  원문화면 띠 {a0:.1f}~{a1:.1f}s — 상자 위아래 {띠h}px 페이지색")
     if cmt_overlays:
-        args = ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba]
+        args = ff.명령(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba])
         for cp, *_r in cmt_overlays:
             args += ["-loop", "1", "-i", cp]
         fc, cur = "", "[0]"
@@ -465,11 +466,11 @@ def main():
                  "-r", "30", "-c:v", "qtrle", "-pix_fmt", "argb", dst_tpl]
         run(args)
     else:
-        run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba, "-t", f"{total + 1:.3f}",
-             "-r", "30", "-c:v", "qtrle", "-pix_fmt", "argb", dst_tpl])
+        run(ff.명령(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", rgba, "-t", f"{total + 1:.3f}",
+             "-r", "30", "-c:v", "qtrle", "-pix_fmt", "argb", dst_tpl]))
     # 되읽기 게이트(2026-09-02) — 템플릿이 총길이보다 짧으면 끝에서 껍데기가 빈다
-    tpl_dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                    "-of", "csv=p=0", dst_tpl], check=True, capture_output=True).stdout)
+    tpl_dur = float(subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                    "-of", "csv=p=0", dst_tpl]), check=True, capture_output=True).stdout)
     assert tpl_dur >= total, f"템플릿 {tpl_dur:.2f}s < 총길이 {total:.2f}s — 껍데기가 끝에서 빈다"
     # ★파일명에 내용 지문(2026-09-03 사장님 «화면 뒤섞임» 캡쳐) — 같은 이름으로 제자리
     #   교체를 반복하면 프리미어가 옛 미디어 캐시 조각과 섞어 그린다(파일 자체는 멀쩡함을
@@ -510,9 +511,9 @@ def main():
                 # ★여운 몫은 ext 그대로(굽기의 검은 꼬리 절단분을 여운으로 오인하던 계산 폐기,
                 #   2026-09-04) — 그리고 여운 끝 프레임이 암전이면 여운을 0 으로 한다.
                 import numpy as _np2
-                _r = subprocess.run(["ffmpeg", "-v", "error",
+                _r = subprocess.run(ff.명령(["ffmpeg", "-v", "error",
                                      "-ss", f"{실측세그[i]['t1'] + ext - 0.1:.2f}", "-i", dst_src,
-                                     "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                                     "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]),
                                     capture_output=True)
                 _a = _np2.frombuffer(_r.stdout, dtype=_np2.uint8)
                 if len(_a) and float(_a.mean()) < 12:
@@ -543,9 +544,9 @@ def main():
             # ★t0 가 0 보다 앞이면 그만큼 앞을 무음으로 채운다 — 0 으로 끌어올리면 창이 밀려 어긋남이 가짜로
             #   나온다(2026-09-27 싱글244: 조각 시작 0.3초 · 창 −0.65 → 가짜 −0.35초로 ⑦ 이 멈췄다).
             앞 = max(0.0, -t0)
-            r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t0,0):.3f}", "-i", path,
+            r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(t0,0):.3f}", "-i", path,
                                 "-t", f"{max(d - 앞, 0.01):.3f}", "-vn", "-ac", "1", "-ar", "16000",
-                                "-f", "s16le", "-"], capture_output=True)
+                                "-f", "s16le", "-"]), capture_output=True)
             x = _np.frombuffer(r.stdout, dtype=_np.int16).astype(float)
             return _np.concatenate([_np.zeros(int(round(앞 * 16000))), x]) if 앞 else x
         어긋난컷 = []
@@ -608,8 +609,8 @@ def main():
         연속, t = 0, seg["t0"] + 0.5
         끝 = seg.get("_여운전t1", seg["t1"])   # 여운 연장분은 여운 암전 프로브가 따로 판정한다
         while t < 끝:
-            r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
-                                "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+            r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
+                                "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]),
                                capture_output=True)
             # ★검은 배경 위 글자 카드(블랙아웃 펀치라인)는 «통암전» 이 아니다 — 밝은 글자 픽셀이 있다
             #   (2026-09-09 Deep61 «2주 전이다» 카드 평균 0.4·밝은픽셀 3180). build.py 검은꼬리와 같은 기준.
@@ -666,10 +667,10 @@ def main():
             if not os.path.exists(srcm):
                 continue
             w = os.path.join(sdir, f"효과음_{라벨}.wav")
-            dur0 = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                         "-of", "csv=p=0", srcm], check=True, capture_output=True).stdout)
-            run(["ffmpeg", "-y", "-v", "error", "-i", srcm, "-ac", "1", "-ar", "48000",
-                 "-c:a", "pcm_s16le", "-af", f"afade=t=out:st={max(0, dur0-0.4):.2f}:d=0.4,volume=-6dB", w])
+            dur0 = float(subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                         "-of", "csv=p=0", srcm]), check=True, capture_output=True).stdout)
+            run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", srcm, "-ac", "1", "-ar", "48000",
+                 "-c:a", "pcm_s16le", "-af", f"afade=t=out:st={max(0, dur0-0.4):.2f}:d=0.4,volume=-6dB", w]))
             _ww = wave.open(w)
             _wl = _ww.getnframes() / _ww.getframerate()
             _ww.close()
@@ -681,9 +682,9 @@ def main():
             if r["뺌"]:
                 continue
             if r["낮춤"]:
-                run(["ffmpeg", "-y", "-v", "error", "-i", e["srcm"], "-ac", "1", "-ar", "48000",
+                run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", e["srcm"], "-ac", "1", "-ar", "48000",
                      "-c:a", "pcm_s16le",
-                     "-af", f"afade=t=out:st={max(0, e['길이']-0.4):.2f}:d=0.4,volume=-12dB", e["wav"]])
+                     "-af", f"afade=t=out:st={max(0, e['길이']-0.4):.2f}:d=0.4,volume=-12dB", e["wav"]]))
             sfx.append({"wav": e["wav"], "t0": r["t0"], "t1": r["t1"], "text": f"효과음 {e['라벨']} {e['이름']}",
                         "_wav길이": e["wav길이"]})
         print(f"효과음 {len(sfx)}개: " + " · ".join(s_['text'] for s_ in sfx))
@@ -759,8 +760,8 @@ def main():
         import numpy as np
         from PIL import Image as _I
         p = os.path.join(wdir, f"_pv_{tag}.png")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
-                        "-frames:v", "1", p], check=True, capture_output=True)
+        subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
+                        "-frames:v", "1", p]), check=True, capture_output=True)
         return np.asarray(_I.open(p).convert("RGB"))
 
     def face_center(t0, t1, tag):
@@ -1005,10 +1006,10 @@ def main():
             x0 = clamp(960 + (0 - px_) / sc, 0, 1920 - 1080 / sc)
             y0 = clamp(540 + (b["y0"] - cy_) / sc, 0, 1080 - box_h / sc)
             mid = (seg["t0"] + seg["t1"]) / 2
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{mid:.2f}", "-i", dst_src,
+            subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-ss", f"{mid:.2f}", "-i", dst_src,
                             "-frames:v", "1", "-vf",
                             f"crop={1080/sc:.0f}:{box_h/sc:.0f}:{x0:.0f}:{y0:.0f},scale=540:-2",
-                            os.path.join(pvdir, f"컷{i+1:02d}.png")], check=True)
+                            os.path.join(pvdir, f"컷{i+1:02d}.png")]), check=True)
         except Exception as e:
             print("  미리보기 실패:", e)
 
@@ -1040,10 +1041,10 @@ def main():
             tt += 0.5
         for t in 타임들:
             p = os.path.join(wdir, "_gatechk.png")
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
+            subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", dst_src,
                             "-frames:v", "1", "-vf",
                             # 전체화면(fit-width) 컷은 상자가 원본보다 커진다 — 원본 안으로 잘라 넣는다(2026-09-27 싱글246)
-                            f"crop={min(1080/sc, 1920):.0f}:{min(box_h/sc, 1080):.0f}:{max(x0, 0):.0f}:{max(y0, 0):.0f}", p],
+                            f"crop={min(1080/sc, 1920):.0f}:{min(box_h/sc, 1080):.0f}:{max(x0, 0):.0f}:{max(y0, 0):.0f}", p]),
                            check=True, capture_output=True)
             a = np.asarray(Image.open(p).convert("RGB"))
             if 텍스트검출(a[int(a.shape[0] * 0.60):, :, :]):

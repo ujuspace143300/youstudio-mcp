@@ -46,6 +46,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np  # noqa: E402
 
 from s2pipe import 프레임격자 as G  # noqa: E402
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+_ff_d = _ff_os.path.dirname(_ff_d)
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 W = os.path.expanduser("~/Desktop/스케치코미디")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,7 +63,7 @@ class 채점자:
 
     def __init__(self, src, proj):
         self.src = src
-        r = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
+        r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"]),
                            capture_output=True, check=True)
         x = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768
         FR = 320

@@ -5,11 +5,18 @@
 t0 를 -0.5~+0.5s 로 옮겨 가며 게이트가 낼 값을 찍는다. 읽기 전용."""
 import os, subprocess, sys
 import numpy as np
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+_ff_d = _ff_os.path.dirname(_ff_d)
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 slug, t0 = sys.argv[1], float(sys.argv[2])
 src = os.path.expanduser(f"~/Desktop/스케치코미디/work/{slug}.mp4")
 def snd(a, d):
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(a,0):.3f}", "-i", src, "-t", f"{d:.3f}",
-                        "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(a,0):.3f}", "-i", src, "-t", f"{d:.3f}",
+                        "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"]), capture_output=True)
     return np.frombuffer(r.stdout, dtype=np.int16).astype(float)
 for k in range(-10, 11):
     t = round(t0 + k * 0.05, 2)

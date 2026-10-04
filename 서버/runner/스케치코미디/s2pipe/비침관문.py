@@ -30,6 +30,10 @@ import os
 import re
 import subprocess
 import sys
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 FPS = 4.0                  # 완성본 훑기 — 짧은 자막(«어?» 0.5초)도 두 장 이상 걸리게(77초 cut ≈ 6초)
 폭 = 1080                  # cut.mp4 원래 폭 그대로 읽는다(확대된 crop 이라 원본 훑기보다 글자가 크다)
@@ -109,8 +113,8 @@ def 재기(cut, src, log, 표본=None):
     _hs = sorted(l["h"] for _t, l in 전표본)
     자막높이 = _hs[len(_hs) // 2] if _hs else 0.05          # 이 원본 대사 자막 글줄 높이 중앙값(화면 비율)
     원 = [(화.훑기시각(t, c["fps"], sf), [화._줄(r) for r in rows]) for t, rows in c["frames"]]
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=width,height", "-of", "csv=p=0", cut], capture_output=True, text=True)
+    r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                        "stream=width,height", "-of", "csv=p=0", cut]), capture_output=True, text=True)
     bw, bh = (int(v) for v in r.stdout.strip().split(",")[:2])
     if 표본 is not None:
         frames = 표본

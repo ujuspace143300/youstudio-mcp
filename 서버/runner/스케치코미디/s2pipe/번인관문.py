@@ -61,6 +61,10 @@ import subprocess
 import sys
 
 import numpy as np
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 판 = 15                    # 잰 방법이 바뀌면 올린다(캐시 무효) — 9: 글자 인식으로 카드 확인·채우기(2026-09-29)
                            #   15: 확인된 카드 위치를 «확실한» 글줄로 보정 · 글줄(셋째 자)을 boxes 에 싣는다(2026-10-02 루키치213)
@@ -80,8 +84,8 @@ import numpy as np
 
 
 def _프레임(src, t, W, H):
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
-                        "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
+                        "-f", "rawvideo", "-pix_fmt", "gray", "-"]), capture_output=True)
     a = np.frombuffer(r.stdout, np.uint8)
     return a[:W * H].reshape(H, W).astype(np.int16) if len(a) >= W * H else None
 
@@ -225,8 +229,8 @@ def 카드상자들(src, log=None):
             return [b for b in c["boxes"] if not b.get("가짜")]
     except (OSError, ValueError, KeyError):
         pass
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
+    r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                        "stream=width,height", "-of", "csv=p=0", src]), capture_output=True, text=True)
     W, H = (int(v) for v in r.stdout.strip().split(",")[:2])
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(3) as ex:
@@ -414,8 +418,8 @@ def 캡션조각검사(src, segs, box, log=None):
     bad, warn = [], []
     if not 캡:
         return bad, warn
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
+    r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                        "stream=width,height", "-of", "csv=p=0", src]), capture_output=True, text=True)
     W, H = (int(v) for v in r.stdout.strip().split(",")[:2])
     ratio = float(box.get("w", 1080)) / float(box.get("h", 908))
     uh = int(H * box.get("sub_zone_top", 0.872))
@@ -543,8 +547,8 @@ if __name__ == "__main__":
     src, bj = sys.argv[1], sys.argv[2]
     boxes = 카드상자들(src, log=print)
     log = json.load(open(bj, encoding="utf-8"))
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
+    r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                        "stream=width,height", "-of", "csv=p=0", src]), capture_output=True, text=True)
     W, H = (int(v) for v in r.stdout.strip().split(",")[:2])
     crops, 미기록 = beats_crops(log, W, H)
     가 = []

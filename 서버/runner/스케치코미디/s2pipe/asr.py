@@ -11,6 +11,10 @@ import json, os, subprocess, sys, time, urllib.request, urllib.error, uuid
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 KEY = open(os.path.expanduser("~/.volcano/keys/speechmatics"), encoding="utf-8").read().strip()
 API = "https://asr.api.speechmatics.com/v2/jobs"
 
@@ -205,8 +209,8 @@ def main():
     # ★길이 정합 게이트(2026-09-03 Deep04: keep=False 조각이 구워져 3.7초 어긋남) —
     #   유료 전사에 돈을 태우기 전에, 완성본 길이 = 계획(keep 합)인지 먼저 확인한다.
     kept = sum(x["t1"] - x["t0"] for x in proj.get("segments", []) if x.get("keep", True))
-    cd = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                         "-of", "csv=p=0", cut], capture_output=True, text=True)
+    cd = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                         "-of", "csv=p=0", cut]), capture_output=True, text=True)
     try:
         cdur = float(cd.stdout.strip())
     except ValueError:
@@ -221,8 +225,8 @@ def main():
     if os.path.exists(wav) and os.path.getmtime(wav) < os.path.getmtime(cut):
         os.remove(wav)
     if not os.path.exists(wav):
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", cut,
-                        "-vn", "-ac", "1", "-ar", "16000", "-y", wav], check=True)
+        subprocess.run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", cut,
+                        "-vn", "-ac", "1", "-ar", "16000", "-y", wav]), check=True)
     mb = os.path.getsize(wav) / 1024 / 1024
     print(f"오디오 {mb:.1f}MB — Speechmatics 로 보낸다", flush=True)
 

@@ -51,6 +51,10 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import agy_gemini  # noqa: E402  서버/runner/agy_gemini.py
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 MODEL = "gemini-3.8-flash-high"  # ★2026-09-26 사장님 지정 «agy flash-high 로». (실측: 8분 원본 12분 41초 · low 는 약 3분 반)
 MAX_CHARS = 28          # Speechmatics to_lines 와 같은 줄 상한
@@ -82,8 +86,8 @@ SCHEMA = {
 
 
 def _dur(path):
-    o = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                        "-of", "csv=p=0", path], capture_output=True, text=True, check=True)
+    o = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "csv=p=0", path]), capture_output=True, text=True, check=True)
     return float(o.stdout.strip())
 
 
@@ -131,9 +135,9 @@ def _limit(span):
 def _자르기(whole, t0, t1, work):
     """360p 전체에서 [t0, t1] 을 재인코딩으로 잘라 낸다(-i 뒤 -ss — 볼트 규칙 «-c copy 금지»)."""
     out = os.path.join(work, f"구간_{t0:07.2f}_{t1:07.2f}.mp4")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", whole, "-ss", f"{t0:.3f}", "-t", f"{t1 - t0:.3f}",
+    subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", whole, "-ss", f"{t0:.3f}", "-t", f"{t1 - t0:.3f}",
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-b:a", "64k",
-                    "-ac", "1", out], check=True)
+                    "-ac", "1", out]), check=True)
     return out
 
 
@@ -603,13 +607,13 @@ def transcribe(src, vocab=None, model=None, log=print, caller="스케치코미�
     model = model or MODEL
     work = tempfile.mkdtemp(prefix="agy_asr_")
     aud = os.path.join(work, "원본.mp3")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000",
-                    "-b:a", "64k", aud], check=True)
+    subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000",
+                    "-b:a", "64k", aud]), check=True)
     dur = _dur(aud)
     # 영상 전체를 360p 로만 줄인다 — 길이·순서는 그대로, 올리는 용량만 줄인다
     whole = os.path.join(work, "원본_전체_360p.mp4")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "scale=-2:360", "-c:v", "libx264",
-                    "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-ac", "1", whole],
+    subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "scale=-2:360", "-c:v", "libx264",
+                    "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-ac", "1", whole]),
                    check=True)
     대조 = 대조 and dur > 대조창 * 1.5                   # 창이 원본 하나뿐이면 본 전사와 같은 답이라 잴 게 없다
     묻 = dict(캐시=캐시, 늘어남받음=대조)               # 대조가 있으면 늘어난 통째 답도 받는다(시각은 창이 정한다)
@@ -695,8 +699,8 @@ def 말소리_지도(path, 프레임=0.05, 이음=0.25):
     """원본 전체의 말소리 구간 [(시작, 끝)] — 말대역(800~3500Hz) 에너지가 주변 8초 바닥(20% 백분위)
     +8dB 를 넘는 프레임. «이음» 초보다 짧은 끊김은 잇고, 0.15초보다 짧은 소리는 버린다."""
     import numpy as np
-    r = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-vn", "-ac", "1", "-ar", "16000",
-                        "-f", "s16le", "-"], capture_output=True, check=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-i", path, "-vn", "-ac", "1", "-ar", "16000",
+                        "-f", "s16le", "-"]), capture_output=True, check=True)
     a = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768
     win = int(16000 * 프레임)
     n = len(a) // win
@@ -798,8 +802,8 @@ def 말소리_구간(path, t_guess, 창=1.2, 쉼=0.6):
         return None
     b = max(t_guess - 창 - 3.0, 0.0)
     d = 창 * 2 + 3.0 + 8.0
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{b:.2f}", "-t", f"{d:.2f}", "-i", path,
-                        "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{b:.2f}", "-t", f"{d:.2f}", "-i", path,
+                        "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"]), capture_output=True)
     a = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768
     win = 1600                                     # 0.1초
     if len(a) < win * 8:

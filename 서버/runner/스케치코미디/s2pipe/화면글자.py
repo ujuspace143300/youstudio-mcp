@@ -36,6 +36,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SWIFT = os.path.join(HERE, "화면글자_vision.swift")
@@ -90,8 +94,8 @@ def 훑기(src, fps=FPS, width=폭):
     """[(t, rows)] — 원본을 fps 로 풀어 프레임마다 글줄."""
     d = tempfile.mkdtemp(prefix="screentext_")
     try:
-        subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vf", f"fps={fps},scale={width}:-2", "-q:v", "2",
-                        os.path.join(d, "%06d.jpg")], check=True)
+        subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-i", src, "-vf", f"fps={fps},scale={width}:-2", "-q:v", "2",
+                        os.path.join(d, "%06d.jpg")]), check=True)
         fs = sorted(os.listdir(d))
         res = 그림들읽기([os.path.join(d, f) for f in fs])
         return [(round(i / fps, 3), r) for i, r in enumerate(res)]
@@ -106,8 +110,8 @@ def 시각들읽기(src, times, width=폭):
         ps = []
         for k, t in enumerate(times):
             p = os.path.join(d, f"{k:06d}.jpg")
-            subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
-                            "-vf", f"scale={width}:-2", "-q:v", "2", p], capture_output=True)
+            subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
+                            "-vf", f"scale={width}:-2", "-q:v", "2", p]), capture_output=True)
             ps.append(p)
         있음 = [p for p in ps if os.path.exists(p)]           # 원본 끝을 넘은 시각은 그림이 없다 — 빈 줄로 둔다
         읽음 = dict(zip(있음, 그림들읽기(있음)))
@@ -117,8 +121,8 @@ def 시각들읽기(src, times, width=폭):
 
 
 def 원본fps(path):
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
-                        "-of", "csv=p=0", path], capture_output=True, text=True)
+    r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                        "-of", "csv=p=0", path]), capture_output=True, text=True)
     try:
         a, b = r.stdout.strip().split(",")[0].split("/")
         return float(a) / float(b or 1)
@@ -136,8 +140,8 @@ def 훑기시각(t, 훑기fps, 영상fps):
 
 
 def _wh(src):
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True)
+    r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                        "stream=width,height", "-of", "csv=p=0", src]), capture_output=True, text=True)
     return tuple(int(v) for v in r.stdout.strip().split(",")[:2])
 
 
@@ -488,8 +492,8 @@ def _후보그림(src, a, W, H, p, 좁게=False):
     얼굴·몸이 안 들어가게(구글 안전 필터 대안 길 ①)."""
     from PIL import Image, ImageDraw
     import io
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{a['대표']['t']:.3f}", "-i", src, "-frames:v", "1",
-                        "-f", "image2", "-vcodec", "png", "-"], capture_output=True, check=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{a['대표']['t']:.3f}", "-i", src, "-frames:v", "1",
+                        "-f", "image2", "-vcodec", "png", "-"]), capture_output=True, check=True)
     im = Image.open(io.BytesIO(r.stdout)).convert("RGB")
     w, h = im.size
     l = a["대표"]
@@ -970,8 +974,8 @@ def 캡션자취들(src, log=print, 판정하기=True):
 def 프레임rgb(src, t, W, H):
     """원본 t 초 프레임 한 장(원본 해상도 RGB numpy) — 못 읽으면 None."""
     import numpy as np
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
-                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", src, "-frames:v", "1",
+                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]), capture_output=True)
     if len(r.stdout) != W * H * 3:
         return None
     return np.frombuffer(r.stdout, np.uint8).reshape(H, W, 3)

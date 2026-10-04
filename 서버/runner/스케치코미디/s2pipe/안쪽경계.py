@@ -29,6 +29,10 @@ import functools
 import subprocess
 
 import numpy as np
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 어둠 = 16          # 이 밝기 이하가 «띠 후보» (옛 판정과 같은 문턱 — 후보만 고르고 판정은 아래 두 생김새로 한다)
 순흑중앙 = 3       # ① 띠 안 밝기 중앙값 상한 — 편집 띠는 0
@@ -57,8 +61,8 @@ import numpy as np
 
 @functools.lru_cache(maxsize=64)
 def _크기(src):
-    wh = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                         "stream=width,height", "-of", "csv=p=0", src], capture_output=True, text=True).stdout
+    wh = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                         "stream=width,height", "-of", "csv=p=0", src]), capture_output=True, text=True).stdout
     try:
         W, H = (int(v) for v in wh.strip().split(",")[:2])
     except ValueError:
@@ -73,8 +77,8 @@ def 프레임(src, t):
     if not wh:
         return None
     W, H = wh
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", src, "-frames:v", "1",
-                        "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", src, "-frames:v", "1",
+                        "-f", "rawvideo", "-pix_fmt", "gray", "-"]), capture_output=True)
     a = np.frombuffer(r.stdout, np.uint8)
     return a.reshape(H, W) if len(a) == W * H else None
 

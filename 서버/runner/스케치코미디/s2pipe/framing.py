@@ -10,6 +10,10 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from .cfg import CFG
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 MODEL = os.path.join(CFG["paths"]["assets"], "models", "yunet.onnx")
 
 # ★OpenCV 5.0 에서 `cv2.CascadeClassifier` 가 **없어졌다**(AttributeError).
@@ -234,9 +238,9 @@ def frame_at(src, sec, work, tag):
     #   시각은 소수 4자리로 넘긴다 — 격자 경계값(p−0.002)을 0.01초로 반올림하면 이웃 프레임이 뽑힌다.
     p = os.path.join(work, f"_s_{tag}_{max(0, sec):.4f}.png")
     if not os.path.exists(p):
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
+        subprocess.run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error",
                         "-ss", f"{max(0, sec):.4f}", "-i", src, "-frames:v", "1",
-                        "-y", p], capture_output=True)
+                        "-y", p]), capture_output=True)
     return _read_rgb(p)
 
 
@@ -247,8 +251,8 @@ def frames_of(src, seg, work, tag, n=5):
         sec = t0 + (t1 - t0) * (k + 1) / (n + 1)
         p = os.path.join(work, f"_f_{tag}_{k}_{sec:.2f}.png")    # 시각을 이름에(경계 고친 재굽기에 옛 프레임 금지)
         if not os.path.exists(p):
-            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
-                            "-ss", f"{sec:.2f}", "-i", src, "-frames:v", "1", "-y", p],
+            subprocess.run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error",
+                            "-ss", f"{sec:.2f}", "-i", src, "-frames:v", "1", "-y", p]),
                            capture_output=True)
         a = _read_rgb(p)
         if a is not None:
@@ -265,8 +269,8 @@ def face_track(src, seg, W, usable_h, work, tag, step=0.8):
         sec = t0 + (t1 - t0) * k / n
         p = os.path.join(work, f"_t_{tag}_{k}_{sec:.2f}.png")    # 시각을 이름에(경계 고친 재굽기에 옛 프레임 금지)
         if not os.path.exists(p):
-            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
-                            "-ss", f"{sec:.2f}", "-i", src, "-frames:v", "1", "-y", p],
+            subprocess.run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error",
+                            "-ss", f"{sec:.2f}", "-i", src, "-frames:v", "1", "-y", p]),
                            capture_output=True)
         a = _read_rgb(p)
         if a is None:
@@ -466,9 +470,9 @@ def _반프레임(src, g, W, H, k0, k1):
     if k1 <= k0:
         return
     w2, h2 = _반크기(W, H)
-    p = subprocess.Popen(["ffmpeg", "-v", "error", "-ss", repr(g.경계값(k0)), "-i", src, "-frames:v", str(k1 - k0),
+    p = subprocess.Popen(ff.명령(["ffmpeg", "-v", "error", "-ss", repr(g.경계값(k0)), "-i", src, "-frames:v", str(k1 - k0),
                           "-vf", f"scale={w2}:{h2}:flags=area", "-fps_mode", "passthrough",
-                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     n = w2 * h2 * 3
     try:
         for k in range(k0, k1):
@@ -1188,8 +1192,8 @@ _크기캐시 = {}
 def _크기(src):
     """원본 가로·세로 (ffprobe · 한 편에 한 번)."""
     if src not in _크기캐시:
-        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
-                            "-of", "csv=p=0", src], capture_output=True, text=True)
+        r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                            "-of", "csv=p=0", src]), capture_output=True, text=True)
         try:
             w, h = (int(x) for x in r.stdout.strip().split("\n")[0].split(",")[:2])
         except Exception:

@@ -19,6 +19,13 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from s2pipe import 자막띠시각  # noqa: E402
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+_ff_d = _ff_os.path.dirname(_ff_d)
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 W = os.path.expanduser("~/Desktop/스케치코미디")
 나쁨 = 0
@@ -37,8 +44,8 @@ for slug in [a for a in sys.argv[1:] if not a.startswith("--")]:
             붙음 |= {(id(a), "t1"), (id(b), "t0")}
     # 카드는 말보다 먼저 뜨고 말 뒤에 남는다(싱글276 «뭐라고 부르면 될까요?» — 카드 63.1 · 말 63.9~) — 그래서
     #   «잘려 나가는 쪽에 실제 말소리가 0.2초 이상 있는가» 를 소리로 한 번 더 본다(이음매수리.py 와 같은 기준).
-    x = np.frombuffer(subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000",
-                                      "-f", "s16le", "-"], capture_output=True, check=True).stdout,
+    x = np.frombuffer(subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000",
+                                      "-f", "s16le", "-"]), capture_output=True, check=True).stdout,
                       dtype=np.int16).astype(np.float32) / 32768
     FR = 320
     n = len(x) // FR

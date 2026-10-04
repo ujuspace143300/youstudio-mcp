@@ -71,6 +71,10 @@ import subprocess
 import sys
 
 import numpy as np
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 FPS = 10
 W, H = 960, 540
@@ -149,9 +153,9 @@ def _카드재기(src):
     c0, c1 = int(W * 0.2) - x0, int(W * 0.8) - x0
     Y0, Y1 = int(H * 찾기위), int(H * 찾기아래)
     bw, bh = x1 - x0, Y1 - Y0
-    p = subprocess.Popen(["ffmpeg", "-v", "error", "-threads", "2", "-i", src, "-vf",
+    p = subprocess.Popen(ff.명령(["ffmpeg", "-v", "error", "-threads", "2", "-i", src, "-vf",
                           f"fps={FPS},scale={W}:{H},format=gray,crop={bw}:{bh}:{x0}:{Y0}",
-                          "-f", "rawvideo", "-"], stdout=subprocess.PIPE)
+                          "-f", "rawvideo", "-"]), stdout=subprocess.PIPE)
     묶, prof = [], np.zeros(bh)
     fsz = bw * bh
     while True:
@@ -610,7 +614,7 @@ def _아웃트로(src):
     """원본 아웃트로(정지 로고 카드) 시작 — 굽기·준비와 같은 검출(build.엔드카드시작) 하나를 쓴다. 못 재면 None."""
     try:
         from .build import 엔드카드시작                     # build 는 설정(CFG)을 읽는다 — 편시작처럼 S2_CONFIG 가 있을 때
-        d = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
+        d = float(subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src]),
                                  capture_output=True, text=True).stdout.strip())
         return 엔드카드시작(src, d)
     except (Exception, SystemExit):                        # noqa: BLE001 — 설정 없음(SystemExit)·ffprobe 실패면 모른다

@@ -21,6 +21,10 @@ import json
 import os
 import re
 import sys
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 붙음 = 0.08      # 낱말 끝이 이음매 앞 이만큼 안이면 잘린 꼬리
 빠듯 = 0.25      # make 옛 게이트의 «꼬리 빠듯» 여유와 같게
@@ -54,8 +58,8 @@ def _원본조용(proj, 원t, 폭=0.2, 쪽="뒤"):
         W = os.path.expanduser("~/Desktop/스케치코미디/work")
         src = os.path.join(W, f"{proj['source']['id']}.mp4")
         a0 = max(0.0, 원t - 3.0)
-        r = _sp.run(["ffmpeg", "-v", "error", "-ss", f"{a0:.2f}", "-t", "6", "-i", src, "-vn", "-ac", "1",
-                     "-ar", "16000", "-f", "s16le", "-"], capture_output=True)
+        r = _sp.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{a0:.2f}", "-t", "6", "-i", src, "-vn", "-ac", "1",
+                     "-ar", "16000", "-f", "s16le", "-"]), capture_output=True)
         x = _np.frombuffer(r.stdout, dtype=_np.int16).astype(_np.float32) / 32768
         FR = 320
         m = len(x) // FR

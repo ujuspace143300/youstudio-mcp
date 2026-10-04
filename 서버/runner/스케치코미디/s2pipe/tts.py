@@ -21,6 +21,10 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 ENDPOINT = "https://api.typecast.ai/v1/text-to-speech"
 
@@ -40,8 +44,8 @@ def _run(argv, what):
 
 
 def wav_seconds(path):
-    o = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-              "-of", "csv=p=0", path], "wav_seconds")
+    o = _run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+              "-of", "csv=p=0", path]), "wav_seconds")
     return float(o.strip())
 
 
@@ -75,14 +79,14 @@ def _후처리(raw, out_wav):
     """원음(raw) → 나레 wav — 두 단계 후처리(위 «후처리를 왜 두 단계로 하나»). synth 와 캐시길이 가 같이 쓴다."""
     os.makedirs(os.path.dirname(out_wav) or ".", exist_ok=True)
     mid = out_wav + ".norm.wav"
-    _run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
-          "-af", "loudnorm=I=-23.0:TP=-3:LRA=9", "-ar", "48000", "-ac", "1", mid],
+    _run(ff.명령(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
+          "-af", "loudnorm=I=-23.0:TP=-3:LRA=9", "-ar", "48000", "-ac", "1", mid]),
          "narr loudnorm")
-    _run(["ffmpeg", "-y", "-loglevel", "error", "-i", mid,
+    _run(ff.명령(["ffmpeg", "-y", "-loglevel", "error", "-i", mid,
           "-af", "silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.02:"
                  "stop_periods=-1:stop_threshold=-38dB:stop_duration=0.20:stop_silence=0.02,"
                  "loudnorm=I=-23:TP=-3:LRA=9",
-          "-ar", "48000", "-ac", "2", out_wav], "narr trim")
+          "-ar", "48000", "-ac", "2", out_wav]), "narr trim")
     os.remove(mid)
 
 

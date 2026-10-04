@@ -33,6 +33,10 @@ import subprocess
 import numpy as np
 
 from . import 프레임격자 as G
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 최소골 = 0.25        # 조용한 골이 이만큼은 돼야 경계를 놓는다 — 167 빠른 낭독형 말 사이 골 0.05초에서 말끝 «돼» 가 잘렸다
 최소골_전환 = 0.10   # 샷 전환 자리는 화면이 바뀌어 짧은 쉼도 가려진다
@@ -85,9 +89,9 @@ def _색프레임들(src, g, k0, k1, w=96, h=54):
     k0, k1 = max(0, k0), min(g.n, k1)
     if k1 <= k0:
         return np.zeros((0, h, w, 3), dtype=np.int16)
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", repr(g.경계값(k0)), "-i", src, "-frames:v", str(k1 - k0),
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", repr(g.경계값(k0)), "-i", src, "-frames:v", str(k1 - k0),
                         "-vf", f"scale={w}:{h}:flags=area", "-fps_mode", "passthrough",
-                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
+                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]), capture_output=True)
     a = np.frombuffer(r.stdout, dtype=np.uint8)
     m = len(a) // (w * h * 3)
     return a[:m * w * h * 3].reshape(m, h, w, 3).astype(np.int16)
@@ -273,7 +277,7 @@ class 원본자리:
     def __init__(self, src, proj=None, log=None):
         self.src = src
         self.log = log or (lambda *_: None)
-        r = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
+        r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"]),
                            capture_output=True, check=True)
         x = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768
         FR = 320

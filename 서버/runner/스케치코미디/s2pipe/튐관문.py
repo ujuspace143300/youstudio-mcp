@@ -28,14 +28,18 @@ import sys
 import numpy as np
 
 from . import 프레임격자 as G
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 크게_최소 = 8.0
 크게_배 = 3.0
 
 
 def _읽기(path, W=160, crop=None):
-    pr = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                         "stream=width,height,r_frame_rate", "-of", "csv=p=0", path],
+    pr = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                         "stream=width,height,r_frame_rate", "-of", "csv=p=0", path]),
                         capture_output=True, text=True).stdout.strip().split(",")
     w, h = int(pr[0]), int(pr[1])
     a, b = pr[2].split("/")
@@ -46,8 +50,8 @@ def _읽기(path, W=160, crop=None):
         w, h = crop[0], crop[1]
     H = max(2, int(round(W * h / w / 2)) * 2)
     vf.append(f"scale={W}:{H}:flags=area")
-    r = subprocess.run(["ffmpeg", "-v", "error", "-threads", "2", "-i", path, "-vf", ",".join(vf),
-                        "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True)
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-threads", "2", "-i", path, "-vf", ",".join(vf),
+                        "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-"]), capture_output=True)
     F = np.frombuffer(r.stdout, dtype=np.uint8)
     m = len(F) // (W * H)
     return F[:m * W * H].reshape(m, H, W).astype(np.int16), fps

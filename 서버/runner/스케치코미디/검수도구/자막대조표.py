@@ -7,6 +7,13 @@
   체인 게이트는 글자 수·시각만 본다. 원본에 구워진 자막이 정답이다 — 이 표를 보고 문구교정 핀을 박는다."""
 import json, os, subprocess, sys
 from PIL import Image, ImageDraw, ImageFont
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+_ff_d = _ff_os.path.dirname(_ff_d)
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 slug = sys.argv[1]
 proj = json.load(open(os.path.expanduser(f"~/Desktop/스케치코미디/projects/{slug}.json"), encoding="utf-8"))
@@ -31,8 +38,8 @@ for x in proj["subs"]:
     st = to_src(mid)
     if st is None: continue
     png = os.path.join(out, "_c.png")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{st:.2f}", "-i", src, "-frames:v", "1",
-                    "-vf", "crop=iw:ih*0.2:0:ih*0.78,scale=600:-1", png], check=True)
+    subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-ss", f"{st:.2f}", "-i", src, "-frames:v", "1",
+                    "-vf", "crop=iw:ih*0.2:0:ih*0.78,scale=600:-1", png]), check=True)
     band = Image.open(png).convert("RGB")
     row = Image.new("RGB", (1100, band.height), (250, 250, 250))
     row.paste(band, (500, 0))

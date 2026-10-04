@@ -23,6 +23,13 @@ ROOT = os.path.expanduser("~/Desktop/스케치코미디")
 os.environ.setdefault("S2_CONFIG", os.path.join(ROOT, "config.json"))
 import 맞춤평가 as M  # noqa: E402
 from s2pipe import agy_asr as A, 자막띠시각 as Z  # noqa: E402
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+_ff_d = _ff_os.path.dirname(_ff_d)
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 CACHE = os.path.expanduser("~/.cache/시각대조")
 
@@ -45,12 +52,12 @@ def 평가(slug, 본경로=None, 창만=False, log=print):
     src = os.path.join(ROOT, "work", f"{sid}.mp4")
     본경로 = 본경로 or os.path.join(ROOT, "work", f"{sid}.ko.vtt.맞춤전")
     _, L0 = Z.읽기(본경로)
-    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
+    dur = float(subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src]),
                                capture_output=True, text=True).stdout)
     work = tempfile.mkdtemp(prefix="시각대조평가_")
     whole = os.path.join(work, "원본_전체_360p.mp4")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "scale=-2:360", "-c:v", "libx264", "-preset", "veryfast",
-                    "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-ac", "1", whole], check=True)
+    subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "scale=-2:360", "-c:v", "libx264", "-preset", "veryfast",
+                    "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-ac", "1", whole]), check=True)
     vocab = []
     try:
         from s2pipe.asr import load_vocab

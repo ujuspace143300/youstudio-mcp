@@ -28,6 +28,10 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import judge_run   # noqa: E402  서버/runner/judge_run.py — agy 가 막힌 뒤의 규칙(멈춤·비상 길)과 PATH 빈틈 막기
 import agy_gemini  # noqa: E402  서버/runner/agy_gemini.py
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 EVO_BASE = "https://api.evolink.ai/v1beta/models"
 USER_AGENT = "script-engine/1.1"        # ★정본 상수. 바꾸면 멀티모달이 403 이다
@@ -50,19 +54,19 @@ def shrink_for_inline(mp4, log=print):
     if os.path.exists(dst) and os.path.getsize(dst) <= INLINE_MB * 1024 * 1024 \
             and os.path.getmtime(dst) >= os.path.getmtime(mp4):
         return dst
-    o = subprocess.run(["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-                        "-of", "csv=p=0", mp4], capture_output=True, text=True)
+    o = subprocess.run(ff.명령(["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                        "-of", "csv=p=0", mp4]), capture_output=True, text=True)
     try:
         dur = float(o.stdout.strip())
     except ValueError:
         dur = 0.0
     a_bps = 48000
     v_bps = max(120000, int(INLINE_MB * 1024 * 1024 * 8 / max(dur, 1)) - a_bps)
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", mp4,
+    r = subprocess.run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", mp4,
                         "-vf", "scale=-2:240,fps=12", "-c:v", "libx264",
                         "-b:v", str(v_bps), "-maxrate", str(v_bps), "-bufsize", str(v_bps * 2),
                         "-preset", "veryfast", "-c:a", "aac", "-b:a", str(a_bps), "-ac", "1",
-                        "-movflags", "+faststart", "-y", dst], capture_output=True, text=True)
+                        "-movflags", "+faststart", "-y", dst]), capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(dst):
         log("  ★판정 프록시 생성 실패 — 원본을 그대로 보낸다(agy 는 원본도 본다)")
         return mp4
