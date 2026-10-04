@@ -361,6 +361,8 @@ def check(proj, path):
             # ★굽기·준비와 같은 관문(s2pipe/번인관문.걸림 — 2026-09-27)을 굽기 전에 부른다. 가로 전체 = 원본 전체 사각형.
             from s2pipe import 번인관문 as _관
             _박 = _관.카드상자들(_src암)
+            # 화면 캡션을 잡은 카드는 뺀다(2026-10-04 루키치64 «다음날» — 번인관문.캡션카드빼기 · 굽기·준비 관문과 같게)
+            _박 = _관.캡션카드빼기(_박, _관.캡션들(_src암))
             _wh = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                                   "stream=width,height", "-of", "csv=p=0", _src암]), capture_output=True, text=True).stdout
             _W, _H = (int(v) for v in _wh.strip().split(",")[:2])
