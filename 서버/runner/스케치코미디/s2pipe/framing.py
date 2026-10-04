@@ -1252,8 +1252,12 @@ def 얼굴관문(src, plan, idx, work, usable_h, 확실=0.8, 한계초=0.5, 준�
       또 «가로 60% 만 들면 든 것» 이라 가장자리에 반쯤 걸친 얼굴도 통과했다(162: 목표 crop 에서는 얼굴이 안쪽 끝에 붙어 있었다).
     ★2026-09-29 (점심이네 «가짜 얼굴») — 계획이 고른 얼굴만 보던 build 관문은 계획이 벽 무늬·흐린 뒤통수를 고르면 통과했다.
       여러 얼굴 중 하나만 온전히 들어도 통과다(멀리 떨어진 사람은 한 사람만 담는 것이 규칙 — 무리고르기)."""
-    if not HAS_YN or not plan:
+    if not plan:
         return []
+    if not HAS_YN:
+        # ★못 재면 멈춤 (2026-10-04 수리C «삼키고 통과» 전수 점검) — 예전엔 검출기(cv2.FaceDetectorYN·yunet.onnx·복사본)가
+        #   없으면 걸림 [] 로 이 영구 관문이 통째로 통과했다(조각마다 «얼굴을 하나도 못 찾았다» 만 찍힘).
+        raise RuntimeError("얼굴관문 — 얼굴 검출기(cv2.FaceDetectorYN · 자산/스케치코미디 yunet.onnx)를 못 불러 잴 수 없다 · 멈춘다")
     from . import 프레임격자 as G
     g = G.얻기(src)
     W, H = _크기(src)
