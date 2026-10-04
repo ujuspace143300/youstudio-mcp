@@ -17,7 +17,9 @@
        카드 시각과 함께 보인다(사람이 진짜·가짜를 확인하는 표).
   --옛판 을 주면 같은 재료를 옛 관문으로도 재서 나란히 보이고, ⑦ 밖 검사(나레덮음·꼭남길·셋업·결말 — 대사찾기를 같이 쓴다)
   값이 바뀐 편을 적는다(회귀 확인).
-  종료코드: ① 가짜 반려 0 이고 ③ 진짜 반려 100% 면 0, 아니면 1.
+    ⑤ (2026-10-04) ⑧ 핵심 쌍 — 결말셋업 반려가 세 시리즈 납품 최종본에 0(알려진 예외 싱글15 제외)이고 루키치75 초안을 반려·73 초안을 [도입훅] 주의로 잡는가.
+       --핵심만 이면 ①~④ 를 건너뛰고 ⑤ 만 돈다.
+  종료코드: ① 가짜 반려 0 · ③ 진짜 반려 100% · ⑤ 가짜 0 이면 0, 아니면 1.
 """
 import importlib.util
 import json
@@ -112,7 +114,7 @@ def 로그반려(slug):
 합 = {"최종조각": 0, "최종가짜": 0, "최종가짜옛": 0, "최종편": 0, "최종편옛": 0, "초안가짜": 0, "초안가짜옛": 0,
      "모의": 0, "모의잡음": 0, "모의잡음옛": 0, "시계카드": 0, "시계전사": 0, "로그": 0, "로그남음": 0, "회귀편": []}
 남은가짜, 놓친모의, 로그표 = [], [], []
-for slug in 편들():
+for slug in ([] if "--핵심만" in sys.argv else 편들()):   # --핵심만: ⑤ 만
     pj = json.load(open(os.path.join(W, "projects", f"{slug}.json"), encoding="utf-8"))
     sid = pj["source"]["id"]
     큐 = G.큐읽기(os.path.join(W, "work", f"{sid}.ko.vtt"))
@@ -207,6 +209,79 @@ if 옛:
           " (납품 최종본이라 빠짐·덮음은 줄수록 가짜가 준 것)")
     for x in 합["회귀편"][:200 if "--자세히" in sys.argv else 15]:
         print("     " + x)
-ok = 합["최종가짜"] == 0 and 합["모의잡음"] == 합["모의"]
+
+
+# ⑤ 핵심 쌍(⑧ · 2026-10-04 루키치73·75) — 결말셋업 반려가 납품 최종본에 0(알려진 예외만) · 75 초안은 결말셋업 반려 · 73 초안은 [도입훅] 주의
+#   초안 = projects/<편>.json.plan원본 · 없으면 배치로그/<편>_2plan.txt 의 조각 표(plan 관문을 통과해 저장된 답 — 73·75 가 그렇다)
+#   시리즈는 ①~④ 와 따로 셋 다(루키치·점심이네·싱글) — 결말셋업 기준을 세 시리즈 최종본으로 맞췄다(plan관문.핵심쌍 주석).
+핵심예외 = {"싱글15": "결말셋업 — «나 설거지 좀 할게» 93.9~95.2 를 조각 머리 95.8 이 0.6초 앞에서 자름(사람이 둔 자리 · 결과.tsv 납품)"}
+핵심꼭 = {"루키치75": ("반려", "결말셋업"), "루키치73": ("주의", "[도입훅]")}
+
+
+def 로그조각(slug):
+    t = os.path.join(W, "배치로그", f"{slug}_2plan.txt")
+    if not os.path.exists(t):
+        return None
+    segs = []
+    for 줄 in open(t, encoding="utf-8"):
+        m = re.match(r"^\s+P(\d)\s+\S+\s+[\d.]+초\s+원본\s+([\d.]+)~\s*([\d.]+)\s+punch", 줄)
+        if m:
+            segs.append({"phase": int(m[1]), "t0": float(m[2]), "t1": float(m[3]), "keep": True})
+    return {"segments": segs} if segs else None
+
+
+def 핵심(pj, 큐, 카드줄, 파):
+    if not pj or not 파:
+        return [], []
+    구간 = [(x["t0"], x["t1"]) for x in pj["segments"] if x.get("keep", True)]
+    b, w = G.핵심쌍(파, G._말큐(큐), 카드줄, 구간, {})
+    return sorted({d for d, _g in b}), sorted({x.split("]")[0] + "]" for x in w})
+
+
+핵심합 = {"최종": 0, "최종가짜": [], "최종도입훅": [], "초안": 0, "초안반려": [], "초안도입훅": []}
+납품편 = set()                       # 배치가 도는 중인 편(초안·손질 중)은 빼고 결과.tsv «납품» 만
+_결과 = os.path.join(W, "배치로그", "결과.tsv")
+for _l in (open(_결과, encoding="utf-8") if os.path.exists(_결과) else []):
+    _a = _l.rstrip("\n").split("\t")
+    if len(_a) > 1 and _a[1] == "납품" and re.fullmatch(r"(루키치|점심이네|싱글)\d+", _a[0]):
+        납품편.add(_a[0])
+for slug in sorted(납품편, key=lambda s: (re.match(r"\D+", s)[0], int(re.search(r"\d+", s)[0]))):
+    fp = os.path.join(W, "projects", f"{slug}.json")
+    if not os.path.exists(fp):
+        continue
+    pj = json.load(open(fp, encoding="utf-8"))
+    큐 = G.큐읽기(os.path.join(W, "work", f"{pj['source']['id']}.ko.vtt"))
+    파 = 파악(slug)
+    if not 큐 or not 파:
+        continue
+    카드줄 = G.카드줄읽기(os.path.join(W, "work", f"{pj['source']['id']}.mp4"), 만들기=False)
+    핵심합["최종"] += 1
+    d, w = 핵심(pj, 큐, 카드줄, 파)
+    if d and slug not in 핵심예외:
+        핵심합["최종가짜"].append(f"{slug} {d}")
+    if w:
+        핵심합["최종도입훅"].append(slug)
+    cj = json.load(open(fp + ".plan원본", encoding="utf-8")) if os.path.exists(fp + ".plan원본") else \
+        (로그조각(slug) if slug.startswith("루키치") else None)
+    if cj:
+        핵심합["초안"] += 1
+        dc, wc = 핵심(cj, 큐, 카드줄, 파)
+        if dc:
+            핵심합["초안반려"].append(f"{slug} {dc}")
+        if wc:
+            핵심합["초안도입훅"].append(slug)
+        if slug in 핵심꼭:
+            종류, 딱 = 핵심꼭[slug]
+            if 딱 not in (dc if 종류 == "반려" else wc):
+                핵심합["최종가짜"].append(f"{slug} 초안이 {딱} {종류}여야 하는데 반려 {dc} · 주의 {wc}")
+print(f"⑤ 핵심 쌍 — 납품 최종본 {핵심합['최종']}편 중 결말셋업 가짜 반려 {len(핵심합['최종가짜'])}(알려진 예외 {len(핵심예외)} 제외)"
+      f" · 초안 {핵심합['초안']}편 중 반려 {len(핵심합['초안반려'])}")
+print(f"   [도입훅] 주의(반려 아님): 최종 {len(핵심합['최종도입훅'])} {핵심합['최종도입훅']} · 초안 {len(핵심합['초안도입훅'])}")
+for x in 핵심합["최종가짜"]:
+    print("     가짜 " + x)
+for x in 핵심합["초안반려"][:40]:
+    print("     초안 " + x)
+
+ok = 합["최종가짜"] == 0 and 합["모의잡음"] == 합["모의"] and not 핵심합["최종가짜"]
 print("\n판정:", "통과" if ok else "미통과")
 sys.exit(0 if ok else 1)
