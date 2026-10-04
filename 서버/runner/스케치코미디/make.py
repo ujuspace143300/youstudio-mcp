@@ -17,6 +17,12 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from s2pipe.cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -51,8 +57,8 @@ def 말끝_실측(src, c0, cap):
     d = min(cap + 2.0, c0 + 11.0) - b
     if d <= 0.4 or not os.path.exists(src):
         return min(cap, c0 + 0.3), None, None, None
-    r = _sp.run(["ffmpeg", "-v", "error", "-ss", f"{b:.2f}", "-t", f"{d:.2f}", "-i", src,
-                 "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True)
+    r = _sp.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{b:.2f}", "-t", f"{d:.2f}", "-i", src,
+                 "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"]), capture_output=True)
     a = _np.frombuffer(r.stdout, dtype=_np.int16).astype(_np.float32) / 32768
     win = 1600                                     # 0.1초
     if len(a) < win * 4:
@@ -333,8 +339,8 @@ def check(proj, path):
         for _k, _s in enumerate(segs):
             _연, _t = 0, _s["t0"] + 0.5
             while _t < _s["t1"]:
-                _r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{_t:.2f}", "-i", _src암, "-frames:v", "1",
-                                     "-vf", "scale=320:-2", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                _r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{_t:.2f}", "-i", _src암, "-frames:v", "1",
+                                     "-vf", "scale=320:-2", "-f", "rawvideo", "-pix_fmt", "gray", "-"]),
                                     capture_output=True)
                 _b = _r.stdout
                 _어 = len(_b) > 0 and sum(_b) / len(_b) < 12 and sum(1 for _x in _b if _x > 60) < len(_b) * 0.0008
@@ -353,8 +359,8 @@ def check(proj, path):
             # ★굽기·준비와 같은 관문(s2pipe/번인관문.걸림 — 2026-09-27)을 굽기 전에 부른다. 가로 전체 = 원본 전체 사각형.
             from s2pipe import 번인관문 as _관
             _박 = _관.카드상자들(_src암)
-            _wh = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                                  "stream=width,height", "-of", "csv=p=0", _src암], capture_output=True, text=True).stdout
+            _wh = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                  "stream=width,height", "-of", "csv=p=0", _src암]), capture_output=True, text=True).stdout
             _W, _H = (int(v) for v in _wh.strip().split(",")[:2])
             for _k, _s in enumerate(segs):
                 if not (_s.get("원문화면") or _s.get("전체화면")):
@@ -400,8 +406,8 @@ def check(proj, path):
             # 검은꼬리 절단(build)과 같은 기준(밝기<12) — 게이트끼리 기준이 갈리면 충돌한다
             # (2026-09-07 Deep10: 암전 위 아웃트로 노래를 «마지막 발화»로 세서 절단과 싸웠다)
             import subprocess as _sp
-            r = _sp.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", _src,
-                         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+            r = _sp.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", _src,
+                         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]),
                         capture_output=True)
             # ★build.py 와 같은 기준 (2026-09-09 Deep61 블랙아웃 펀치라인 카드) — 밝은 글자 픽셀이
             #   있으면 «어둡다» 아님. 안 그러면 «암전 위 소리는 결이 아니다» 규칙이 카드 결말을 버린다

@@ -12,6 +12,10 @@ from . import gem
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from . import cfg
 from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 MODELS = CFG.get("gemini", {}).get("models", ["gemini-3.5-flash"])
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -505,9 +509,9 @@ def vtt_text(path):
 
 def probe(path):
     """길이와 **프레임레이트**. ★fps 는 마진 계산의 기준이라 반드시 원본값을 쓴다."""
-    o = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
+    o = subprocess.run(ff.명령(["ffprobe", "-v", "quiet", "-print_format", "json",
                         "-show_format", "-show_streams", "-select_streams", "v:0",
-                        path], capture_output=True, text=True)
+                        path]), capture_output=True, text=True)
     d = json.loads(o.stdout)
     dur = float(d["format"]["duration"])
     r = d["streams"][0].get("avg_frame_rate") or d["streams"][0].get("r_frame_rate")

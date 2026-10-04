@@ -29,6 +29,10 @@ import bisect
 import json
 import os
 import subprocess
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 δ = 0.002            # 경계값 = 프레임 시작 − δ (ffmpeg «pts ≥ 시각» 이 이 프레임을 첫 프레임으로 고른다)
 _캐시 = {}
@@ -39,9 +43,9 @@ class 격자:
 
     def __init__(self, src):
         self.src = src
-        pr = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+        pr = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                              "stream=r_frame_rate,avg_frame_rate,time_base:format=start_time",
-                             "-of", "json", src], capture_output=True, text=True)
+                             "-of", "json", src]), capture_output=True, text=True)
         j = json.loads(pr.stdout or "{}")
         st = (j.get("streams") or [{}])[0]
         a, b = (st.get("r_frame_rate") or "30/1").split("/")
@@ -50,8 +54,8 @@ class 격자:
         tb = int(tb_a) / int(tb_b)
         fst = float((j.get("format") or {}).get("start_time") or 0.0)
         # 패킷 pts(정수) × time_base — 해독 없이 빠르다(140초 원본 0.1초). B 프레임 때문에 정렬한다.
-        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                            "packet=pts", "-of", "csv=p=0", src], capture_output=True, text=True)
+        r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "packet=pts", "-of", "csv=p=0", src]), capture_output=True, text=True)
         pts = sorted({int(x) for x in r.stdout.split() if x.strip().lstrip("-").isdigit()})
         self.p = [x * tb - fst for x in pts]
         if len(self.p) < 2:
@@ -116,9 +120,9 @@ def 프레임들(src, g, k0, k1, w=64, h=36):
     k1 = min(g.n, k1)
     if k1 <= k0:
         return np.zeros((0, h, w), dtype=np.int16)
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", repr(g.경계값(k0)), "-i", src, "-frames:v", str(k1 - k0),
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", repr(g.경계값(k0)), "-i", src, "-frames:v", str(k1 - k0),
                         "-vf", f"scale={w}:{h}:flags=area", "-fps_mode", "passthrough",
-                        "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True)
+                        "-f", "rawvideo", "-pix_fmt", "gray", "-"]), capture_output=True)
     a = np.frombuffer(r.stdout, dtype=np.uint8)
     m = len(a) // (w * h)
     return a[:m * w * h].reshape(m, h, w).astype(np.int16)

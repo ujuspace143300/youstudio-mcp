@@ -18,13 +18,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from s2pipe.cfg import CFG  # noqa: E402
 from s2pipe import asr      # noqa: E402
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 지원코덱 = {"h264", "hevc", "prores", "qtrle", "mpeg4", "mjpeg", "dnxhd"}
 
 
 def vcodec(path):
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                          "-show_entries", "stream=codec_name", "-of", "csv=p=0", path],
+    out = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                          "-show_entries", "stream=codec_name", "-of", "csv=p=0", path]),
                          check=True, capture_output=True)
     return out.stdout.decode().strip()
 
@@ -117,10 +123,10 @@ def main():
             shutil.copy2(src, dst)
         else:
             print(f"원본 코덱 {vcodec(src)} — H.264 변환")
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src,
+            subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", src,
                             "-vf", "fps=24000/1001", "-c:v", "libx264", "-preset", "fast",
                             "-crf", "16", "-pix_fmt", "yuv420p",
-                            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", dst], check=True)
+                            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", dst]), check=True)
     assert vcodec(dst) in 지원코덱
 
     # ② 원제·출처 — 파일명에서 (규약: <채널접두>_<원제>.mp4). 채널 표기는 본래 방식(#띱 Deep)
@@ -194,14 +200,14 @@ def main():
             raise SystemExit(f"★자막띠시각 멈춤 — {_맞['멈춤']}\n  편시작을 --다시전사 로 다시(배치는 준비.sh {vid} --다시 — 슬러그로 시리즈를 안다) — agy 다시 전사 · 돈 안 듦")
         _, _L = 자막띠시각.읽기(vtt)
         _넘 = [t for t, _e, _x in _L if t > dur_src + 0.5] if (dur_src := float(subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst],
+            ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst]),
             capture_output=True, text=True).stdout)) else []
         if _넘:
             raise SystemExit(f"★맞춘 뒤에도 원본({dur_src:.1f}초) 끝을 넘는 줄 {len(_넘)}개 — 전사 시각이 크게 틀렸다. 사장님께 여쭌다")
     if not os.path.exists(vtt):
         aud = os.path.join(work, f"{vid}_asr.mp3")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", dst, "-vn",
-                        "-ac", "1", "-ar", "16000", "-b:a", "48k", aud], check=True)
+        subprocess.run(ff.명령(["ffmpeg", "-y", "-v", "error", "-i", dst, "-vn",
+                        "-ac", "1", "-ar", "16000", "-b:a", "48k", aud]), check=True)
         print("전사 제출 (Speechmatics ko — ★유료)…")
         vocab = asr.load_vocab(vid, channel=a.채널)
         if vocab:
@@ -250,8 +256,8 @@ def main():
     shutil.copy2(a.로고, os.path.join(work, f"{vid}_로고.png"))
     shutil.copy2(tt, os.path.join(work, f"{vid}_제목후보.txt"))
 
-    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                "-of", "csv=p=0", dst], check=True, capture_output=True).stdout)
+    dur = float(subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                "-of", "csv=p=0", dst]), check=True, capture_output=True).stdout)
     print(f"편시작 완료 — {vid}: 원본 {dur:.0f}s · 댓글 PNG {len(pngs)}장 · 원제 「{원제}」")
 
 

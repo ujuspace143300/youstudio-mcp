@@ -11,6 +11,10 @@ import json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 
 
 def scene_cuts(src, thr=0.28):
@@ -26,9 +30,9 @@ def scene_cuts(src, thr=0.28):
     if os.path.exists(cache):
         ts = json.load(open(cache, encoding="utf-8"))
     else:
-        p = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", src,
+        p = subprocess.run(ff.명령(["ffmpeg", "-hide_banner", "-nostats", "-i", src,
                             "-filter_complex", f"select='gt(scene,{thr})',metadata=print:file=-",
-                            "-an", "-f", "null", "-"],
+                            "-an", "-f", "null", "-"]),
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         ts = sorted(set(round(float(m), 6)
                         for m in re.findall(r"pts_time:([\d.]+)", (p.stdout or "") + (p.stderr or ""))))

@@ -26,6 +26,13 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 from s2pipe import 안쪽경계 as K  # noqa: E402
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+_ff_d = _ff_os.path.dirname(_ff_d)
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 # (편, 시리즈, t0, t1, 준비 정답, 굽기 정답, 메모)  정답 None = 테두리 없음 · ("안쪽"|"레터박스", (x, y, w, h))
 표본 = [
@@ -133,8 +140,8 @@ def main():
         for 편, 시리즈, t, 정답, 메모 in 한장표본:
             src = 자리[(편, 시리즈)]
             W, H = K._크기(src)
-            raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", src, "-frames:v", "1",
-                                  "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+            raw = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", src, "-frames:v", "1",
+                                  "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]), capture_output=True).stdout
             rgb = np.frombuffer(raw, np.uint8).reshape(H, W, 3)
             위 = K.비트경계(rgb, W, H)[1]
             ok = abs(위 - 정답) <= 2

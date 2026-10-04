@@ -18,6 +18,12 @@ import os
 import shutil
 import subprocess
 import sys
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = json.load(open(os.path.join(ROOT, "config.json"), encoding="utf-8"))
@@ -49,8 +55,8 @@ def gather(paths):
 
 
 def dur_of(p):
-    o = subprocess.run([CFG["ffmpeg"]["ffprobe"], "-v", "error", "-show_entries",
-                        "format=duration", "-of", "csv=p=0", p],
+    o = subprocess.run(ff.명령([CFG["ffmpeg"]["ffprobe"], "-v", "error", "-show_entries",
+                        "format=duration", "-of", "csv=p=0", p]),
                        capture_output=True, text=True)
     try:
         return round(float(o.stdout.strip()), 2)

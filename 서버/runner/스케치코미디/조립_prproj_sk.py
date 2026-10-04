@@ -23,6 +23,12 @@ from prproj_lib import (Doc, load, save, esc, rewire, set_child, child, collect_
                         blob_set_fonts, blob_set_colors, blob_set_sizes, blob_set_outlines,
                         param_blob, param_set_blob,
                         is_source_text, GRAPHIC_IN, 빈블롭_RE, TPS)
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 # ★자막 글꼴(2026-09-01 사장님: 페이퍼로지) — 도너 서체(강원교육모두체)를 이걸로 갈아 끼운다.
 #   PS 명은 fontTools 실측. 웨이트는 신병4 납품이 실제로 쓰던 9Black.
@@ -1017,8 +1023,8 @@ def main():
                           "pass": not 제목오류, "detail": f"줄 {len(제목큐)} · 오류 {제목오류[:3]}"})
     # 게이트(2026-09-02 사장님 «템플릿 빠짐») — 템플릿 실물 길이가 시퀀스 총길이 이상이어야 한다
     import subprocess as _sp
-    tpl_dur = float(_sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                             "-of", "csv=p=0", tl["template"]], check=True, capture_output=True).stdout)
+    tpl_dur = float(_sp.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "csv=p=0", tl["template"]]), check=True, capture_output=True).stdout)
     tpl_ok = tpl_dur + 1e-3 >= tl["total_s"]
     res["checks"].append({"check": "템플릿 길이 ≥ 시퀀스 총길이", "pass": tpl_ok,
                           "detail": f"템플릿 {tpl_dur:.2f}s vs 총 {tl['total_s']:.2f}s"})

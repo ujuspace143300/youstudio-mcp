@@ -23,6 +23,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from .cfg import CFG  # 작업 폴더의 생성 config (--config 또는 S2_CONFIG)
+try:  # ffmpeg·ffprobe 스레드 상한은 ff.명령 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+    from . import ff
+except ImportError:  # 단독 실행(python s2pipe/x.py)
+    import ff  # type: ignore
 V, L = CFG["video"], CFG["layout"]
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -38,15 +42,15 @@ def run(argv, capture=False):
 
 
 def probe_wh(src):
-    o = run(["ffprobe", "-v", "quiet", "-select_streams", "v:0", "-show_entries",
-             "stream=width,height", "-of", "default=nw=1", src], capture=True)
+    o = run(ff.명령(["ffprobe", "-v", "quiet", "-select_streams", "v:0", "-show_entries",
+             "stream=width,height", "-of", "default=nw=1", src]), capture=True)
     d = dict(x.split("=") for x in o.strip().splitlines() if "=" in x)
     return int(d["width"]), int(d["height"])
 
 
 def probe_dur(src):
-    o = run(["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "csv=p=0", src], capture=True)
+    o = run(ff.명령(["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", src]), capture=True)
     try:
         return float(o.strip())
     except ValueError:
@@ -63,8 +67,8 @@ def find_burned_subs(src, W, H, dur, n=10):
     for i in range(n):
         t = dur * (i + 1) / (n + 1)
         p = os.path.join(_tmp, f"_s2burn{i}.png")
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss",
-                            f"{t:.2f}", "-i", src, "-frames:v", "1", "-y", p],
+        r = subprocess.run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss",
+                            f"{t:.2f}", "-i", src, "-frames:v", "1", "-y", p]),
                            capture_output=True)
         if r.returncode != 0 or not os.path.exists(p):
             continue
@@ -113,9 +117,9 @@ def 엔드카드시작(src, dur, 하한=0.0):
       옛 값과 ±2ms 로 동일(무회귀 확인). motion 판정이라 새 스타일 카드도 «검출 술래잡기» 없이 잡는다."""
     import numpy as _np
     def _g(t):
-        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", src,
+        r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", src,
                             "-frames:v", "1", "-vf", "scale=64:36", "-f", "rawvideo",
-                            "-pix_fmt", "gray", "-"], capture_output=True)
+                            "-pix_fmt", "gray", "-"]), capture_output=True)
         a = _np.frombuffer(r.stdout, dtype=_np.uint8)
         return a.astype(_np.int16) if len(a) == 2304 else None
     def _정지(t):
@@ -130,7 +134,7 @@ def 엔드카드시작(src, dur, 하한=0.0):
     #   부르는 쪽마다 고치지 않고 여기 한 곳에서 맞춘다 — 계획 JSON 의 dur 를 넘겨도 같은 답이 나온다(루키치 67편 모의:
     #   계획 dur 로 카드를 못 찾던 12편이 맞춤 뒤 찾음).
     try:
-        _실 = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
+        _실 = float(subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src]),
                                   capture_output=True, text=True).stdout.strip() or 0)
         if _실 > 0:
             dur = min(float(dur), _실)
@@ -228,14 +232,14 @@ def _틀굽기(src, 틀, 영상, p, 겹=False):
     소리 = (f"[0:a]atrim=start={max(0.0, 틀['a0'] - 틀['ss']):.6f}:duration={틀['dur']:.6f},"
             f"asetpts=PTS-STARTPTS[ao]")
     fc = f"{영상};{끝};{소리}"
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", repr(float(틀["ss"])),
+    run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", repr(float(틀["ss"])),
          "-t", f"{max(0.0, 틀['a0'] - 틀['ss']) + 틀['dur'] + 0.5:.4f}", "-i", src,
          "-filter_complex", fc, "-map", "[vo]", "-map", "[ao]", "-t", f"{틀['dur']:.6f}",
          "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
-         "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p])
+         "-c:a", "pcm_s16le", "-avoid_negative_ts", "make_zero", "-y", p]))
     # ★게이트: 구운 조각의 영상 프레임 수 = N (소리와 프레임 일치 · 2026-09-09 립싱크 실측에서 비트 조각에만 있던 것을 모든 갈래로)
-    _nf = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
-                          "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", p],
+    _nf = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                          "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", p]),
                          capture_output=True, text=True).stdout.strip()
     assert _nf and int(_nf) == N, f"조각 프레임 {_nf} ≠ 틀 {N} — 영상·소리 프레임 어긋남(립싱크) · {p}"
     return p
@@ -298,8 +302,8 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         #   옛 기준이 카드째 잘라 무한 루프 결말이 «9월 11일 월급날»에서 끊겼다). 밝은 픽셀이 조금이라도
         #   있으면 글자·그림이 있는 것 → 자르지 않는다(mean<12 AND 밝은픽셀 거의 0).
         import numpy as _np
-        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", src,
-                            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.2f}", "-i", src,
+                            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]),
                            capture_output=True)
         a = _np.frombuffer(r.stdout, dtype=_np.uint8)
         if len(a) == 0:
@@ -313,8 +317,8 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
     #   카드에 걸치면 트림하고, 안 걸쳐도 그 값으로 준비의 여운이 카드 앞에서 멈춘다(2026-09-10
     #   싱글370: t1 이 카드 직전이라 트림은 없었는데 여운이 카드로 늘던 사건).
     try:
-        _srcdur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                        "-of", "csv=p=0", src], check=True,
+        _srcdur = float(subprocess.run(ff.명령(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                        "-of", "csv=p=0", src]), check=True,
                                        capture_output=True).stdout.decode().strip())
         _ec = 엔드카드시작(src, _srcdur, 막["t0"] + 2.0)
         if _ec is not None:
@@ -340,9 +344,9 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
     import numpy as _np
     def _소스정지(t):
         def _gg(u):
-            r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(u, 0):.2f}", "-i", src,
+            r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-ss", f"{max(u, 0):.2f}", "-i", src,
                                 "-frames:v", "1", "-vf", "scale=64:36", "-f", "rawvideo",
-                                "-pix_fmt", "gray", "-"], capture_output=True)
+                                "-pix_fmt", "gray", "-"]), capture_output=True)
             a = _np.frombuffer(r.stdout, dtype=_np.uint8)
             return a.astype(_np.int16) if len(a) == 2304 else None
         a, b = _gg(t - 0.4), _gg(t)
@@ -596,10 +600,10 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
         ins += ["-i", p]
         fc_in += f"[{j}:v][{j}:a]"
     fc = fc_in + f"concat=n={len(parts)}:v=1:a=1[vo][ao]"
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error", *ins,
+    run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error", *ins,
          "-filter_complex", fc, "-map", "[vo]", "-map", "[ao]",
          "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CFG["ffmpeg"]["crf"]),
-         "-c:a", "aac", "-b:a", CFG["ffmpeg"]["audio_bitrate"], "-y", dst])
+         "-c:a", "aac", "-b:a", CFG["ffmpeg"]["audio_bitrate"], "-y", dst]))
 
     off = 0.0
     for e in log["segments"]:
@@ -1046,8 +1050,8 @@ def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
     # ★배경 그림을 영상과 같은 프레임 속도로 돌린다 (2026-09-28 «시각 양자화» 클래스) — overlay 는 첫 입력(배경)의 시각표로
     #   프레임을 내는데 -loop 1 그림의 기본값은 25fps 라, 23.976 원본이 25fps 로 다시 떠 약 1초마다 한 장이 두 번 나갔다
     #   (싱글51 완성본 1937장/77.48초 · cut.mp4 1856장 실측). 원본 프레임레이트를 그대로 따른다(config video.fps «source»).
-    _r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
-                         "-of", "csv=p=0", cut], capture_output=True, text=True).stdout.strip() or "30/1"
+    _r = subprocess.run(ff.명령(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                         "-of", "csv=p=0", cut]), capture_output=True, text=True).stdout.strip() or "30/1"
     ins = ["-threads", "1", "-framerate", _r, "-loop", "1", "-i", frame, "-i", cut]
     amix = [f"[1:a]volume=1.0{duck}[a0]"]
     labels = ["[a0]"]
@@ -1081,12 +1085,12 @@ def compose(cut, frame, ass, narrs, sfx_at, dst, cmts=()):
           + ";".join(amix)
           + f";{''.join(labels)}amix=inputs={len(labels)}:normalize=0[am];"
           + f"[am]loudnorm=I={a['target_lufs']}:TP={a['true_peak_db']}:LRA={a['lra']}[ao]")
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error"] + ins
+    run(ff.명령(["ffmpeg", "-hide_banner", "-loglevel", "error"] + ins
         + ["-filter_complex_threads", "2", "-filter_complex", fc, "-map", "[v]", "-map", "[ao]",
            "-c:v", "libx264", "-threads", "4", "-preset", CFG["ffmpeg"]["preset"],
            "-crf", str(CFG["ffmpeg"]["crf"]), "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", CFG["ffmpeg"]["audio_bitrate"],
-           "-shortest", "-y", dst])
+           "-shortest", "-y", dst]))
     return dst
 
 

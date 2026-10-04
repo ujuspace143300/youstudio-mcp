@@ -27,6 +27,13 @@ ROOT = os.path.expanduser("~/Desktop/스케치코미디")
 CACHE = os.path.expanduser("~/.cache/맞춤평가")
 os.environ.setdefault("S2_CONFIG", os.path.join(ROOT, "config.json"))   # 꼬리 관문의 아웃트로 검출(build.엔드카드시작)이 설정을 읽는다
 from s2pipe import 자막띠시각 as Z  # noqa: E402
+# ffmpeg·ffprobe 스레드 상한은 s2pipe/ff.py 한 곳에서 (2026-10-04 루키치 14편 과부하 · 검수도구/ffmpeg스레드시험.py)
+import os as _ff_os, sys as _ff_sys  # noqa: E402
+_ff_d = _ff_os.path.dirname(_ff_os.path.abspath(__file__))
+_ff_d = _ff_os.path.dirname(_ff_d)
+if _ff_d not in _ff_sys.path:
+    _ff_sys.path.append(_ff_d)
+from s2pipe import ff  # noqa: E402
 
 
 # ── 카드 ────────────────────────────────────────────────────────────────
@@ -73,9 +80,9 @@ def 카드재기_띠만(src):
     y0, y1 = int(H * 0.80), int(H * 0.90)
     x0, x1 = int(W * 0.2), int(W * 0.8)
     bw, bh = x1 - x0, y1 - y0
-    r = subprocess.run(["ffmpeg", "-v", "error", "-threads", "2", "-i", src, "-vf",
+    r = subprocess.run(ff.명령(["ffmpeg", "-v", "error", "-threads", "2", "-i", src, "-vf",
                         f"fps={FPS},scale={W}:{H},format=gray,crop={bw}:{bh}:{x0}:{y0}",
-                        "-f", "rawvideo", "-"], capture_output=True, check=True)
+                        "-f", "rawvideo", "-"]), capture_output=True, check=True)
     fr = np.frombuffer(r.stdout, dtype=np.uint8)
     n = len(fr) // (bw * bh)
     띠 = fr[:n * bw * bh].reshape(n, bh, bw)
