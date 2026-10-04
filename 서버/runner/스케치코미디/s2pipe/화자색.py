@@ -25,6 +25,81 @@ F = 60                                                          # 대사 큐 격
 캐시이름 = "_화자판정캐시.json"
 
 
+class 화자판정실패(RuntimeError):
+    """화자 판정이 표결을 못 냈다 — 색 없이 «통과» 하지 않고 체인을 멈춘다 (2026-10-04 수리C).
+    예전엔 전부 실패면 «색 구분 없이 간다» 로 조용히 통과, 1회만 남아도 그 1회를 믿었다(루키치61 2회 표결)."""
+
+
+_who키 = ("who", "speakers", "speaker", "화자")
+
+
+def who뽑기(txt, n):
+    """판정 응답 글 → (who 목록 n개, cast dict). 못 뽑으면 ValueError(까닭 + 응답 머리 — 로그로 원인을 볼 수 있게).
+
+    ★2026-10-04 루키치61 «화자 판정 2회차 실패: 'who'» — 응답이 JSON 객체인데 «who» 키가 없어 KeyError 문구 «'who'»
+      한 낱말만 남고 원인이 안 보였다. 모델이 쓰는 다른 꼴을 받는다:
+        {"who":[…]} · [{"who":[…]}] · […](줄 수 n) · {"result":{"who":[…]}}(한 겹 안) · {"speakers":[…]} ·
+        {"0":"1","1":"2",…}(줄 번호 키) · [{"line":0,"who":"1"},…](줄마다 객체) · 뒤가 잘린 글의 «"who":[…]».
+      그래도 못 뽑으면 응답 머리 80자를 까닭에 붙인다."""
+    import re as _re
+    머리 = repr((txt or "")[:80])
+
+    def _목록(v):
+        if isinstance(v, list) and len(v) == n and all(not isinstance(x, (dict, list)) for x in v):
+            return [str(x) for x in v]
+        if isinstance(v, list) and len(v) == n and all(isinstance(x, dict) for x in v):
+            for k in _who키:
+                if all(k in x for x in v):
+                    return [str(x[k]) for x in v]
+        return None
+
+    def _찾기(j, 깊이=0):
+        if isinstance(j, dict):
+            low = {str(k).lower(): v for k, v in j.items()}
+            for k in _who키:
+                if k in low and _목록(low[k]) is not None:
+                    return _목록(low[k]), {str(a): str(b) for a, b in (low.get("cast") or {}).items()} \
+                        if isinstance(low.get("cast"), dict) else {}
+            if n and all(str(i) in j for i in range(n)) and all(not isinstance(j[str(i)], (dict, list)) for i in range(n)):
+                return [str(j[str(i)]) for i in range(n)], {}
+            if 깊이 < 2:
+                for v in j.values():
+                    r = _찾기(v, 깊이 + 1)
+                    if r:
+                        return r
+        elif isinstance(j, list):
+            if _목록(j) is not None:
+                return _목록(j), {}
+            if 깊이 < 2:
+                for v in j:
+                    if isinstance(v, (dict, list)):
+                        r = _찾기(v, 깊이 + 1)
+                        if r:
+                            return r
+        return None
+    try:
+        j = json.loads(txt)
+    except Exception:                                   # noqa: BLE001 — 잘린 응답은 아래 정규식으로
+        j = None
+    if j is not None:
+        r = _찾기(j)
+        if r:
+            return r
+        길이 = len(j["who"]) if isinstance(j, dict) and isinstance(j.get("who"), list) else None
+        if 길이 is not None:
+            raise ValueError(f"who {길이}개 ≠ 줄 {n}개")
+        키 = list(j)[:6] if isinstance(j, dict) else f"목록 {len(j)}개" if isinstance(j, list) else type(j).__name__
+        raise ValueError(f"who 를 못 찾음 — 키 {키} · 응답 머리 {머리}")
+    # ★응답이 뒤에서 잘려도(2026-09-03 3회 연속 실측) who 배열만 온전하면 살린다 — 그래서 프롬프트가 who 를 앞에 쓰게 한다.
+    m = _re.search(r'"who"\s*:\s*\[(.*?)\]', txt or "", _re.S)
+    if not m:
+        raise ValueError(f"JSON 아님·who 배열 없음 — 응답 머리 {머리}")
+    who = [w.strip().strip('"') for w in m.group(1).split(",") if w.strip()]
+    if len(who) != n:
+        raise ValueError(f"who {len(who)}개 ≠ 줄 {n}개(잘린 응답)")
+    return who, {}
+
+
 def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회수=3):
     """대사 줄마다 화자 번호(1·2·3…) 또는 «효과»를 배정한다 (EvoLink 무료 경로).
 
@@ -36,7 +111,8 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
       ③ 검증 없이 1회 판정 → 독립 3회 판정 후 번호를 정렬해 다수결. 과반 미달 줄은
          «불안정»으로 보고한다(게이트).
 
-    반환 (who, 불안정줄번호목록, cast설명). 전부 실패하면 ([None]*n, [], {})."""
+    반환 (who, 불안정줄번호목록, cast설명). 실패 회차는 한 번 더 묻고, 그래도 유효 회차가 2회 미만이면
+    화자판정실패(전부 AgyStop 이면 AgyStop)로 멈춘다 — 색 없이 통과하지 않는다(2026-10-04 수리C)."""
     import base64
     from collections import Counter
     from . import gem
@@ -89,43 +165,46 @@ def 화자판정(lines, cut_mp4, logline, times=None, 예상화자수=None, 회�
             "generationConfig": {"maxOutputTokens": 6000, "responseMimeType": "application/json"}}
         with _TPE(max_workers=회수) as _ex:
             답들 = list(_ex.map(_한번, range(회수)))
-    for n회, (txt, 오류) in enumerate(답들):
+    # ★실패 회차는 한 번 더 묻는다 (2026-10-04 루키치61 — 3회 중 1회가 «'who'» 로 버려져 2회 표결로 내려갔다).
+    def _뽑기(답):
+        txt, 오류 = 답
         if 오류 is not None:
-            # ★AgyStop 은 BaseException 이라 아래 except Exception 을 빠져나가 한 회차 거절에 체인 전체가 멈췄다
-            #   (2026-09-27 싱글197 — 3회 중 1회만 안전 필터 거절, 2회는 성공). 회차 실패로만 센다; 전부 실패면 아래 «if not 표» 가 멈춘다.
-            print(f"화자 판정 {n회 + 1}회차 실패:", str(오류)[:60])
-            continue
+            return None, str(오류)[:80]
         try:
-            try:
-                j = json.loads(txt)
-                if isinstance(j, list):
-                    # 모델이 {"who":[…]} 대신 목록만 내는 일이 잦다(2026-09-27 배치 — «list indices must be integers» 로
-                    #   회차가 버려져 3회 표결이 2회로 줄었다). 줄 수가 맞는 목록이면 그대로 who 로 받는다.
-                    j = {"who": j[0]["who"]} if j and isinstance(j[0], dict) and "who" in j[0] else {"who": j}
-                who = [str(w) for w in j["who"]]
-                c = {str(k): str(v) for k, v in (j.get("cast") or {}).items()}
-            except Exception:
-                # ★응답이 뒤에서 잘려도(2026-09-03 3회 연속 실측) who 배열만 온전하면 살린다
-                #   — 그래서 프롬프트가 who 를 앞에 쓰게 한다.
-                m = _re2.search(r'"who"\s*:\s*\[(.*?)\]', txt or "", _re2.S)
-                if not m:
-                    raise
-                who = [w.strip().strip('"') for w in m.group(1).split(",")]
-                c = {}
-            assert len(who) == len(lines), f"who {len(who)}개 ≠ 줄 {len(lines)}개"
-            표.append(who)
-            if not cast and c:
-                cast = c
-        except Exception as e:
-            print(f"화자 판정 {n회 + 1}회차 실패:", str(e)[:60])
+            return who뽑기(txt, len(lines)), None
+        except Exception as e:                         # noqa: BLE001 — 까닭은 아래에서 회차 실패로 찍는다
+            return None, str(e)[:160]
+    결과 = [_뽑기(a) for a in 답들]
+    # AgyStop(Exception 아닌 BaseException — agy 가 끝내 막힘)은 다시 묻지 않는다 — 아래에서 그대로 멈춘다.
+    다시 = [k for k, (r, _m) in enumerate(결과)
+            if r is None and (답들[k][1] is None or isinstance(답들[k][1], Exception))]
+    if 다시:
+        for k in 다시:
+            print(f"화자 판정 {k + 1}회차 실패: {결과[k][1]} → 한 번 더 묻는다")
+        with _TPE(max_workers=len(다시)) as _ex:
+            새답 = list(_ex.map(_한번, 다시))
+        for k, a in zip(다시, 새답):
+            답들[k] = a
+            결과[k] = _뽑기(a)
+    for n회, (r, 까닭) in enumerate(결과):
+        if r is None:
+            # ★AgyStop 은 BaseException 이라 한 회차 거절에 체인 전체가 멈췄다(2026-09-27 싱글197) — 회차 실패로만 센다.
+            print(f"화자 판정 {n회 + 1}회차 실패:", 까닭)
+            continue
+        who, c = r
+        표.append(who)
+        if not cast and c:
+            cast = c
     if not 표:
         # 회차가 전부 agy 실패(AgyStop — EvoLink 금지로 멈춤)면 예전처럼 멈춘다 — 동시 호출로 바꾸며 «색 없이 진행» 으로
         #   조용히 품질이 떨어지지 않게(2026-09-27).
         멈춤 = [e for _t, e in 답들 if e is not None and not isinstance(e, Exception)]
         if 멈춤:
             raise 멈춤[0]
-        print("화자 판정 전부 실패 — 색 구분 없이 간다")
-        return [None] * len(lines), [], {}
+        raise 화자판정실패(f"화자 판정 {회수}회(+다시 묻기) 전부 실패 — 색 없이 «통과» 하지 않고 멈춘다")
+    if len(표) < 2 and 회수 >= 2:
+        # ★한 회차만 남으면 표결이 아니다 — 2026-09-02 «같은 화자 색 바뀜» 이 바로 1회 판정을 믿어서 났다.
+        raise 화자판정실패(f"화자 판정 유효 {len(표)}회/{회수}회 — 표결 불가(다시 묻기 뒤) · 멈춘다")
     # 회차마다 번호 체계가 다를 수 있다 — 1회차 기준으로 겹침 최대 매칭(그리디)으로 재명명
     기준 = 표[0]
     맞춘 = [기준]
@@ -284,6 +363,7 @@ def 색칠(큐, proj, wdir, 조각, 옛키조각=None, cut_mp4=None, log=print, 
         if any(w for w in who):
             json.dump({키: [who, 불안정, cast]}, open(캐, "w", encoding="utf-8"), ensure_ascii=False)
         else:                                            # 전부 일반 실패 — ⑦ 이 따로 판정하지 않게 기록한다
+            # (2026-10-04 수리C 뒤로는 화자판정이 전부 실패면 화자판정실패로 멈춰 여기 안 온다 — 옛 꼴 남김)
             json.dump({키: [[None] * len(큐), [], {"_실패": "화자 판정 전부 실패 — 색 없이"}]},
                       open(캐, "w", encoding="utf-8"), ensure_ascii=False)
             log("화자 판정 실패 기록 저장 — ⑦ 도 색 없이 간다(색을 넣으려면 FROM=6 으로 다시)")
