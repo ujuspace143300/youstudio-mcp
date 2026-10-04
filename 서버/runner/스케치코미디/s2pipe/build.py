@@ -627,7 +627,8 @@ def cut_and_join(src, segs, dst, work, fps, 호환=False):
     #   함수를 부른다. 예전엔 납품 mp4 의 crop 을 보는 관문이 없었다(준비는 프리미어 상자만 봤다).
     if b.get("avoid_burned_subs") or 캡션:
         crops, _ = 관.beats_crops(log, W, H)
-        걸 = 관.걸림(박스들, crops, 관.가림목록([관.캡션붙인조각(s, 캡션) for s in segs]))
+        # 화면 캡션을 잡은 «카드» 는 뺀다 — 캡션은 가림(캡션붙인조각)이 본다(2026-10-04 루키치64 · 번인관문.캡션카드빼기)
+        걸 = 관.걸림(관.캡션카드빼기(박스들, 캡션), crops, 관.가림목록([관.캡션붙인조각(s, 캡션) for s in segs]))
         if 걸:
             raise AssertionError(f"박힌 자막·화면 캡션이 crop 안에 든다 {len(걸)}건 — {관.글(걸)} (s2pipe/번인관문.py)"
                                  + (" · 화면 캡션이면 그 샷을 조각에서 빼거나(원본 시각을 옮긴다) 장면 글자면 조각 «글자허용»"

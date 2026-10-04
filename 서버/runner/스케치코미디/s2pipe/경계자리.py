@@ -114,14 +114,17 @@ def 로고틀(src, 아웃트로):
 
 
 def 아웃트로찾기(src, 하한=0.0):
-    """원본 꼬리 정지 아웃트로 카드 시작(build.엔드카드시작 — 굽기와 같은 검출) · 없거나 못 재면 None."""
+    """원본 꼬리 정지 아웃트로 카드 시작(build.엔드카드시작 — 굽기와 같은 검출) · 없으면 None · 못 재면 RuntimeError."""
     _설정()
     try:
         from .build import 엔드카드시작
         g = G.얻기(src)
         return 엔드카드시작(src, g.시작(g.n), 하한)
-    except (Exception, SystemExit):                       # noqa: BLE001
-        return None
+    except (Exception, SystemExit) as e:                  # noqa: BLE001
+        # ★못 재면 멈춤 (2026-10-04 수리C «삼키고 통과» 전수 점검) — 예전엔 «못 잼» 도 None(«카드 없음») 이라 결말벽의
+        #   로고·카드 판정이 통째로 빠지고 준비 여운관문·prproj끝검사·make 끝벽이 «벽 없음» 으로 [OK] 를 냈다.
+        #   원본이 없거나 못 읽는 것(G.얻기 ffprobe 실패·설정 없음 SystemExit)은 «카드 없음» 이 아니다.
+        raise RuntimeError(f"아웃트로 카드 감지 못 함(못 재면 멈춤): {type(e).__name__} {str(e)[:100]}") from e
 
 
 결말창 = 4.0        # 이야기 끝 뒤로 «늘» 이만큼 본다 — 부르는 쪽의 여운·관문 창과 무관(아래 2026-10-04 87 수리)

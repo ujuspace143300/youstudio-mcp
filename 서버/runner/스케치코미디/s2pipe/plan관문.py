@@ -288,12 +288,13 @@ _plan뒤손질 = re.compile(r"자막 \d+줄|구두점|제목|글꼴|fps|원본 �
 
 
 def make구조(proj, path=""):
-    """make.check 의 반려 가운데 조각 선택(구조)에 관한 것만. make 를 못 부르면 ([], [사유])."""
+    """make.check 의 반려 가운데 조각 선택(구조)에 관한 것만. make 를 못 부르면 ([사유], []) — 반려."""
     try:
         import make as _make
         bad, _warn = _make.check(proj, path)
     except Exception as e:                               # noqa: BLE001
-        return [], [f"make 구조 검사 못 함: {str(e)[:80]}"]
+        # ★못 재면 반려 (2026-10-04 수리C «삼키고 통과» 전수 점검) — 예전엔 주의만 내고 make 구조 반려를 전부 건너뛰었다.
+        return [f"make 구조 검사 못 함(못 재면 반려): {type(e).__name__} {str(e)[:80]}"], []
     return [b for b in bad if not _plan뒤손질.search(b)], []
 
 

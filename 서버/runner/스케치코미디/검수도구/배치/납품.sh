@@ -25,8 +25,13 @@ done
 echo "== $S · 제목 $KEY · 완성본 $(basename "$M")"
 ffprobe -v error -show_entries stream=width,height:format=duration -of compact "$M" | tr '\n' ' '; echo
 $PY 검수도구/검은띠재기.py "$M" 2>&1 | tail -1
-$PY -m s2pipe.이음매관문 "$PJ" | tail -1
-$PY make.py "$PJ" --check 2>&1 | grep -E "상단 제목|통과|반려 [0-9]" | tail -1
+# ★이음매·make 관문은 종료코드로 멈춘다 (2026-10-05 루키치4 — «| tail -1» 이 종료코드를 삼켜 이음매 [X] 반려 1 인 채
+#   NAS 에 납품됐다. 출력을 걸러 찍기만 하고 판정을 안 보는 «셸관» 클래스). 검은띠재기.py 는 종료코드가 없고 어두운 장면·
+#   검은 옷 오탐이 잦아(루키치 60~1 에서 10편 넘게 프레임으로 가짜 확인) 알림으로 둔다 — 걸리면 사람이 프레임을 본다.
+OUT=$($PY -m s2pipe.이음매관문 "$PJ" 2>&1); RC=$?; echo "$OUT" | tail -1
+[ $RC -eq 0 ] || { echo "$OUT" | grep "반려"; echo "★$S 이음매 관문 반려 — 원본 소리로 재서 진짜면 고쳐 다시 굽고, 가짜면 이음매허용에 근거를 적고 다시 납품(NAS 에 안 씀)"; exit 1; }
+OUT=$($PY make.py "$PJ" --check 2>&1); RC=$?; echo "$OUT" | grep -E "상단 제목|통과|반려 [0-9]" | tail -1
+[ $RC -eq 0 ] || { echo "$OUT" | grep "반려"; echo "★$S make 검사 반려 — 고친 뒤 다시 납품(NAS 에 안 씀)"; exit 1; }
 # ★클립 끝·경계 관문 (2026-10-02 규칙 12 · 사장님 A안) — 모든 클립 Start/End 가 시퀀스 프레임 격자 위이고 V1 끝(영상 끝)을
 #   넘는 클립이 없어야 NAS 에 쓴다. 예전 납품.sh 엔 이 검사가 없어 30fps 시퀀스에 60fps 격자로 지은 prproj(경계가 반 프레임 ·
 #   루키치 90편 전부, 그중 45편은 영상 끝까지 N.5장)가 그대로 나갔다. 자는 검수도구/prproj끝검사.py(조립 되읽기 관문과 같은 함수).
