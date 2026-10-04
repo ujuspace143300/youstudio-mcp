@@ -19,7 +19,7 @@
   셋 중 하나라도 있으면 종료코드 1. 윈도우판(*_윈도우.prproj)은 경로만 바꾼 사본이라 같은 자로 잰다.
   탈 ④ (2026-10-03) 마지막 컷이 원본 «결말 벽»(아웃트로 카드·암전·카드 로고/바탕이 먼저 뜬 프레임·그 앞 페이드 —
      s2pipe/경계자리.결말벽)을 넘는다 — 프리미어 끝에 로고·암전이 든다(루키치156·159·164·273). prproj 옆 timeline_sk.json 의
-     마지막 컷 원본 구간과 «여운» 기록(이야기 끝)으로 잰다. 옆에 timeline·원본이 없으면(NAS 사본) 안 잰다.
+     마지막 컷 원본 구간과 «여운» 기록(이야기 끝)으로 잰다. 옆에 timeline·원본이 없으면 반려(2026-10-04 — 예전엔 «안 잼» 통과).
 
 쓰는 법
   python prproj끝검사.py <prproj> [<prproj> …] [--자세히]
@@ -98,17 +98,30 @@ def 원본벽재기(prproj):
     """★2026-10-03 루키치156·159·164·273 — 프리미어 끝 여운이 원본의 로고 앞 암전·페이드·로고 겹침을 넘어 프리미어 파일 끝에
     로고·암전이 들어갔다(배치 에이전트가 매 편 손으로 «여운: 0» 을 넣어 다시 지음). 준비가 여운을 결말 벽 앞에서 끊지만, 이 관문은
     만들어진 결과(timeline_sk.json 의 마지막 컷 원본 구간)를 같은 자(s2pipe/경계자리.결말벽)로 다시 잰다.
-    → {"재": bool, "탈": bool, "글": str}. prproj 옆에 timeline_sk.json · 소스/원본.mp4 가 없으면 재지 않는다(NAS 사본 등)."""
+    → {"재": bool, "탈": bool, "글": str}. prproj 옆에 timeline_sk.json 이나 원본 영상이 없으면 «탈»(못 잰 것은 통과가 아니다)."""
     import json
     import os
     d = os.path.dirname(os.path.abspath(prproj))
     tp, src = os.path.join(d, "timeline_sk.json"), os.path.join(d, "소스", "원본.mp4")
-    if not (os.path.exists(tp) and os.path.exists(src)):
-        return {"재": False, "탈": False, "글": "원본 결말 벽: timeline_sk.json·소스/원본.mp4 없음 — 안 잼"}
-    tl = json.load(open(tp, encoding="utf-8"))
+    # ★2026-10-04 «안 잼 = 통과» 구멍 — 납품.sh 는 NAS 에 쓴 두 판도 이 관문으로 다시 재는데, NAS이관_sk.py 가 prproj 가 무는
+    #   미디어(소스/…)만 옮기고 timeline_sk.json 은 안 옮겨 NAS 쪽은 루키치 납품 19편 전부(65·68·72·77·84·87 …) «안 잼 [OK]» 로
+    #   지나갔다. 재지 못한 관문이 통과로 찍히면 로컬 재기가 빠진 날에도 아무도 모른다. 그래서 재료가 없거나 깨졌으면 «탈»(반려)이다
+    #   — 이관은 timeline_sk.json 을 같이 옮긴다(NAS이관_sk.py). 원본은 기록의 원본 → prproj 옆 소스/원본.mp4 차례로 찾는다.
+    if not os.path.exists(tp):
+        return {"재": False, "탈": True, "글": f"원본 결말 벽을 못 잰다 — {tp} 없음(반려 · 이관이 timeline_sk.json 을 안 옮겼거나 "
+                                         f"준비를 안 거친 prproj)"}
+    try:
+        tl = json.load(open(tp, encoding="utf-8"))
+    except Exception as e:                          # 반쯤 쓴 파일 등 — 못 읽으면 못 잰 것
+        return {"재": False, "탈": True, "글": f"원본 결말 벽을 못 잰다 — timeline_sk.json 읽기 실패 {e!r}(반려)"}
+    기록원본 = (tl.get("여운") or {}).get("원본")
+    if not os.path.exists(src) and not (기록원본 and os.path.exists(기록원본)):
+        return {"재": False, "탈": True, "글": f"원본 결말 벽을 못 잰다 — 원본 영상 없음({src} · 기록 {기록원본})(반려)"}
+    if not os.path.exists(src):
+        src = 기록원본
     pc = (tl.get("picture") or [None])[-1]
     if not pc:
-        return {"재": False, "탈": False, "글": "원본 결말 벽: 컷 없음 — 안 잼"}
+        return {"재": False, "탈": True, "글": "원본 결말 벽을 못 잰다 — timeline 에 컷 없음(반려)"}
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from s2pipe import 경계자리, 프레임격자 as G
     끝 = float(pc["src_in"]) + float(pc["t1"]) - float(pc["t0"])

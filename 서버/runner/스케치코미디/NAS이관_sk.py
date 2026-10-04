@@ -82,7 +82,16 @@ for _tag, val in re.findall(r"<(FilePath|ActualMediaFilePath)>([^<]+)</", mac):
     if val.startswith("/Volumes") and not os.path.exists(val):
         print("✗ 실존 안 함:", val[-60:]); 탈 += 1
 assert 탈 == 0, f"검증 탈 {탈}건 — 위 목록"
-print(f"경로 {len(매핑)}개 재작성 · 복사 {복사}개(md5 대조) · 태그 3판 일치 · NFC/실존/잔존 탈 0"
+# ④ timeline_sk.json 도 옮긴다 (2026-10-04) — 납품.sh 가 NAS 두 판을 prproj끝검사로 다시 재는데, 결말 벽(탈 ④)은 prproj 옆
+#   timeline_sk.json 의 마지막 컷·여운 기록으로 잰다. 예전엔 미디어만 옮겨 NAS 쪽 결말 벽이 루키치 납품 전부 «안 잼» 으로 지나갔다.
+#   끝검사는 이제 timeline 이 없으면 반려하므로, 여기서 빠지면 납품이 멈춘다(조용히 지나가지 않는다).
+_tl = os.path.join(os.path.dirname(os.path.abspath(SRC)), "timeline_sk.json")
+assert os.path.isfile(_tl), f"timeline_sk.json 없음: {_tl} — 준비_prproj_sk 를 거친 prproj 만 납품한다"
+_tl새 = os.path.join(PKG, "timeline_sk.json")
+shutil.copy2(_tl, _tl새)
+assert hashlib.md5(open(_tl, "rb").read()).hexdigest() == hashlib.md5(open(_tl새, "rb").read()).hexdigest(), \
+    "timeline_sk.json md5 불일치"
+print(f"경로 {len(매핑)}개 재작성 · 복사 {복사}개(md5 대조) · timeline_sk.json 동봉 · 태그 3판 일치 · NFC/실존/잔존 탈 0"
       f" · UNC \\\\{UNC_HOST}")
 print("→", OUT_MAC)
 print("→", OUT_WIN)
