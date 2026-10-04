@@ -42,6 +42,11 @@ DONOR = {
     "미디어키": {"원본": "구간_원본_가로", "템플릿": "그래픽_템플릿"},
 }
 FRAME = DONOR["FRAME"]
+# ★준비_prproj 가 A3 효과음 겹침을 이 격자로 미리 잰다(s2pipe/효과음자리.틀 · 2026-10-04 루키치75) — 격자가 갈리면 그 관문이 헛돈다.
+sys.path.insert(0, HERE)
+from s2pipe import 효과음자리 as _효과음자리  # noqa: E402
+assert TPS % FRAME == 0 and TPS // FRAME == _효과음자리.시퀀스fps, (
+    f"시퀀스 fps {TPS / FRAME} ≠ s2pipe/효과음자리.시퀀스fps {_효과음자리.시퀀스fps} — 둘을 같이 고쳐라")
 
 
 def frame_ticks(sec):
