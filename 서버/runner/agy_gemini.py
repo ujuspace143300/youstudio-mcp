@@ -87,6 +87,8 @@ RETRIES = 3            # 모두 합친 시도 수 상한. 503 은 여기까지 �
 ONCE = 1               # Malformed·일시 오류는 한 번만 다시 (머리 주석 「다시」)
 MIN_RETRY_SEC = 30     # 시간 제한까지 이보다 덜 남았으면 다시 하지 않는다
 KILL_GRACE_SEC = 60    # agy 자체 --print-timeout 뒤 이만큼 더 기다리고 프로세스 나무째 끈다
+STALL_SEC = float(os.environ.get("AGY_STALL_SEC") or 300)   # agy 기록·출력이 이만큼 조용하면 멈춘 것(_run 주석 · 2026-10-04)
+SHUTDOWN_GRACE_SEC = 30  # 답을 낸 뒤(«shutting down») 이만큼 지나도 안 끝나면 나무째 끈다(정상 5초 · _run 주석)
 DEFAULT_LIMIT_MIN = 10
 ARGV_MAX = 24000       # 윈도우 명령줄 한도 32767자 — 넘으면 질문을 파일로 넘긴다
 LOG = Path.home() / ".volcano" / "logs" / "gemini_route.jsonl"
@@ -107,7 +109,9 @@ _AUTH = re.compile(r"not (logged|signed) in|not authenticated|UNAUTHENTICATED|PE
 _UNAVAILABLE = re.compile(r"UNAVAILABLE|\b503\b|overloaded", re.I)
 _MALFORMED = re.compile(r"Malformed function call|improperly formatted function call", re.I)
 _TRANSIENT = re.compile(r"\bINTERNAL\b|\b50[024]\b|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|\b429\b|rate.?limit|"
-                        r"connection (reset|refused|closed)|broken pipe|\bEOF\b|i/o timeout|temporar", re.I)
+                        r"connection (reset|refused|closed)|broken pipe|\bEOF\b|i/o timeout|temporar|"
+                        r"network issue|stream was interrupted|operation timed out|read tcp|stream reading error|"
+                        r"멈춤\(죽은 연결", re.I)   # 끝 셋 — 2026-10-04 루키치70·76 네트워크 끊김(다시 한 번 묻는다)
 _CANNOT_SEE = re.compile(r"볼 수 없|볼수없|cannot (view|access|watch|see)|unable to (view|access|watch)", re.I)
 
 EXT = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm",
@@ -483,37 +487,133 @@ def _kill_tree(proc):
                 pass
 
 
-def _stop(proc):
-    """나무째 끄고 남은 출력을 거둔다. 파이프를 쥔 손주가 남아 communicate 가 안 끝나면 파이프를 닫고 나온다."""
-    _kill_tree(proc)
+class AgyStall(Exception):
+    """agy 가 «아무 기록도 없이» STALL_SEC 넘게 멈춰(죽은 TCP 를 읽고 앉음) 나무째 끊었다 — 일시 오류로 한 번 다시 묻는다."""
+
+
+class AgyWallTimeout(AgyStall):
+    """벽시계 한도(시간 제한+KILL_GRACE_SEC)를 넘어 나무째 끊었다 — 시간이 다 갔으니 다시 묻지 않는다."""
+
+
+def _agy_logfile():
+    """agy 한 번마다 따로 쓰는 기록 파일 — agy 기본 기록과 같은 폴더(사람이 찾던 자리)에 pid 를 붙여 겹치지 않게.
+    (기본 기록은 «시작 초» 로 이름을 지어 같은 초에 뜬 agy 들이 한 파일에 섞어 쓴다 — 2026-10-04 실측.)"""
+    d = Path.home() / ".gemini" / "antigravity-cli" / "log"
     try:
-        return proc.communicate(timeout=15)
-    except subprocess.TimeoutExpired:
-        for s in (proc.stdout, proc.stderr):
-            try:
-                s.close()
-            except (OSError, AttributeError):
-                pass
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        d = Path(tempfile.gettempdir())
+    return d / f"cli-{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{os.urandom(3).hex()}.log"
+
+
+_LOGFLAG = {}
+
+
+def _log_flag_ok(exe):
+    """이 agy 가 --log-file 을 아는가(1.2.16 맥 확인). 옛 판이면 침묵 감시 없이 벽시계 한도만 쓴다."""
+    if exe not in _LOGFLAG:
+        try:
+            h = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=30)
+            _LOGFLAG[exe] = "--log-file" in (h.stdout or "") + (h.stderr or "")
+        except (OSError, subprocess.TimeoutExpired):
+            _LOGFLAG[exe] = False
+    return _LOGFLAG[exe]
+
+
+def _run(cmd, cwd, env, timeout, stall=None, log=print):
+    """agy 한 번 → (종료코드, stdout, stderr). 벽시계 timeout 을 넘기거나 기록 침묵이 stall 초를 넘으면 나무째 끄고 AgyStall.
+    Ctrl-C 등으로 끊겨도 나무째 끈다 — 새 세션이라 터미널의 Ctrl-C 가 agy 에 직접 안 간다.
+
+    ★2026-10-04 루키치70·72·76 — agy 가 네트워크 끊김 뒤 CPU 0% 로 15~25분 매달렸다. agy 기록(~/.gemini/antigravity-cli/log)
+      실측 두 갈래:
+      (가) 죽은 연결 읽기 — 마지막 streamGenerateContent 뒤 기록이 한 줄도 없이 17분(10:13:51 → 10:31:18 «read: connection
+           reset» · 10:13:56 → 10:31:07 «operation timed out»). 운영체제 TCP 시간 초과(약 17분)까지 기다린다. agy 의
+           --print-timeout 은 막힌 읽기를 못 깨고, 우리 communicate(timeout=남은 시간+60) 는 시간 제한 «끝» 에서야 끊어
+           다시 물을 시간이 0 이었다(«시간 제한까지 0초라 다시 하지 않는다» — 오늘 gem.ask 실패 30여 건이 955~2176초).
+           3일치 기록 1만 6902개 침묵 중 정상(다음 턴·끝으로 깨짐) 99.9% = 228초 · 최대 627초 / 오류로 깨진 침묵 69개는
+           대부분 1000~1089초. 그래서 «기록 침묵 STALL_SEC(300초)» 이면 멈춘 것으로 보고 끊는다 — 다시 묻기는 부르는 쪽(한 번).
+      (나) 끝맺음 멈춤 — 답을 stdout 에 다 쓰고 «CLI store manager shutting down» 뒤 언어 서버 종료가 매달려 프로세스가
+           안 끝났다(10:31:53 → 10:49:33 · 3410번 중 5번 902~1060초 · 정상은 5초). communicate 는 프로세스가 끝나야 돌아온다.
+           그래서 끝맺음 줄 뒤 SHUTDOWN_GRACE_SEC(30초) 지나도 살아 있으면 나무째 끄고 이미 받은 답을 쓴다.
+      기록은 호출마다 따로 쓰게 --log-file 로 정한다(_agy_logfile)."""
+    import threading
+    stall = STALL_SEC if stall is None else stall
+    lf = None
+    if stall and _log_flag_ok(cmd[0]):
+        lf = _agy_logfile()
+        cmd = [cmd[0], "--log-file", str(lf)] + list(cmd[1:])
+    extra = {} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            stdin=subprocess.DEVNULL, env=env, **extra)
+    bufs = {"out": [], "err": []}
+    seen = [time.time()]                 # 마지막 움직임(stdout·stderr·기록 파일이 자란 때)
+
+    def pump(stream, key):
+        for chunk in iter(lambda: stream.read1(65536) if hasattr(stream, "read1") else stream.read(65536), b""):
+            bufs[key].append(chunk)
+            seen[0] = time.time()
+    th = [threading.Thread(target=pump, args=(proc.stdout, "out"), daemon=True),
+          threading.Thread(target=pump, args=(proc.stderr, "err"), daemon=True)]
+    for t in th:
+        t.start()
+
+    def text(key):
+        return b"".join(bufs[key]).decode("utf-8", "replace")
+
+    def finish(kill):
+        if kill:
+            _kill_tree(proc)
+        for t in th:
+            t.join(15)
+        if any(t.is_alive() for t in th):        # 파이프를 쥔 손주가 남았다 — 그룹째 한 번 더 끄고 파이프를 닫는다
+            _kill_tree(proc)
+            for st in (proc.stdout, proc.stderr):
+                try:
+                    st.close()
+                except (OSError, AttributeError):
+                    pass
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             pass
-        return "", ""
 
-
-def _run(cmd, cwd, env, timeout):
-    """agy 한 번 → (종료코드, stdout, stderr). timeout 을 넘기면 나무째 끄고 TimeoutExpired.
-    Ctrl-C 등으로 끊겨도 나무째 끈다 — 새 세션이라 터미널의 Ctrl-C 가 agy 에 직접 안 간다."""
-    extra = {} if os.name == "nt" else {"start_new_session": True}
-    proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
-                            env=env, **extra)
+    t0 = time.time()
+    size, shut_at = -1, None
     try:
-        out, err = proc.communicate(timeout=timeout)
-    except BaseException:
-        _stop(proc)
+        while True:
+            if proc.poll() is not None:
+                finish(False)
+                return proc.returncode, text("out"), text("err")
+            now = time.time()
+            if lf is not None:
+                try:
+                    sz = lf.stat().st_size
+                except OSError:
+                    sz = -1
+                if sz != size:
+                    if sz > max(size, 0) and shut_at is None:
+                        with open(lf, "rb") as f:
+                            f.seek(max(0, size - 64))
+                            if b"CLI store manager shutting down" in f.read():
+                                shut_at = now
+                    size, seen[0] = sz, now
+            if shut_at is not None and now - shut_at > SHUTDOWN_GRACE_SEC:
+                finish(True)
+                out = text("out")
+                log(f"  agy 끝맺음 멈춤 — 답을 낸 뒤 {SHUTDOWN_GRACE_SEC}초 넘게 안 끝나 나무째 끔(받은 답은 씀)")
+                return (0 if out.strip() else -9), out, text("err")
+            if now - t0 > timeout:
+                finish(True)
+                raise AgyWallTimeout(f"벽시계 한도 {timeout:.0f}초 넘음 — 나무째 끊음")
+            if stall and lf is not None and shut_at is None and now - seen[0] > stall:   # 끝맺음 뒤 침묵은 위 30초가 맡는다
+                finish(True)
+                raise AgyStall(f"agy 가 {stall:.0f}초 동안 아무 기록·출력 없이 멈춤(죽은 연결 추정 — 기록 {lf.name}) — 나무째 끊음")
+            time.sleep(1.0)
+    except AgyStall:
         raise
-    return proc.returncode, out or "", err or ""
+    except BaseException:
+        finish(True)
+        raise
 
 
 def _kind(t):
@@ -689,9 +789,14 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
                 left = deadline - time.time()
                 try:
                     rc, out, err = _run(cmd + ["--print-timeout", f"{max(1, int(left))}s"] + tail, work, env,
-                                        max(1.0, left) + KILL_GRACE_SEC)
-                except subprocess.TimeoutExpired:
+                                        max(1.0, left) + KILL_GRACE_SEC, log=log)
+                except AgyWallTimeout:
                     return fail(f"{limit_min:g}분 시간 제한" + (f" (앞 시도: {' / '.join(지난)})" if 지난 else ""))
+                except AgyStall as e:
+                    # ★2026-10-04 — 죽은 연결로 멈춘 시도는 _run 이 STALL_SEC 만에 끊는다. 일시 오류(«once»)로 갈라
+                    #   남은 시간 안에서 한 번 다시 묻는다(_TRANSIENT 의 «멈춤(죽은 연결»).
+                    log(f"  {e}")
+                    rc, out, err = -9, "", str(e)
             got = _read(rc, out, err, n, want_json, js, use_flag)
             if got[0] == "ok":
                 break
