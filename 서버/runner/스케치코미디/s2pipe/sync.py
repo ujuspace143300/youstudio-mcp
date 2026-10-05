@@ -680,6 +680,15 @@ def main():
 
     문구교정적용(dlg, proj, words, 면제구간)
 
+    # ── ③d 원본 자막 대조 (2026-10-05 수리D3 — 루키치14 노래 가사 13줄 · 17 괄호 설명 줄 · 11·4 알림 소리가 자막으로 나감).
+    #    박힌 자막이 있는 원본에서 원본 자막에 없는 «괄호 설명 줄 · 긴 무자막 연속(노래) · 알림 말» 을 뺀다. 핀 단 줄은 그대로.
+    #    작표·괄호·보강·복원 어느 길로 들어왔든 여기 한 자리에서 본다. 규칙·실측·한계는 s2pipe/원본자막대조.py 머리.
+    from s2pipe.cfg import CFG as _C5
+    if _C5.get("layout", {}).get("video_box", {}).get("avoid_burned_subs"):
+        from s2pipe import 원본자막대조
+        원본자막대조.적용(dlg, proj, os.path.join(HERE, _C5["paths"]["work"], f"{proj['source']['id']}.mp4"), 면제구간,
+                      vtt=os.path.join(HERE, _C5["paths"]["work"], f"{proj['slug']}.ko.vtt"))
+
     # ── ③a 최종 관문 (2026-09-03 사장님 «왜 자꾸 반복되나» — 규칙을 경로마다 따로 걸었던 게
     #    원인) — 작표·괄호·보강·복원 어느 경로로 만들어졌든 **모든 대사 줄이 여기서 같은
     #    규칙을 통과한다.** 14자 초과는 가운데 가까운 어절 경계에서 쪼개고(시각은 글자수
