@@ -34,6 +34,14 @@ _sk_defaults() {   # $1 = 시리즈 이름 → d_pfx d_cfg d_logo d_title
       d_logo=$HOME/Desktop/youstudio-mcp/자산/스케치코미디/channel_logo_누룽지독.png
       [ -f "$d_logo" ] || d_logo=$HOME/Desktop/스케치코미디/work/Deep01_로고.png
       d_title=mp4 ;;
+    웃기시네)
+      # 2026-09-28 사장님 결정 — 출력 = 숨은기록(@hidden_story · 싱글벙글과 같은 설정·로고) · 하단 «#웃기시네_원제» · 406 부터 거꾸로 ·
+      #   슬러그 «웃기시네NNN»(09-29). 원제 = mp4 파일 이름의 «_» 뒤. 근거: 볼트 제안/스크립트/20260928_스케치_윈도우이식/웃기시네_작품카드_초안.md
+      #   (초이 윈도우에서 406·405~376 31편 납품). 2026-10-05 맥1 에서 375 부터 잇는다(사장님 «웃기시네 … 50개 추가로 제작»).
+      d_pfx=웃기시네
+      d_cfg=$HOME/Desktop/스케치코미디/config_숨은기록.json
+      d_logo=$HOME/Desktop/youstudio-mcp/자산/스케치코미디/channel_icon_숨은기록.png
+      d_title=mp4 ;;
   esac
 }
 
@@ -48,12 +56,12 @@ sk_series() {   # $1 = 번호(NNN) 또는 슬러그(<접두>NNN). 실패면 ★ 
       if [ -n "$p" ] && [[ $a == "$p"* ]] && [[ ${a#"$p"} =~ ^[0-9]+$ ]]; then found=$SERIES; num=${a#"$p"}; fi
     fi
     if [ -z "$found" ]; then
-      for s in 싱글벙글 점심이네 루키치; do
+      for s in 싱글벙글 점심이네 루키치 웃기시네; do
         _sk_defaults "$s"
         if [[ $a == "$d_pfx"* ]] && [[ ${a#"$d_pfx"} =~ ^[0-9]+$ ]]; then found=$s; num=${a#"$d_pfx"}; break; fi
       done
     fi
-    if [ -z "$found" ]; then echo "★«${a}» — 번호도 아는 슬러그(싱글NNN·점심이네NNN·루키치NNN)도 아니다. 새 시리즈면 SERIES·SERIES_PREFIX 를 준다"; return 1; fi
+    if [ -z "$found" ]; then echo "★«${a}» — 번호도 아는 슬러그(싱글NNN·점심이네NNN·루키치NNN·웃기시네NNN)도 아니다. 새 시리즈면 SERIES·SERIES_PREFIX 를 준다"; return 1; fi
     if [ -n "$SERIES" ] && [ "$SERIES" != "$found" ]; then
       echo "★시리즈가 엇갈린다 — 환경변수 SERIES=$SERIES · 슬러그 «${a}» 는 $found"; return 1
     fi
