@@ -103,7 +103,9 @@ if (BACKEND === "agy" || BACKEND === "둘다") {
 if (BACKEND === "evolink" || BACKEND === "둘다") {
   console.log("★경고: EvoLink 유료 호출 — 사람이 --backend 로 고른 계측이다(판정 길 아님, 사장님 규칙 2026-09-26). gemini_route.jsonl 에 fallback 한 줄로 남긴다.");
   const k = key("EVOLINK_API_KEY");
-  if (!k) console.log("EVOLINK_API_KEY 없음 — 건너뜀");
+  // 2026-10-05 사장님 «에보링크 사용하지 않도록 막아 … 그때 내가 판단해줄께» — 사람이 고른 계측도 허락 없이는 안 보낸다
+  if (process.env.YOUSTUDIO_EVOLINK_APPROVED !== "1") console.log("★EvoLink 는 사장님 허락 때만(YOUSTUDIO_EVOLINK_APPROVED=1) — 건너뜀");
+  else if (!k) console.log("EVOLINK_API_KEY 없음 — 건너뜀");
   else {
     const r = await 탐침("evolink", `https://api.evolink.ai/v1beta/models/${MODEL}:generateContent`, { authorization: `Bearer ${k}`, "user-agent": "youstudio-mcp/0.8 (analysis probe)" });
     기록("fallback", r.초, `사람이 --backend ${BACKEND} 로 고른 계측(유튜브 URL) → EvoLink HTTP ${r.status}`);

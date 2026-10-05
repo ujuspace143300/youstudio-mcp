@@ -22,7 +22,9 @@
          짧은 글만 보내는 판정만 EvoLink 비상 길». 그림(프레임)도 «글만» 이 아니다.
        · agy 를 아예 못 쓰면(설치 안 됨·AGY_EXE 가 없는 파일·실행 권한 없음·띄우다 OSError) 글만이어도 **멈춤**(종료 3) — 일시 실패가 아니라
          설치 문제라 그대로 두면 모든 호출이 유료로 샌다(사장님 결정 ③ · 반박 9). 설치·로그인이 먼저다.
-       · 글만이면 일감의 request 로 EvoLink 비상 길 **한 번**(재시도 없음 — 기록 한 줄 = 보낸 요청 한 건).
+       · ★글만이어도 **멈춤**(종료 3) — 2026-10-05 사장님 «글판정도 에보링크 사용하지 않도록 막아 … 못하는경우가 있다? 그러면
+         나한테 물어봐». 사장님이 그 자리에서 허락하신 때만 YOUSTUDIO_EVOLINK_APPROVED=1 을 붙여 다시 돌리면 아래 비상 길로 간다.
+       · (허락받은 때) 글만이면 일감의 request 로 EvoLink 비상 길 **한 번**(재시도 없음 — 기록 한 줄 = 보낸 요청 한 건).
          키: 환경변수 EVOLINK_API_KEY → (윈도우) 사용자 환경변수 → ~/.volcano/keys/evolink. 없으면 멈춤(종료 3).
          주소는 api.evolink.ai 만(시험용 가짜 서버 127.0.0.1·localhost 허용). 다른 주소면 종료 2.
          보내기 **직전에** «글만» 을 한 번 더 잰다(본문·주소) — 마지막 관문. 어긋나면 안 보내고 종료 3.
@@ -151,6 +153,8 @@ EVOLINK_HOSTS = ("api.evolink.ai",)
 UA = "youstudio-mcp/judge_run"   # UA 가 없으면(Python-urllib) EvoLink 가 403 code 1010 — 분석_판독 2026-08-18 실측
 사용량_확인 = "python ~/.claude/agy_call.py --usage"
 규칙_날짜 = "사장님 규칙 2026-09-26"
+승인_날짜 = "사장님 규칙 2026-10-05"
+승인_변수 = "YOUSTUDIO_EVOLINK_APPROVED"   # 사장님이 그 자리에서 «이번엔 EvoLink 써» 하신 때만 1 (비상길_검사)
 
 
 class 판정멈춤(SystemExit):
@@ -422,7 +426,8 @@ def agy_먼저(body, caller, limit_min=agy_gemini.DEFAULT_LIMIT_MIN, log=print, 
 def 비상길_검사(body, caller, 까닭, log=print, sec=0.0, model="", url=None):
     """agy 가 답을 못 준 뒤 — EvoLink 비상 길로 가도 되는지. «글만»(허용 목록 — 머리 주석 「아는 모양만」)이 아니면
     기록하고 판정멈춤 을 던진다. url 을 주면 경로가 …:generateContent 인지도 본다.
-    돌아오면(글만) 부른 쪽이 EvoLink 로 보낸다 — 보낼 때마다 기록(caller, "fallback", …)."""
+    글만이어도 2026-10-05 부터 멈춘다 — YOUSTUDIO_EVOLINK_APPROVED=1(사장님이 그 자리에서 허락)일 때만 돌아오고,
+    그때 부른 쪽이 EvoLink 로 보낸다 — 보낼 때마다 기록(caller, "fallback", …)."""
     모름, 조각 = 본문_모양(body)
     if 조각:
         종류 = sorted({m or k for k, m in 조각})
@@ -447,7 +452,21 @@ def 비상길_검사(body, caller, 까닭, log=print, sec=0.0, model="", url=Non
         기록(caller, "agy_fail_stop", sec, f"agy 못 씀(설치 문제: {문제[:140]}) — EvoLink 로 안 넘김(멈춤)", model)
         log(글)
         raise 판정멈춤(글)
-    # 글만 — EvoLink 비상 길 허용 (사장님 «막히면 에보링크로», 짧은 글 판정만)
+    # 글만이어도 EvoLink 로 안 간다 — 멈추고 사장님께 여쭙는다 (2026-10-05 사장님 «글판정도 에보링크 사용하지 않도록 막아.
+    #   근데 제미나이가 절대로 못하는경우가 있다? 그러면 나한테 물어봐. 그때 내가 판단해줄께»).
+    #   사건: 10-04 19:07 스케치코미디 글 판정 3건이 구글 필터(«sensitive words») 거절 → 이 자리를 지나 EvoLink 로 나갔다.
+    #   9-26 «막히면 에보링크로» 의 글 판정 허용을 대신한다. 사장님이 그 자리에서 허락하신 때만 승인 변수를 붙여 다시 돌린다.
+    if os.environ.get(승인_변수, "").strip() == "1":
+        log(f"  ★{승인_변수}=1 — 사장님이 허락하신 EvoLink 비상 길(글만)로 보낸다")
+        return
+    글 = (f"agy(제미나이)가 이 판정을 못 했다 — 글 판정도 EvoLink 로 넘기지 않음({승인_날짜}). 멈추고 사장님께 여쭙는다.\n"
+         f"  agy 가 못 준 까닭: {까닭}\n  부른 곳: {caller}\n"
+         f"  사장님께 여쭐 것: 까닭(구글 필터 거절이면 질문 글의 어느 낱말인지 · 한도·장애면 남은 양 {사용량_확인}) 과\n"
+         f"    갈 길 — ① 질문 글을 고쳐 agy 로 다시 ② 이번만 EvoLink(유료) ③ 그 편 건너뜀.\n"
+         f"  ②는 사장님이 그 자리에서 허락하신 때만 {승인_변수}=1 을 붙여 이 단계만 다시 돌린다(세션이 스스로 넣지 않는다).")
+    기록(caller, "agy_fail_stop", sec, "글 판정 — EvoLink 로 안 넘김(멈춤 · 사장님께 여쭘) — " + 까닭, model)
+    log(글)
+    raise 판정멈춤(글)
 
 
 # ── EvoLink 비상 길 (글만) ──

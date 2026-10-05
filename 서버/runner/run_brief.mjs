@@ -1,7 +1,7 @@
 // runner 역할: brief ① 지시 받기 → judge job 실행(judge_run.py — inputs 치환·agy 먼저·out 저장) → measure(gemini_json_text) → brief ② → write_files
 import fs from "node:fs";
 import { authHeaders } from "./기기.mjs"; // 발급 대장 인증(토큰·기기 id) — 설계/인증_이메일허가제.md 7
-import { judgeRun } from "./judge_run.mjs"; // judge 는 judge_run.py 하나로 — agy 먼저, 글만 EvoLink 비상 길 (2026-09-26 사장님)
+import { judgeRun } from "./judge_run.mjs"; // judge 는 judge_run.py 하나로 — agy 먼저, 막히면 멈춤 — 글만이어도 EvoLink 안 감 (2026-10-05 사장님)
 const URL_ = "http://localhost:8787";
 const W = "C:/Users/user/Desktop/youstudio_work/fulltime";
 const carry = {
@@ -26,7 +26,7 @@ const r1 = await call("brief", carry);
 if (r1.status !== "execute" || r1.jobs_kind !== "judge") throw new Error("① 예상 밖: " + r1.status + "/" + r1.jobs_kind);
 const job = r1.jobs[0];
 
-// judge — judge_run.py 가 inputs 치환(파일 → 문자열, 로그에 안 찍음)·agy 먼저·글만 EvoLink 비상 길·out 저장을 한다
+// judge — judge_run.py 가 inputs 치환(파일 → 문자열, 로그에 안 찍음)·agy 먼저·막히면 멈춤(EvoLink 안 감 · 2026-10-05)·out 저장을 한다
 const t0 = Date.now();
 const jr = judgeRun(job);
 if (jr.code !== 0) {

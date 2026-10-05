@@ -3,7 +3,8 @@
 #     · 본문에 영상·소리·그림이 있으면 EvoLink 로 넘기지 않고 **멈춘다** — judge_run.판정멈춤(SystemExit 3).
 #       SystemExit 이라 호출처(sync·준비_prproj_sk·댓글선별)의 `except Exception` 에 안 잡힌다 — 한편_sk.sh 가 그 단계에서 선다.
 #     · agy 가 아예 없는 컴퓨터도 멈춘다(설치 문제 — 모든 호출이 유료로 샌다).
-#     · 글만이면 EvoLink 비상 길(아래). **순정 구글 키(~/.volcano/keys/gemini) 길은 막았다** — 키 파일은 안 지우고 안 쓴다.
+#     · 글만이어도 멈춘다(2026-10-05 사장님 — judge_run.비상길_검사). 아래 EvoLink 길은 사장님이 그 자리에서 허락하신 때
+#       (YOUSTUDIO_EVOLINK_APPROVED=1)만 탄다. **순정 구글 키(~/.volcano/keys/gemini) 길은 막았다** — 키 파일은 안 지우고 안 쓴다.
 #   아래 EvoLink 기록은 그 비상 경로 설명이다.
 #
 # ★★2026-08-18 실측 — 같은 그림·같은 모델로 견줬다:
@@ -110,7 +111,7 @@ def ask(payload, models, timeout=900, tries=3, log=print):
 
     # ★2026-09-26 사장님 지시 — agy(구독, 과금 없음) 먼저.
     #   영상·소리 첨부는 agy 가 끝내 안 되면 EvoLink 로 넘기지 않고 멈춘다(결정 2번) — agy_gemini.AgyStop 을
-    #   judge_run.agy_먼저 가 판정멈춤(종료코드 3)으로 바꾼다. 글만일 때만 아래 EvoLink 비상 길(비상길_검사).
+    #   judge_run.agy_먼저 가 판정멈춤(종료코드 3)으로 바꾼다. 글만이어도 비상길_검사가 멈춘다(2026-10-05) — 허락받은 때만 아래 EvoLink.
     #   답 형식 오류는 agy_gemini 가 먼저 3번까지 다시 묻는다(싱글286 20:24:40 실측 누수).
     #   plan·subs·sync·댓글보충·준비_prproj_sk 가 전부 이 함수를 지나므로 여기 한 곳에서 바꾼다.
     CALLER = "스케치코미디/gem.ask"
@@ -118,7 +119,7 @@ def ask(payload, models, timeout=900, tries=3, log=print):
     resp, 까닭 = judge_run.agy_먼저(payload, CALLER, limit_min=max(3, min(15, timeout // 60)), log=log)
     if resp is not None:
         return agy_gemini.text_of(resp), "agy", resp["modelVersion"]
-    # 영상·소리·그림이 있거나 agy 가 없으면 여기서 멈춘다(판정멈춤 — 머리 주석). 글만일 때만 아래 EvoLink 로.
+    # agy 가 못 주면 여기서 멈춘다(판정멈춤 — 글만이어도 · 2026-10-05). 사장님 허락(YOUSTUDIO_EVOLINK_APPROVED=1)일 때만 아래 EvoLink 로.
     judge_run.비상길_검사(payload, CALLER, 까닭, log=log, sec=time.time() - t0, model=",".join(models))
 
     body = json.dumps(payload).encode()

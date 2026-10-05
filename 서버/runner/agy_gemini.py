@@ -730,7 +730,7 @@ def generate(body, caller="", limit_min=DEFAULT_LIMIT_MIN, model=None, log=print
             log(f"  agy 실패({reason[:160]}) — 영상·소리 판정이라 EvoLink 로 넘기지 않고 멈춘다")
             raise AgyStop(f"agy 실패 · 영상·소리 판정 — EvoLink 금지(사장님 결정 2번)라 멈춤: {reason[:200]}"
                           f" · 부른 곳 {caller}. agy 로그인·사용량(agy_call.py --usage)을 보고 다시 돌린다.")
-        log(f"  agy 실패({reason[:160]}) → EvoLink 로 넘어간다")
+        log(f"  agy 실패({reason[:160]}) → 다음 길은 judge_run 규칙이 정한다(2026-10-05 부터 글 판정도 멈춤)")
         _record(caller, "fallback", time.time() - t0, reason, model)
         return None
 

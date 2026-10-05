@@ -11,7 +11,7 @@ next_step 을 따라간다. 서버가 판정하고 이것은 손발이다 (설�
   · ★유료(jobs_kind synthesize · 전사.py · narr_align.py) 는 --approve-paid 없이는 멈춘다(종료코드 3) — 규칙: 비용 보고 → 승인 → 실행.
   · error 면 멈춘다(종료코드 1). done 이면 0.
   · ★judge 일감(jobs_kind judge · provider evolink/google · 제미나이 요청 모양)은 run_synth(원시 request 그대로 보내기)로 가지 않고
-    같은 저장소의 서버/runner/judge_run.py 로만 간다 — agy 먼저 · 영상·그림은 막히면 멈춤(종료코드 3) · 글만 EvoLink 비상 길 ·
+    같은 저장소의 서버/runner/judge_run.py 로만 간다 — agy 먼저 · 영상·그림은 막히면 멈춤(종료코드 3) · 글만이어도 막히면 멈춤(2026-10-05 · EvoLink 는 사장님 허락 때만) ·
     순정 구글 거절 (2026-09-26 사장님 결정 ②④ · 볼트 제미나이점검 반박 8: 서버가 judge 를 더하는 날 EvoLink 로 곧장 가던 잠재 길).
   · measure unit: json_stdout · stdout · stdout_first_line · stderr · seconds(ffprobe 길이 — job 의 out, 없으면 argv 의 마지막 .mp4/.wav) · bytes
     · gemini_json_text(judge 의 out 에서 candidates[0] 글을 JSON 으로 — finishReason 이 STOP 아니면 멈춤)
