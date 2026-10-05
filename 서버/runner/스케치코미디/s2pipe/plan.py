@@ -776,7 +776,8 @@ def main():
             # 박힌 자막 카드 — ⑦ 설명시각의 시계(2026-10-03 · plan관문.카드줄읽기 주석). 화면글자 캐시는 plan 부르기 안에서 이미 만들어진다
             카드줄 = plan관문.카드줄읽기(mp4)
             print(f"  박힌 자막 카드 {len(카드줄)}장" + ("" if 카드줄 else " — 없음(설명시각은 전사 시계로 잰다)"), flush=True)
-        bad, warn, 값 = plan관문.검사(proj, 큐, 파악, 카드, dst, 카드줄=카드줄)
+        # src: ⑨ 원본검사(문장 자름·원본 순서·통암전·결말 꼬리 — 2026-10-05 수리D5 · plan관문 ⑨ 주석)
+        bad, warn, 값 = plan관문.검사(proj, 큐, 파악, 카드, dst, 카드줄=카드줄, src=mp4)
         회차.append({"회": 회 + 1, "길": 길, "겪음": 겪음, "반려": [[d, g] for d, g in bad], "주의": warn, "값": 값})
         print(f"\nplan 관문 {회 + 1}회({길}) — 반려 {len(bad)} · 주의 {len(warn)}", flush=True)
         for d, g in bad:
