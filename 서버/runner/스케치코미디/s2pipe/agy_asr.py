@@ -773,6 +773,9 @@ def write_vtt(lines, path, model="", 끝확인=None, 시각대조=None):
     닿았다는 표시라 자막띠시각 꼬리 관문 ⑤ 가 «맞춤이 결말을 앞으로 끌어당김» 을 이것이 있을 때만 판정한다(2026-09-28 저녁).
     시각대조 — transcribe 의 «구간 시각 대조» 판정(맞음·바로잡음). 머리에 «· 시각대조 …»: 줄 시각이 40초 창 전사로 확인된 전사라
     자막띠시각 맞춤이 그 시각에서 크게 옮기면 그 줄을 되돌린다(2026-09-29 밤 — 자막띠시각 대조관문)."""
+    틀 = [(i, ln["t"], ln["e"]) for i, ln in enumerate(lines) if ln["t"] < 0 or ln["e"] < 0 or ln["e"] <= ln["t"]]
+    if 틀:                                             # 관문 — 뒤집힌 시각을 vtt 에 쓰지 않는다(2026-10-05 루키치8 «-1:59:59.850»)
+        raise ValueError(f"agy 전사 쓰기 멈춤: 시각이 음수이거나 끝 ≤ 시작인 줄 {len(틀)}개 — 처음 {틀[:3]}")
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"WEBVTT\n\n{출처표시} {model}" + (f" · 끝확인 {끝확인}" if 끝확인 else "")
                 + (f" · 시각대조 {시각대조}" if 시각대조 in ("맞음", "바로잡음") else "") + "\n\n")
